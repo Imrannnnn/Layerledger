@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Tenant {
+  id                String             @id @default(uuid())
+  name              String
+  type              String             @default("individual")
+  contactEmail      String?
+  contactPhone      String?
+  logoUrl           String?
+  bankDetails       Json?
+  tokenBalance      Float              @default(0)
+  settings          Json?              @default("{}")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  clients           Client[]
+  decorations       Decoration[]
+  expenses          Expense[]
+  inventory         InventoryItem[]
+  invoices          Invoice[]
+  orders            Order[]
+  packaging         Packaging[]
+  purchases         Purchase[]
+  recipes           Recipe[]
+  tokenTransactions TokenTransaction[]
+  transactions      Transaction[]
+  users             User[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("customer_service")
+  pin          String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Client {
+  id            String    @id @default(uuid())
+  tenantId      String
+  name          String
+  phone         String?
+  email         String?
+  address       String?
+  lastOrderDate DateTime?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders        Order[]
+
+  @@index([tenantId])
+}
+
+model InventoryItem {
+  id                String             @id @default(uuid())
+  tenantId          String
+  name              String
+  category          String
+  unit              String
+  cost              Float
+  stock             Float              @default(0)
+  minStock          Float              @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipeIngredients RecipeIngredient[]
+
+  @@index([tenantId])
+}
+
+model Recipe {
+  id          String             @id @default(uuid())
+  tenantId    String
+  name        String
+  notes       String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  orderItems  OrderItem[]
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredients RecipeIngredient[]
+
+  @@index([tenantId])
+}
+
+model RecipeIngredient {
+  id              String        @id @default(uuid())
+  recipeId        String
+  inventoryItemId String
+  quantity        Float
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  recipe          Recipe        @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+  @@index([inventoryItemId])
+}
+
+model Order {
+  id         String         @id @default(uuid())
+  tenantId   String
+  clientId   String?
+  status     String         @default("quote")
+  orderDate  DateTime       @default(now())
+  dueDate    DateTime?
+  totalPrice Float          @default(0)
+  totalCost  Float          @default(0)
+  notes      String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  invoices   Invoice[]
+  client     Client?        @relation(fields: [clientId], references: [id])
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items      OrderItem[]
+  payments   OrderPayment[]
+
+  @@index([tenantId])
+  @@index([clientId])
+}
+
+model OrderItem {
+  id           String  @id @default(uuid())
+  orderId      String
+  recipeId     String?
+  name         String
+  size         String?
+  shape        String?
+  layers       Int?
+  decorations  Json?
+  flavorExtras Json?
+  price        Float   @default(0)
+  cost         Float   @default(0)
+  order        Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  recipe       Recipe? @relation(fields: [recipeId], references: [id])
+
+  @@index([orderId])
+  @@index([recipeId])
+}
+
+model OrderPayment {
+  id      String   @id @default(uuid())
+  orderId String
+  amount  Float
+  date    DateTime @default(now())
+  method  String?
+  type    String   @default("full")
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model Transaction {
+  id          String   @id @default(uuid())
+  tenantId    String
+  date        DateTime @default(now())
+  description String
+  amount      Float
+  type        String
+  category    String?
+  reference   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  tenantId    String
+  date        DateTime @default(now())
+  amount      Float
+  category    String
+  description String?
+  receiptUrl  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Invoice {
+  id            String    @id @default(uuid())
+  tenantId      String
+  orderId       String
+  invoiceNumber String
+  issueDate     DateTime  @default(now())
+  dueDate       DateTime?
+  status        String    @default("draft")
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([orderId])
+}
+
+model Packaging {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  price     Float
+  stock     Float    @default(0)
+  minStock  Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Decoration {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  price     Float
+  stock     Float    @default(0)
+  minStock  Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Purchase {
+  id         String   @id @default(uuid())
+  tenantId   String
+  date       DateTime @default(now())
+  supplier   String?
+  amount     Float
+  receiptUrl String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model TokenTransaction {
+  id          String   @id @default(uuid())
+  tenantId    String
+  amount      Float
+  type        String
+  description String
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
