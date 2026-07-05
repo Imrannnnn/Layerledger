@@ -206,15 +206,15 @@ const syncInventoryItems = async (headers, localInv) => {
     const sItem = serverItems.find(i => i.id === item.id)
     const body = {
       id: item.id,
-      name: item.name,
-      category: item.cat,
-      unit: item.unit,
-      cost: Number(item.cost),
+      name: item.name || "Item",
+      category: item.cat || "Other",
+      unit: item.unit || "unit",
+      cost: Number(item.cost) || 0,
       stock: Number(item.stock || 0),
       minStock: Number(item.minStock || 0)
     }
     if (sItem) {
-      if (sItem.name !== item.name || sItem.category !== item.cat || sItem.unit !== item.unit || sItem.cost !== item.cost || sItem.stock !== item.stock || sItem.minStock !== item.minStock) {
+      if (sItem.name !== body.name || sItem.category !== body.category || sItem.unit !== body.unit || sItem.cost !== body.cost || sItem.stock !== body.stock || sItem.minStock !== body.minStock) {
         await fetch(`${apiUrl}/api/inventory/${item.id}`, {
           method: "PUT",
           headers,
@@ -249,11 +249,11 @@ const syncRecipesList = async (headers, localRecipes) => {
     const sRec = serverRecs.find(r => r.id === rec.id)
     const body = {
       id: rec.id,
-      name: rec.name,
+      name: rec.name || "Recipe",
       notes: rec.notes || "",
       ingredients: (rec.ing || []).map(i => ({
-        item: i.iid,
-        quantity: Number(i.qty)
+        item: i.iid || "item",
+        quantity: Number(i.qty) || 0
       }))
     }
     if (sRec) {
@@ -288,16 +288,20 @@ const syncExpensesList = async (headers, localExpenses) => {
   // Create/Update
   for (const exp of localExpenses) {
     const sExp = serverExps.find(e => e.id === exp.id)
+    let parsedDate = new Date().toISOString()
+    try { if (exp.date) parsedDate = new Date(exp.date).toISOString() } catch (e) {}
+
     const body = {
       id: exp.id,
-      date: exp.date,
-      amount: Number(exp.amount),
-      category: exp.category,
+      date: parsedDate,
+      amount: Number(exp.amount) || 0,
+      category: exp.category || "Miscellaneous",
       description: exp.description || "",
       receiptUrl: exp.receiptUrl || ""
     }
     if (sExp) {
-      if (sExp.amount !== exp.amount || sExp.category !== exp.category || sExp.description !== exp.description || sExp.date !== exp.date) {
+      const sExpDate = new Date(sExp.date).toISOString()
+      if (sExp.amount !== body.amount || sExp.category !== body.category || (sExp.description || "") !== body.description || sExpDate !== body.date) {
         await fetch(`${apiUrl}/api/expenses/${exp.id}`, {
           method: "PUT",
           headers,
@@ -388,17 +392,22 @@ const syncInvoicesList = async (headers, localInvs) => {
   // Create/Update
   for (const inv of localInvs) {
     const sInv = serverInvs.find(si => si.id === inv.id)
+    let parsedIssue = new Date().toISOString()
+    let parsedDue = null
+    try { if (inv.date) parsedIssue = new Date(inv.date).toISOString() } catch (e) {}
+    try { if (inv.deliveryDate) parsedDue = new Date(inv.deliveryDate).toISOString() } catch (e) {}
+
     const body = {
       id: inv.id,
       orderId: inv.quoteId || inv.id,
       invoiceNumber: inv.id,
-      issueDate: inv.date || new Date().toISOString(),
-      dueDate: inv.deliveryDate || null,
+      issueDate: parsedIssue,
+      dueDate: parsedDue,
       status: inv.status || "unpaid",
       notes: inv.notes || ""
     }
     if (sInv) {
-      if (sInv.status !== inv.status || sInv.invoiceNumber !== inv.id || sInv.notes !== inv.notes) {
+      if (sInv.status !== body.status || sInv.invoiceNumber !== body.invoiceNumber || (sInv.notes || "") !== body.notes) {
         await fetch(`${apiUrl}/api/invoices/${inv.id}`, {
           method: "PUT",
           headers,
@@ -431,15 +440,18 @@ const syncPurchasesList = async (headers, localPurchases) => {
   // Create/Update
   for (const pur of localPurchases) {
     const sPur = serverPurchases.find(sp => sp.id === pur.id)
+    let parsedDate = new Date().toISOString()
+    try { if (pur.date) parsedDate = new Date(pur.date).toISOString() } catch (e) {}
+
     const body = {
       id: pur.id,
-      date: pur.date || new Date().toISOString(),
+      date: parsedDate,
       supplier: pur.supplier || "Market Run",
       amount: Number(pur.total || 0),
       notes: `${pur.item || "Ingredient"} — Qty: ${pur.qty || 1} (added: ${pur.stockAdded || 0})`
     }
     if (sPur) {
-      if (sPur.amount !== body.amount || sPur.supplier !== body.supplier || sPur.notes !== body.notes) {
+      if (sPur.amount !== body.amount || sPur.supplier !== body.supplier || (sPur.notes || "") !== body.notes) {
         await fetch(`${apiUrl}/api/purchases/${pur.id}`, {
           method: "PUT",
           headers,
