@@ -56,7 +56,7 @@ export const getAuthHeaders = () => {
   }
 }
 
-export const syncToBackend = async () => {
+export const syncToBackend = async (forceAll = false) => {
   if (!hasLoadedFromBackend) return
 
   if (isSyncing) {
@@ -129,28 +129,28 @@ export const syncToBackend = async () => {
       }
     }
 
-    // Sync to individual tables and await completions ONLY if data has changed
+    // Sync to individual tables and await completions ONLY if data has changed or forced
     const syncPromises = []
 
-    if (data["ll_inv"] !== lastSyncedValues["ll_inv"]) {
+    if (forceAll || data["ll_inv"] !== lastSyncedValues["ll_inv"]) {
       syncPromises.push(syncInventoryItems(headers, JSON.parse(data["ll_inv"] || "[]"))
         .then(() => { lastSyncedValues["ll_inv"] = data["ll_inv"] })
         .catch(console.error))
     }
 
-    if (data["ll_recipes"] !== lastSyncedValues["ll_recipes"]) {
+    if (forceAll || data["ll_recipes"] !== lastSyncedValues["ll_recipes"]) {
       syncPromises.push(syncRecipesList(headers, JSON.parse(data["ll_recipes"] || "[]"))
         .then(() => { lastSyncedValues["ll_recipes"] = data["ll_recipes"] })
         .catch(console.error))
     }
 
-    if (data["ll_exp"] !== lastSyncedValues["ll_exp"]) {
+    if (forceAll || data["ll_exp"] !== lastSyncedValues["ll_exp"]) {
       syncPromises.push(syncExpensesList(headers, JSON.parse(data["ll_exp"] || "[]"))
         .then(() => { lastSyncedValues["ll_exp"] = data["ll_exp"] })
         .catch(console.error))
     }
 
-    if (data["ll_prods"] !== lastSyncedValues["ll_prods"] || data["ll_quotes"] !== lastSyncedValues["ll_quotes"]) {
+    if (forceAll || data["ll_prods"] !== lastSyncedValues["ll_prods"] || data["ll_quotes"] !== lastSyncedValues["ll_quotes"]) {
       syncPromises.push(syncOrdersList(
         headers, 
         JSON.parse(data["ll_prods"] || "[]"), 
@@ -163,13 +163,13 @@ export const syncToBackend = async () => {
         .catch(console.error))
     }
 
-    if (data["ll_quote_invoices"] !== lastSyncedValues["ll_quote_invoices"]) {
+    if (forceAll || data["ll_quote_invoices"] !== lastSyncedValues["ll_quote_invoices"]) {
       syncPromises.push(syncInvoicesList(headers, JSON.parse(data["ll_quote_invoices"] || "[]"))
         .then(() => { lastSyncedValues["ll_quote_invoices"] = data["ll_quote_invoices"] })
         .catch(console.error))
     }
 
-    if (data["ll_purchases"] !== lastSyncedValues["ll_purchases"]) {
+    if (forceAll || data["ll_purchases"] !== lastSyncedValues["ll_purchases"]) {
       syncPromises.push(syncPurchasesList(headers, JSON.parse(data["ll_purchases"] || "[]"))
         .then(() => { lastSyncedValues["ll_purchases"] = data["ll_purchases"] })
         .catch(console.error))
@@ -500,6 +500,8 @@ export const syncFromBackend = async () => {
             }
           }
         })
+        // Trigger background self-healing sync to populate relational tables in Supabase if needed
+        setTimeout(() => syncToBackend(true), 100)
         return true
       }
     }

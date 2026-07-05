@@ -19,6 +19,7 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
   const [saved, setSaved] = useState(false)
   const [parsed, setParsed] = useState(null) // { supplier, receipt_date, items: [...] }
   const [totalAmount, setTotalAmount] = useState("")
+  const [saving, setSaving] = useState(false)
   const fileRef = useRef()
 
   // State for creating a new inventory item directly from the review step
@@ -160,99 +161,107 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
 
   // Save the receipt to stock + expenses
   const applyUpdates = async () => {
-    const approved = parsed.items.filter(r => r.approved)
-    const purchases = approved.filter(r => r.type === "purchase" && r.overrideId)
-    const expItems = approved.filter(r => r.type === "expense" || !r.overrideId)
+    setSaving(true)
+    try {
+      const approved = parsed.items.filter(r => r.approved)
+      const purchases = approved.filter(r => r.type === "purchase" && r.overrideId)
+      const expItems = approved.filter(r => r.type === "expense" || !r.overrideId)
 
-    // Update inventory: stock + cost/unit for purchases
-    let updInv = [...inventory]
-    const purchaseLog = []
-    
-    purchases.forEach(r => {
-      const invItem = updInv.find(i => i.id === r.overrideId)
-      if (!invItem) return
-      const unitSize = +r.unit_size || +r.qty || 1
-      const cpu = parseFloat((+r.unit_price / unitSize).toFixed(2))
-      const stockAdded = parseFloat((unitSize * (+r.qty || 1)).toFixed(3))
-      updInv = updInv.map(i => i.id === r.overrideId ? { ...i, cost: cpu, stock: parseFloat((i.stock + stockAdded).toFixed(3)) } : i)
-      purchaseLog.push({
-        id: uid(),
-        date: parsed.receipt_date || today(),
-        itemId: r.overrideId,
-        item: invItem.name,
-        unit: invItem.unit,
-        unitSize,
-        qty: +r.qty || 1,
-        price: +r.unit_price,
-        total: +r.line_total || 0,
-        cpu,
-        stockAdded
+      // Update inventory: stock + cost/unit for purchases
+      let updInv = [...inventory]
+      const purchaseLog = []
+      
+      purchases.forEach(r => {
+        const invItem = updInv.find(i => i.id === r.overrideId)
+        if (!invItem) return
+        const unitSize = +r.unit_size || +r.qty || 1
+        const cpu = parseFloat((+r.unit_price / unitSize).toFixed(2))
+        const stockAdded = parseFloat((unitSize * (+r.qty || 1)).toFixed(3))
+        updInv = updInv.map(i => i.id === r.overrideId ? { ...i, cost: cpu, stock: parseFloat((i.stock + stockAdded).toFixed(3)) } : i)
+        purchaseLog.push({
+          id: uid(),
+          date: parsed.receipt_date || today(),
+          itemId: r.overrideId,
+          item: invItem.name,
+          unit: invItem.unit,
+          unitSize,
+          qty: +r.qty || 1,
+          price: +r.unit_price,
+          total: +r.line_total || 0,
+          cpu,
+          stockAdded
+        })
       })
-    })
 
-    if (purchases.length > 0) {
-      setInventory(updInv)
-      await saveInventory(updInv)
-    }
-
-    // Save purchase logs to database (via saveLocal which triggers sync)
-    if (purchaseLog.length > 0) {
-      const existing = loadLocal("ll_purchases", [])
-      await saveLocal("ll_purchases", [...purchaseLog, ...existing])
-    }
-
-    // Log expense record
-    const totalCalc = parsed.items.reduce((s, r) => s + (r.approved ? (+r.line_total || 0) : 0), 0)
-    const amt = +totalAmount || totalCalc
-    if (amt > 0) {
-      const purchaseNames = purchases.map(r => r.matched_name || r.item_on_receipt)
-      const expNames = expItems.map(r => r.item_on_receipt)
-      
-      const purchaseCalc = purchases.reduce((s, r) => s + (+r.line_total || 0), 0)
-      const expCalc = expItems.reduce((s, r) => s + (+r.line_total || 0), 0)
-      
-      const purchaseAmt = totalCalc > 0 ? (purchaseCalc / totalCalc) * amt : (purchases.length > 0 && expItems.length === 0 ? amt : 0)
-      const expAmt = totalCalc > 0 ? (expCalc / totalCalc) * amt : (expItems.length > 0 && purchases.length === 0 ? amt : 0)
-      
-      let newExps = []
-      
-      if (purchaseAmt > 0) {
-        newExps.push({
-          id: uid(),
-          date: parsed.receipt_date || today(),
-          description: `${parsed.supplier || "Receipt"} — Ingredients/Supplies`,
-          amount: Math.round(purchaseAmt),
-          category: "Ingredients",
-          paymentMethod: "cash",
-          source: "purchase",
-          notes: `Purchases: ${purchaseNames.join(", ")}`
-        })
+      if (purchases.length > 0) {
+        setInventory(updInv)
+        await saveInventory(updInv)
       }
-      
-      if (expAmt > 0) {
-        newExps.push({
-          id: uid(),
-          date: parsed.receipt_date || today(),
-          description: `${parsed.supplier || "Receipt"} — Operations`,
-          amount: Math.round(expAmt),
-          category: "Operations",
-          paymentMethod: "cash",
-          source: "receipt",
-          notes: `Expenses: ${expNames.join(", ")}`
-        })
-      }
-      
-      if (newExps.length > 0) {
-        const updExp = [...newExps, ...expenses]
-        setExpenses(updExp)
-        await saveExpenses(updExp)
-      }
-    }
 
-    setParsed(null)
-    setPhoto(null)
-    setPhotoB64(null)
-    setSaved(true)
+      // Save purchase logs to database (via saveLocal which triggers sync)
+      if (purchaseLog.length > 0) {
+        const existing = loadLocal("ll_purchases", [])
+        await saveLocal("ll_purchases", [...purchaseLog, ...existing])
+      }
+
+      // Log expense record
+      const totalCalc = parsed.items.reduce((s, r) => s + (r.approved ? (+r.line_total || 0) : 0), 0)
+      const amt = +totalAmount || totalCalc
+      if (amt > 0) {
+        const purchaseNames = purchases.map(r => r.matched_name || r.item_on_receipt)
+        const expNames = expItems.map(r => r.item_on_receipt)
+        
+        const purchaseCalc = purchases.reduce((s, r) => s + (+r.line_total || 0), 0)
+        const expCalc = expItems.reduce((s, r) => s + (+r.line_total || 0), 0)
+        
+        const purchaseAmt = totalCalc > 0 ? (purchaseCalc / totalCalc) * amt : (purchases.length > 0 && expItems.length === 0 ? amt : 0)
+        const expAmt = totalCalc > 0 ? (expCalc / totalCalc) * amt : (expItems.length > 0 && purchases.length === 0 ? amt : 0)
+        
+        let newExps = []
+        
+        if (purchaseAmt > 0) {
+          newExps.push({
+            id: uid(),
+            date: parsed.receipt_date || today(),
+            description: `${parsed.supplier || "Receipt"} — Ingredients/Supplies`,
+            amount: Math.round(purchaseAmt),
+            category: "Ingredients",
+            paymentMethod: "cash",
+            source: "purchase",
+            notes: `Purchases: ${purchaseNames.join(", ")}`
+          })
+        }
+        
+        if (expAmt > 0) {
+          newExps.push({
+            id: uid(),
+            date: parsed.receipt_date || today(),
+            description: `${parsed.supplier || "Receipt"} — Operations`,
+            amount: Math.round(expAmt),
+            category: "Operations",
+            paymentMethod: "cash",
+            source: "receipt",
+            notes: `Expenses: ${expNames.join(", ")}`
+          })
+        }
+        
+        if (newExps.length > 0) {
+          const updExp = [...newExps, ...expenses]
+          setExpenses(updExp)
+          await saveExpenses(updExp)
+        }
+      }
+
+      setParsed(null)
+      setPhoto(null)
+      setPhotoB64(null)
+      setSaved(true)
+    } catch (e) {
+      console.error(e)
+      alert("❌ Save failed: " + e.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   // Prefill and open new item modal
@@ -514,7 +523,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
             <Inp label="Total Invoice Cost (₦)" type="number" value={totalAmount} onChange={setTotalAmount} placeholder="Total amount paid" />
 
             <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-              <Btn variant="success" onClick={applyUpdates} disabled={!parsed.items.some(r => r.approved)}>✓ Save & Restock</Btn>
+              <Btn variant="success" onClick={applyUpdates} disabled={saving || !parsed.items.some(r => r.approved)}>{saving ? "⌛ Saving..." : "✓ Save & Restock"}</Btn>
               <Btn variant="ghost" onClick={() => setParsed(null)}>Cancel</Btn>
             </div>
           </Card>

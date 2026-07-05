@@ -25,6 +25,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
   const [filter, setFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [expanded, setExpanded] = useState(null)
+  const [confirming, setConfirming] = useState(false)
 
   const updateStatus = (id, status) => {
     const updated = quotes.map(q => q.id === id ? { ...q, status } : q)
@@ -53,149 +54,157 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
       return
     }
 
-    const outOfStock = []
-    const lowStock = []
+    setConfirming(true)
     try {
-      const mults = JSON.parse(localStorage.getItem("ll_multipliers") || "null") || DEFAULT_MULTS
-      const checkInv = [...inventory]
-      if (q.tiers?.length > 0) {
-        q.tiers.forEach(tier => {
-          const size = String(tier.size).replace(/"/g, "").trim()
-          const shape = (tier.shape || "round").toLowerCase()
-          const mult = mults[size + "-" + shape] || 1
-          tier.layers?.forEach(layer => {
-            if (!layer.flavour) return
-            const recipe = recipes.find(r => r.name.toLowerCase().includes(layer.flavour.toLowerCase()))
-            if (!recipe) return
-            recipe.ing?.forEach(ing => {
-              const item = checkInv.find(i => i.id === ing.iid)
-              if (!item) return
-              const needed = ing.qty * mult
-              if (item.stock <= 0) {
-                if (!outOfStock.find(x => x.name === item.name)) outOfStock.push({ name: item.name, stock: item.stock, unit: item.unit })
-              } else if (item.stock < needed) {
-                if (!lowStock.find(x => x.name === item.name)) lowStock.push({ name: item.name, stock: item.stock, needed: needed.toFixed(2), unit: item.unit })
-              }
+      const outOfStock = []
+      const lowStock = []
+      try {
+        const mults = loadLocal("ll_multipliers", DEFAULT_MULTS)
+        const checkInv = [...inventory]
+        if (q.tiers?.length > 0) {
+          q.tiers.forEach(tier => {
+            const size = String(tier.size).replace(/"/g, "").trim()
+            const shape = (tier.shape || "round").toLowerCase()
+            const mult = mults[size + "-" + shape] || 1
+            tier.layers?.forEach(layer => {
+              if (!layer.flavour) return
+              const recipe = recipes.find(r => r.name.toLowerCase().includes(layer.flavour.toLowerCase()))
+              if (!recipe) return
+              recipe.ing?.forEach(ing => {
+                const item = checkInv.find(i => i.id === ing.iid)
+                if (!item) return
+                const needed = ing.qty * mult
+                if (item.stock <= 0) {
+                  if (!outOfStock.find(x => x.name === item.name)) outOfStock.push({ name: item.name, stock: item.stock, unit: item.unit })
+                } else if (item.stock < needed) {
+                  if (!lowStock.find(x => x.name === item.name)) lowStock.push({ name: item.name, stock: item.stock, needed: needed.toFixed(2), unit: item.unit })
+                }
+              })
             })
           })
-        })
-      }
-    } catch (e) {
-      console.error("Stock check error", e)
-    }
-
-    // Block if anything is completely out of stock
-    if (outOfStock.length > 0) {
-      alert("❌ Cannot confirm order — the following ingredients are completely out of stock:\n\n" + outOfStock.map(i => "• " + i.name + " (0 " + i.unit + " remaining)").join("\n") + "\n\nPlease restock before confirming.")
-      return
-    }
-
-    // Warn if anything is below minimum or needed quantity but allow proceeding
-    if (lowStock.length > 0) {
-      const proceed = window.confirm("⚠️ Warning — the following ingredients are insufficient for this order:\n\n" + lowStock.map(i => "• " + i.name + " (needed: " + i.needed + " " + i.unit + ", in stock: " + i.stock + " " + i.unit + ")").join("\n") + "\n\nYou can still confirm but please restock soon.\n\nClick OK to confirm anyway, or Cancel to go back.")
-      if (!proceed) return
-    }
-
-    // Deduct ingredients from inventory
-    try {
-      const mults = JSON.parse(localStorage.getItem("ll_multipliers") || "null") || DEFAULT_MULTS
-      let updInv = [...inventory]
-      if (updInv.length > 0 && q.tiers?.length > 0) {
-        q.tiers.forEach(tier => {
-          const size = String(tier.size).replace(/"/g, "").trim()
-          const shape = (tier.shape || "round").toLowerCase()
-          const mult = mults[size + "-" + shape] || 1
-          tier.layers?.forEach(layer => {
-            if (!layer.flavour) return
-            const recipe = recipes.find(r => r.name.toLowerCase().includes(layer.flavour.toLowerCase()))
-            if (!recipe) return
-            recipe.ing?.forEach(ing => {
-              const idx = updInv.findIndex(i => i.id === ing.iid)
-              if (idx >= 0) {
-                updInv[idx] = { ...updInv[idx], stock: Math.max(0, parseFloat((updInv[idx].stock - (ing.qty * mult)).toFixed(3))) }
-              }
-            })
-          })
-        })
-        setInventory(updInv)
-        await saveInventory(updInv)
-      }
-    } catch (e) {
-      console.error("Ingredient deduction error", e)
-    }
-
-    // Create production record with full details
-    const prod = {
-      id: uid(),
-      quoteId: q.id,
-      fromQuote: true,
-      client: q.clientName,
-      clientPhone: q.clientPhone || "",
-      clientEmail: "",
-      orderDate: q.date,
-      confirmedAt: new Date().toISOString(),
-      deliveryDate: q.deliveryDate || "",
-      cost: q.totalCost || 0,
-      deliveryCost: 0,
-      salePrice: q.salePrice || q.quotePrice || 0,
-      deliveryCharge: q.deliveryCharge || 0,
-      vatAmount: q.vatAmount || 0,
-      grandTotal: q.grandTotal || 0,
-      status: "pending",
-      productType: q.productType || "Cake",
-      size: q.tiers?.map(t => t.size + '" ' + t.shape).join(" + ") || "",
-      covering: q.tiers?.[0]?.coverings?.[0]?.type || "",
-      flavors: q.flavourSummary || "",
-      cakeSummary: q.cakeSummary || "",
-      tiers: q.tiers || [],
-      cakePhoto: q.cakePhoto || null,
-      topper: q.topper || null,
-      donutGroups: q.donutGroups || [],
-      loaves: q.loaves || [],
-      tartQty: q.tartQty || 0,
-      tartFillings: q.tartFillings || [],
-      tartGarnish: q.tartGarnish || "",
-      decorations: q.decQty ? Object.keys(q.decQty).join(", ") : "",
-      layers: q.tiers?.length || 1,
-      accessoryPct: 10,
-      profitPct: q.margin || 40,
-      paymentType: (q.orderPurpose === "gift" || q.orderPurpose === "sample") ? q.orderPurpose : "full",
-      orderPurpose: q.orderPurpose || "sale",
-      discountPct: 0,
-      notes: q.notes || "",
-      recipeId: ""
-    }
-    setProductions(prev => [prod, ...prev])
-    await saveProduction(prod)
-
-    // Gift/sample — log the ingredient cost as a write-off expense
-    if (q.orderPurpose === "gift" || q.orderPurpose === "sample") {
-      const writeOffCost = q.totalCost || 0
-      if (writeOffCost > 0) {
-        const exp = {
-          id: uid(),
-          date: q.deliveryDate || new Date().toISOString().slice(0, 10),
-          description: (q.orderPurpose === "gift" ? "Gift: " : "Sample/Tasting: ") + (q.cakeSummary || "cake"),
-          amount: writeOffCost,
-          category: "Gifts & Samples",
-          paymentMethod: "none",
-          source: "writeoff",
-          notes: "Ingredients consumed for " + q.orderPurpose + " — no revenue"
         }
-        const updExp = [exp, ...loadExpenses()]
-        await saveExpenses(updExp)
+      } catch (e) {
+        console.error("Stock check error", e)
       }
+
+      // Block if anything is completely out of stock
+      if (outOfStock.length > 0) {
+        alert("❌ Cannot confirm order — the following ingredients are completely out of stock:\n\n" + outOfStock.map(i => "• " + i.name + " (0 " + i.unit + " remaining)").join("\n") + "\n\nPlease restock before confirming.")
+        return
+      }
+
+      // Warn if anything is below minimum or needed quantity but allow proceeding
+      if (lowStock.length > 0) {
+        const proceed = window.confirm("⚠️ Warning — the following ingredients are insufficient for this order:\n\n" + lowStock.map(i => "• " + i.name + " (needed: " + i.needed + " " + i.unit + ", in stock: " + i.stock + " " + i.unit + ")").join("\n") + "\n\nYou can still confirm but please restock soon.\n\nClick OK to confirm anyway, or Cancel to go back.")
+        if (!proceed) return
+      }
+
+      // Deduct ingredients from inventory
+      try {
+        const mults = loadLocal("ll_multipliers", DEFAULT_MULTS)
+        let updInv = [...inventory]
+        if (updInv.length > 0 && q.tiers?.length > 0) {
+          q.tiers.forEach(tier => {
+            const size = String(tier.size).replace(/"/g, "").trim()
+            const shape = (tier.shape || "round").toLowerCase()
+            const mult = mults[size + "-" + shape] || 1
+            tier.layers?.forEach(layer => {
+              if (!layer.flavour) return
+              const recipe = recipes.find(r => r.name.toLowerCase().includes(layer.flavour.toLowerCase()))
+              if (!recipe) return
+              recipe.ing?.forEach(ing => {
+                const idx = updInv.findIndex(i => i.id === ing.iid)
+                if (idx >= 0) {
+                  updInv[idx] = { ...updInv[idx], stock: Math.max(0, parseFloat((updInv[idx].stock - (ing.qty * mult)).toFixed(3))) }
+                }
+              })
+            })
+          })
+          setInventory(updInv)
+          await saveInventory(updInv)
+        }
+      } catch (e) {
+        console.error("Ingredient deduction error", e)
+      }
+
+      // Create production record with full details
+      const prod = {
+        id: uid(),
+        quoteId: q.id,
+        fromQuote: true,
+        client: q.clientName,
+        clientPhone: q.clientPhone || "",
+        clientEmail: "",
+        orderDate: q.date,
+        confirmedAt: new Date().toISOString(),
+        deliveryDate: q.deliveryDate || "",
+        cost: q.totalCost || 0,
+        deliveryCost: 0,
+        salePrice: q.salePrice || q.quotePrice || 0,
+        deliveryCharge: q.deliveryCharge || 0,
+        vatAmount: q.vatAmount || 0,
+        grandTotal: q.grandTotal || 0,
+        status: "pending",
+        productType: q.productType || "Cake",
+        size: q.tiers?.map(t => t.size + '" ' + t.shape).join(" + ") || "",
+        covering: q.tiers?.[0]?.coverings?.[0]?.type || "",
+        flavors: q.flavourSummary || "",
+        cakeSummary: q.cakeSummary || "",
+        tiers: q.tiers || [],
+        cakePhoto: q.cakePhoto || null,
+        topper: q.topper || null,
+        donutGroups: q.donutGroups || [],
+        loaves: q.loaves || [],
+        tartQty: q.tartQty || 0,
+        tartFillings: q.tartFillings || [],
+        tartGarnish: q.tartGarnish || "",
+        decorations: q.decQty ? Object.keys(q.decQty).join(", ") : "",
+        layers: q.tiers?.length || 1,
+        accessoryPct: 10,
+        profitPct: q.margin || 40,
+        paymentType: (q.orderPurpose === "gift" || q.orderPurpose === "sample") ? q.orderPurpose : "full",
+        orderPurpose: q.orderPurpose || "sale",
+        discountPct: 0,
+        notes: q.notes || "",
+        recipeId: ""
+      }
+      setProductions(prev => [prod, ...prev])
+      await saveProduction(prod)
+
+      // Gift/sample — log the ingredient cost as a write-off expense
+      if (q.orderPurpose === "gift" || q.orderPurpose === "sample") {
+        const writeOffCost = q.totalCost || 0
+        if (writeOffCost > 0) {
+          const exp = {
+            id: uid(),
+            date: q.deliveryDate || new Date().toISOString().slice(0, 10),
+            description: (q.orderPurpose === "gift" ? "Gift: " : "Sample/Tasting: ") + (q.cakeSummary || "cake"),
+            amount: writeOffCost,
+            category: "Gifts & Samples",
+            paymentMethod: "none",
+            source: "writeoff",
+            notes: "Ingredients consumed for " + q.orderPurpose + " — no revenue"
+          }
+          const updExp = [exp, ...loadExpenses()]
+          await saveExpenses(updExp)
+        }
+      }
+
+      // Update quote status to confirmed and mark as confirmed
+      const updated = quotes.map(x => x.id === q.id ? { ...x, status: "confirmed", confirmedAt: new Date().toISOString() } : x)
+      setQuotes(updated)
+      await saveQuotes(updated)
+
+      const msg = (q.orderPurpose === "gift" || q.orderPurpose === "sample")
+        ? "✓ " + (q.orderPurpose === "gift" ? "Gift" : "Sample") + " logged! Ingredients deducted from inventory and cost recorded as a " + q.orderPurpose + " expense (no revenue)."
+        : "✓ Order confirmed for " + q.clientName + "! Ingredients deducted and order added to Production List."
+      alert(msg)
+    } catch (e) {
+      console.error(e)
+      alert("❌ Confirmation failed: " + e.message)
+    } finally {
+      setConfirming(false)
     }
-
-    // Update quote status to confirmed and mark as confirmed
-    const updated = quotes.map(x => x.id === q.id ? { ...x, status: "confirmed", confirmedAt: new Date().toISOString() } : x)
-    setQuotes(updated)
-    await saveQuotes(updated)
-
-    const msg = (q.orderPurpose === "gift" || q.orderPurpose === "sample")
-      ? "✓ " + (q.orderPurpose === "gift" ? "Gift" : "Sample") + " logged! Ingredients deducted from inventory and cost recorded as a " + q.orderPurpose + " expense (no revenue)."
-      : "✓ Order confirmed for " + q.clientName + "! Ingredients deducted and order added to Production List."
-    alert(msg)
   }
 
   // 1. Search filter
@@ -379,8 +388,12 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                         {isConfirmed ? null : (
                           <>
-                            {q.status === "approved" && <Btn small variant="success" onClick={() => confirmOrder(q)}>✓ Confirm order</Btn>}
-                            <Btn small variant="ghost" onClick={async () => { await saveLocal("ll_calc_edit", q); setView("calculator") }}>✏ Edit quote</Btn>
+                             {q.status === "approved" && (
+                               <Btn small variant="success" onClick={() => confirmOrder(q)} disabled={confirming}>
+                                 {confirming ? "⌛ Confirming..." : "✓ Confirm order"}
+                               </Btn>
+                             )}
+                             <Btn small variant="ghost" onClick={async () => { await saveLocal("ll_calc_edit", q); setView("calculator") }}>✏ Edit quote</Btn>
                           </>
                         )}
                         <button
