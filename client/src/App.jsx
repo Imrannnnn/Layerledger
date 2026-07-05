@@ -36,30 +36,41 @@ import { loadInventory, saveInventory, loadProductions, saveProduction, updatePr
 import { DEFAULT_INV, DEFAULT_RECIPES } from "./constants.js"
 import { Spinner } from "./components/common/ui.jsx"
 
+// Helper to automatically retry dynamic imports on network/chunk load failures (common during new deployments)
+const lazyRetry = (importFn) => {
+  return lazy(() => 
+    importFn().catch(err => {
+      console.error("Failed to fetch module, reloading page...", err)
+      window.location.reload()
+      return new Promise(() => {}) // keep in pending state
+    })
+  )
+}
+
 // ─── Screen components (one import per screen) ──────────────────────────────
-const Login = lazy(() => import("./components/auth/Login.jsx").then(m => ({ default: m.Login })))
-const Dashboard = lazy(() => import("./components/dashboard/Dashboard.jsx").then(m => ({ default: m.Dashboard })))
-const MasterList = lazy(() => import("./components/inventory/MasterList.jsx").then(m => ({ default: m.MasterList })))
-const ProductionEntry = lazy(() => import("./components/orders/ProductionEntry.jsx").then(m => ({ default: m.ProductionEntry })))
-const Records = lazy(() => import("./components/orders/Records.jsx").then(m => ({ default: m.Records })))
-const OrderCalculator = lazy(() => import("./components/orders/OrderCalculator.jsx").then(m => ({ default: m.OrderCalculator })))
-const QuotesPage = lazy(() => import("./components/orders/QuotesPage.jsx").then(m => ({ default: m.QuotesPage })))
-const ProductionList = lazy(() => import("./components/orders/ProductionList.jsx").then(m => ({ default: m.ProductionList })))
-const Invoices = lazy(() => import("./components/orders/Invoices.jsx").then(m => ({ default: m.Invoices })))
-const ReceiptScanner = lazy(() => import("./components/money/ReceiptScanner.jsx").then(m => ({ default: m.ReceiptScanner })))
-const Expenses = lazy(() => import("./components/money/Expenses.jsx").then(m => ({ default: m.Expenses })))
-const BankImport = lazy(() => import("./components/money/BankImport.jsx").then(m => ({ default: m.BankImport })))
-const Purchases = lazy(() => import("./components/money/Purchases.jsx").then(m => ({ default: m.Purchases })))
-const Payables = lazy(() => import("./components/money/Payables.jsx").then(m => ({ default: m.Payables })))
-const Reports = lazy(() => import("./components/reports/Reports.jsx").then(m => ({ default: m.Reports })))
-const PandL = lazy(() => import("./components/reports/PandL.jsx").then(m => ({ default: m.PandL })))
-const BalanceSheet = lazy(() => import("./components/reports/BalanceSheet.jsx").then(m => ({ default: m.BalanceSheet })))
-const MonthlyOverview = lazy(() => import("./components/reports/MonthlyOverview.jsx").then(m => ({ default: m.MonthlyOverview })))
-const ShoppingList = lazy(() => import("./components/reports/ShoppingList.jsx").then(m => ({ default: m.ShoppingList })))
-const StockStatement = lazy(() => import("./components/reports/StockStatement.jsx").then(m => ({ default: m.StockStatement })))
-const Settings = lazy(() => import("./components/settings/Settings.jsx").then(m => ({ default: m.Settings })))
-const Onboarding = lazy(() => import("./components/settings/Onboarding.jsx").then(m => ({ default: m.Onboarding })))
-const SuperAdminDashboard = lazy(() => import("./components/superadmin/SuperAdminDashboard.jsx").then(m => ({ default: m.SuperAdminDashboard })))
+const Login = lazyRetry(() => import("./components/auth/Login.jsx").then(m => ({ default: m.Login })))
+const Dashboard = lazyRetry(() => import("./components/dashboard/Dashboard.jsx").then(m => ({ default: m.Dashboard })))
+const MasterList = lazyRetry(() => import("./components/inventory/MasterList.jsx").then(m => ({ default: m.MasterList })))
+const ProductionEntry = lazyRetry(() => import("./components/orders/ProductionEntry.jsx").then(m => ({ default: m.ProductionEntry })))
+const Records = lazyRetry(() => import("./components/orders/Records.jsx").then(m => ({ default: m.Records })))
+const OrderCalculator = lazyRetry(() => import("./components/orders/OrderCalculator.jsx").then(m => ({ default: m.OrderCalculator })))
+const QuotesPage = lazyRetry(() => import("./components/orders/QuotesPage.jsx").then(m => ({ default: m.QuotesPage })))
+const ProductionList = lazyRetry(() => import("./components/orders/ProductionList.jsx").then(m => ({ default: m.ProductionList })))
+const Invoices = lazyRetry(() => import("./components/orders/Invoices.jsx").then(m => ({ default: m.Invoices })))
+const ReceiptScanner = lazyRetry(() => import("./components/money/ReceiptScanner.jsx").then(m => ({ default: m.ReceiptScanner })))
+const Expenses = lazyRetry(() => import("./components/money/Expenses.jsx").then(m => ({ default: m.Expenses })))
+const BankImport = lazyRetry(() => import("./components/money/BankImport.jsx").then(m => ({ default: m.BankImport })))
+const Purchases = lazyRetry(() => import("./components/money/Purchases.jsx").then(m => ({ default: m.Purchases })))
+const Payables = lazyRetry(() => import("./components/money/Payables.jsx").then(m => ({ default: m.Payables })))
+const Reports = lazyRetry(() => import("./components/reports/Reports.jsx").then(m => ({ default: m.Reports })))
+const PandL = lazyRetry(() => import("./components/reports/PandL.jsx").then(m => ({ default: m.PandL })))
+const BalanceSheet = lazyRetry(() => import("./components/reports/BalanceSheet.jsx").then(m => ({ default: m.BalanceSheet })))
+const MonthlyOverview = lazyRetry(() => import("./components/reports/MonthlyOverview.jsx").then(m => ({ default: m.MonthlyOverview })))
+const ShoppingList = lazyRetry(() => import("./components/reports/ShoppingList.jsx").then(m => ({ default: m.ShoppingList })))
+const StockStatement = lazyRetry(() => import("./components/reports/StockStatement.jsx").then(m => ({ default: m.StockStatement })))
+const Settings = lazyRetry(() => import("./components/settings/Settings.jsx").then(m => ({ default: m.Settings })))
+const Onboarding = lazyRetry(() => import("./components/settings/Onboarding.jsx").then(m => ({ default: m.Onboarding })))
+const SuperAdminDashboard = lazyRetry(() => import("./components/superadmin/SuperAdminDashboard.jsx").then(m => ({ default: m.SuperAdminDashboard })))
 
 // ═══════════════════════════════════════════════════════════
 export class ErrorBoundary extends React.Component{
