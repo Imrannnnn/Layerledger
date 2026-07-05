@@ -61,7 +61,7 @@ export function NRow({title,sub,on,onToggle}){
 
 // ═══════════════════════════════════════════════════════════
 export function NotificationSettings(){
-  const load=(key,def)=>{const v=localStorage.getItem(key);return v===null?def:v==="true"?true:v==="false"?false:v}
+  const load=(key,def)=>{const v=loadLocal(key,def);return v===null?def:v===true||v==="true"?true:v===false||v==="false"?false:v}
   const [notifEnabled,setNotifEnabled]=useState(()=>load("ll_notif_enabled",true))
   const [autoStock,setAutoStock]=useState(()=>load("ll_auto_stock",true))
   const [lowStockAlert,setLowStockAlert]=useState(()=>load("ll_lowstock_alert",true))
@@ -69,11 +69,10 @@ export function NotificationSettings(){
   const [saved,setSaved]=useState(false)
 
   const save=async ()=>{
-    localStorage.setItem("ll_notif_enabled",notifEnabled)
-    localStorage.setItem("ll_auto_stock",autoStock)
-    localStorage.setItem("ll_lowstock_alert",lowStockAlert)
-    localStorage.setItem("ll_notif_days",notifDays)
-    await syncToBackend()
+    await saveLocal("ll_notif_enabled",notifEnabled)
+    await saveLocal("ll_auto_stock",autoStock)
+    await saveLocal("ll_lowstock_alert",lowStockAlert)
+    await saveLocal("ll_notif_days",notifDays)
     setSaved(true);setTimeout(()=>setSaved(false),2500)
   }
 
@@ -125,7 +124,7 @@ export function NotificationSettings(){
 // ═══════════════════════════════════════════════════════════
 export function OpeningStockTab({inventory}){
   const LS_KEY="ll_opening_stock"
-  const loadOS=()=>{try{return JSON.parse(localStorage.getItem(LS_KEY)||"{}")}catch{return{}}}
+  const loadOS=()=>{return loadLocal(LS_KEY, {})}
   const [os,setOs]=useState(loadOS)
   const [saved,setSaved]=useState(false)
   const curMonth=new Date().toLocaleDateString("en-NG",{month:"long",year:"numeric"})
@@ -198,9 +197,9 @@ export const SHAPES=["round","square","sheet"]
 
 export function PricingSetup({settings,setSetting}){
   const [ptab,setPtab]=useState("mults")
-  const [mults,setMults]=useState(()=>{try{return JSON.parse(localStorage.getItem("ll_multipliers")||"null")||DEFAULT_MULTS}catch{return DEFAULT_MULTS}})
-  const [coverings,setCoverings]=useState(()=>{try{return JSON.parse(localStorage.getItem("ll_coverings")||"null")||DEFAULT_COVERINGS}catch{return DEFAULT_COVERINGS}})
-  const [accessories,setAccessories]=useState(()=>{try{return JSON.parse(localStorage.getItem("ll_accessories")||"null")||DEFAULT_ACCESSORIES}catch{return DEFAULT_ACCESSORIES}})
+  const [mults,setMults]=useState(()=>loadLocal("ll_multipliers",DEFAULT_MULTS))
+  const [coverings,setCoverings]=useState(()=>loadLocal("ll_coverings",DEFAULT_COVERINGS))
+  const [accessories,setAccessories]=useState(()=>loadLocal("ll_accessories",DEFAULT_ACCESSORIES))
   const [newCov,setNewCov]=useState("")
   const [newAcc,setNewAcc]=useState({name:"",cost:"",per:"order"})
   const [saved,setSaved]=useState("")

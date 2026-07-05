@@ -8,11 +8,11 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Card, Badge, SHead, TH, TR2 } from "../common/ui.jsx"
 import { fmt, uid, today } from "../../lib/helpers.js"
-import { saveInventory, saveLocal } from "../../lib/data.js"
+import { saveInventory, saveLocal, loadLocal } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
 export function Payables({inventory,setInventory}){
-  const [bills,setBills]=useState(()=>{try{return JSON.parse(localStorage.getItem("ll_payables")||"[]")}catch{return[]}})
+  const [bills,setBills]=useState(()=>loadLocal("ll_payables",[]))
   const [showForm,setShowForm]=useState(false)
   const [f,setF]=useState({supplier:"",description:"",amount:"",date:today(),dueDate:"",addToInventory:false,invId:"",qty:"",unitSize:""})
 
@@ -46,7 +46,7 @@ export function Payables({inventory,setInventory}){
     if(amt<=0)return
     save(bills.map(b=>b.id===id?{...b,paid:(b.paid||0)+amt,lastPaid:today()}:b))
     try{
-      const pays=JSON.parse(localStorage.getItem("ll_ap_payments")||"[]")
+      const pays=loadLocal("ll_ap_payments",[])
       pays.push({id:uid(),billId:id,supplier:bill.supplier,amount:amt,date:today()})
       saveLocal("ll_ap_payments",pays)
     }catch(e){}

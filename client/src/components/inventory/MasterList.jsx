@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert } from "../common/ui.jsx"
 import { fmt, uid, recipeCost, parseCSV } from "../../lib/helpers.js"
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
-import { saveInventory, saveRecipes, saveLocal } from "../../lib/data.js"
+import { saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
 
 
 export function RestockCell({id,unit,onRestock}){
@@ -583,7 +583,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
 // ═══════════════════════════════════════════════════════════
 export function DecorationsTab({inventory, isOwner}){
   const LS_KEY = "ll_decorations"
-  const load = () => { try { const v=localStorage.getItem(LS_KEY); return v?JSON.parse(v):DECORATION_ITEMS } catch { return DECORATION_ITEMS } }
+  const load = () => { return loadLocal(LS_KEY, DECORATION_ITEMS) }
   const save = (items) => { saveLocal(LS_KEY, items) }
 
   const [items, setItems] = useState(load)
@@ -681,7 +681,7 @@ export function DecorationsTab({inventory, isOwner}){
 // ═══════════════════════════════════════════════════════════
 export function PackagingTab({isOwner}){
   const LS_KEY="ll_packaging"
-  const load=()=>{try{const v=localStorage.getItem(LS_KEY);return v?JSON.parse(v):[
+  const load=()=>{return loadLocal(LS_KEY,[
     {id:"p1",name:"Cake Board 6\"",price:300,unit:"per piece"},{id:"p2",name:"Cake Board 8\"",price:450,unit:"per piece"},
     {id:"p3",name:"Cake Board 10\"",price:600,unit:"per piece"},{id:"p4",name:"Cake Board 12\"",price:800,unit:"per piece"},
     {id:"p5",name:"Cake Board 14\"",price:1000,unit:"per piece"},{id:"p6",name:"Cake Drum 8\"",price:700,unit:"per piece"},
@@ -689,7 +689,7 @@ export function PackagingTab({isOwner}){
     {id:"p9",name:"Cake Box 6\"",price:400,unit:"per piece"},{id:"p10",name:"Cake Box 8\"",price:600,unit:"per piece"},
     {id:"p11",name:"Cake Box 10\"",price:800,unit:"per piece"},{id:"p12",name:"Cake Box 12\"",price:1000,unit:"per piece"},
     {id:"p13",name:"Dowels (pack)",price:500,unit:"per pack"},{id:"p14",name:"Delivery box",price:1500,unit:"per piece"},
-  ]}catch{return[]}}
+  ])}
   const save=(items)=>{saveLocal(LS_KEY,items)}
   const [items,setItems]=useState(load)
   const [adding,setAdding]=useState(false)

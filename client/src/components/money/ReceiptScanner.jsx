@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Modal } from "../common/ui.jsx"
 import { fmt, uid, today, callClaude, compressImage } from "../../lib/helpers.js"
-import { saveInventory, saveExpenses, saveLocal } from "../../lib/data.js"
+import { saveInventory, saveExpenses, saveLocal, loadLocal } from "../../lib/data.js"
 
 export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses }) {
   const [photo, setPhoto] = useState(null)
@@ -197,7 +197,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
 
     // Save purchase logs to database (via saveLocal which triggers sync)
     if (purchaseLog.length > 0) {
-      const existing = JSON.parse(localStorage.getItem("ll_purchases") || "[]")
+      const existing = loadLocal("ll_purchases", [])
       await saveLocal("ll_purchases", [...purchaseLog, ...existing])
     }
 

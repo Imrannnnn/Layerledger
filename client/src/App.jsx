@@ -30,7 +30,7 @@ import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 
 import { loadInventory, saveInventory, loadProductions, saveProduction, updateProdStatus,
   loadTransactions, saveTxns, loadExpenses, saveExpenses, loadSetting, saveSetting,
   loadCompany, saveCompany, loadInvoices, saveInvoice, loadUsers, saveUsers,
-  loadRecipes, saveRecipes, syncToBackend, syncFromBackend, loadTenantInfo, logout } from "./lib/data.js"
+  loadRecipes, saveRecipes, syncToBackend, syncFromBackend, loadTenantInfo, logout, loadLocal, saveLocal } from "./lib/data.js"
 
 // ─── Seed data & helpers ────────────────────────────────────────────────────
 import { DEFAULT_INV, DEFAULT_RECIPES } from "./constants.js"
@@ -100,7 +100,7 @@ export default function App(){
   const [viewHistory,setViewHistory]=useState(["dashboard"])
   const goTo=(v)=>{setViewHistory(h=>[...h.slice(-9),v]);setView(v)}
   const goBack=()=>{setViewHistory(h=>{if(h.length<=1)return h;const prev=h[h.length-2];setView(prev);return h.slice(0,-1)});}
-  const [onboarded,setOnboarded]=useState(()=>!!localStorage.getItem("ll_onboarded"))
+  const [onboarded,setOnboarded]=useState(()=>!!loadLocal("ll_onboarded", false))
   const [inventory,setInventory]=useState(DEFAULT_INV)
   const [recipes,setRecipes]=useState(()=>{const saved=loadRecipes();return saved&&saved.length>0?saved:DEFAULT_RECIPES})
   const [productions,setProductions]=useState([])
@@ -132,7 +132,7 @@ export default function App(){
       setExpenses(loadExpenses());setUsers(loadUsers());setCompany(loadCompany())
       const saved=loadRecipes();if(saved)setRecipes(saved)
       setSettings({accessoryPct:loadSetting("accessoryPct",10),profitPct:loadSetting("profitPct",40)})
-      setOnboarded(!!localStorage.getItem("ll_onboarded"))
+      setOnboarded(!!loadLocal("ll_onboarded", false))
       setLoading(false)
     }
     init()
@@ -201,7 +201,7 @@ export default function App(){
           setCurrentUser(u);
           localStorage.setItem("ll_current_user", JSON.stringify(u));
           saveSetting("lastUser",u.id);
-          if(!localStorage.getItem("ll_onboarded"))setOnboarded(false);
+          if(!loadLocal("ll_onboarded", false))setOnboarded(false);
         }}/>
       </Suspense>
     </>
@@ -217,9 +217,9 @@ export default function App(){
       setInventory={setInventory}
       settings={settings}
       setSettings={setSettings}
-      onComplete={()=>{localStorage.setItem("ll_onboarded","1");setOnboarded(true);syncToBackend()}}
-      onSkip={()=>{localStorage.setItem("ll_onboarded","1");setOnboarded(true);syncToBackend()}}
-      setView={v=>{localStorage.setItem("ll_onboarded","1");setOnboarded(true);setViewWithSync(v)}}
+      onComplete={async ()=>{await saveLocal("ll_onboarded","1");setOnboarded(true)}}
+      onSkip={async ()=>{await saveLocal("ll_onboarded","1");setOnboarded(true)}}
+      setView={async v=>{await saveLocal("ll_onboarded","1");setOnboarded(true);setViewWithSync(v)}}
     /></Suspense>
   }
 

@@ -9,7 +9,7 @@
 import React, { useState } from "react"
 import { Btn, Card, SHead, iSt } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
-import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal } from "../../lib/data.js"
+import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal } from "../../lib/data.js"
 import { DEFAULT_MULTS } from "../../constants.js"
 import { Invoices } from "./Invoices.jsx"
 
@@ -380,7 +380,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                         {isConfirmed ? null : (
                           <>
                             {q.status === "approved" && <Btn small variant="success" onClick={() => confirmOrder(q)}>✓ Confirm order</Btn>}
-                            <Btn small variant="ghost" onClick={() => { localStorage.setItem("ll_calc_edit", JSON.stringify(q)); setView("calculator") }}>✏ Edit quote</Btn>
+                            <Btn small variant="ghost" onClick={async () => { await saveLocal("ll_calc_edit", q); setView("calculator") }}>✏ Edit quote</Btn>
                           </>
                         )}
                         <button
@@ -504,8 +504,8 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                             w.document.close()
                             // Auto-save invoice to Invoices page
                             const savedInv = { id: invoiceNum, quoteId: q.id, clientName: q.clientName, clientPhone: q.clientPhone || "", date: q.date, deliveryDate: q.deliveryDate || "", amount: q.grandTotal || ((q.salePrice || q.quotePrice || 0) + (q.deliveryCharge || 0) + (q.vatAmount || 0)), cakeAmount: q.salePrice || q.quotePrice || 0, deliveryCharge: q.deliveryCharge || 0, vatAmount: q.vatAmount || 0, vatRate: q.vatRate || 0, productType: q.productType || "Cake", cakeSummary: q.cakeSummary || "", notes: q.notes || "", status: "unpaid", bankName: co.bankName || "", bankAccount: co.bankAccount || "", bankAccountName: co.bankAccountName || "", businessName: co.name || "Fayvouree Cakes" }
-                             const existing = JSON.parse(localStorage.getItem("ll_quote_invoices") || "[]")
-                             if (!existing.find(i => i.id === invoiceNum)) { await saveLocal("ll_quote_invoices", [savedInv, ...existing]) }
+                              const existing = loadLocal("ll_quote_invoices", [])
+                              if (!existing.find(i => i.id === invoiceNum)) { await saveLocal("ll_quote_invoices", [savedInv, ...existing]) }
                           }}
                           style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: "#1D9E75", color: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}
                         >

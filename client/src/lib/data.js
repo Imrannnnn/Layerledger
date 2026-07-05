@@ -1,14 +1,23 @@
 // ═══════════════════════════════════════════════════════════
-//  DATA LAYER — localStorage persistence
+//  DATA LAYER — strictly database with in-memory cache
 // ═══════════════════════════════════════════════════════════
 
+const cache = {}
+
 const load = (key, fallback) => {
-  try {
-    const r = localStorage.getItem(key)
-    return r ? JSON.parse(r) : fallback
-  } catch {
-    return fallback
+  if (cache[key] !== undefined && cache[key] !== null) {
+    try {
+      const val = cache[key]
+      return typeof val === "string" ? JSON.parse(val) : val
+    } catch {
+      return cache[key]
+    }
   }
+  return fallback
+}
+
+export const loadLocal = (key, fallback) => {
+  return load(key, fallback)
 }
 
 let isSyncing = false
@@ -16,7 +25,7 @@ let syncQueue = false
 
 const save = async (key, val) => {
   try {
-    localStorage.setItem(key, JSON.stringify(val))
+    cache[key] = val
     await syncToBackend()
   } catch {
     // Ignored
@@ -57,19 +66,9 @@ export const syncToBackend = async () => {
   }
 
   try {
-    const keys = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key && key.startsWith("ll_") && 
-          key !== "ll_current_user" && 
-          key !== "ll_superadmin_token" && 
-          key !== "ll_superadmin_email") {
-        keys.push(key)
-      }
-    }
     const data = {}
-    keys.forEach(k => {
-      data[k] = localStorage.getItem(k)
+    Object.entries(cache).forEach(([k, v]) => {
+      data[k] = typeof v === "string" ? v : JSON.stringify(v)
     })
 
     const res = await fetch(`${apiUrl}/api/tenant`, { headers })
@@ -436,9 +435,16 @@ export const syncFromBackend = async () => {
 
       if (tenant.settings && tenant.settings.localState) {
         const state = tenant.settings.localState
+        Object.keys(cache).forEach(k => {
+          delete cache[k]
+        })
         Object.entries(state).forEach(([k, v]) => {
           if (v !== null) {
-            localStorage.setItem(k, v)
+            try {
+              cache[k] = typeof v === "string" ? JSON.parse(v) : v
+            } catch {
+              cache[k] = v
+            }
           }
         })
         return true
@@ -451,17 +457,11 @@ export const syncFromBackend = async () => {
 }
 
 export const logout = () => {
-  const keysToRemove = []
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i)
-    if (key && key.startsWith("ll_") && 
-        key !== "ll_current_user" && 
-        key !== "ll_superadmin_token" && 
-        key !== "ll_superadmin_email") {
-      keysToRemove.push(key)
-    }
-  }
-  keysToRemove.forEach(k => localStorage.removeItem(k))
+  Object.keys(cache).forEach(k => {
+    delete cache[k]
+  })
+  localStorage.removeItem("ll_current_user")
+  localStorage.removeItem("ll_tenant_info")
 }
 
 export const clearAllDataOnServer = async () => {
@@ -471,6 +471,10 @@ export const clearAllDataOnServer = async () => {
   if (!apiUrl) return
 
   try {
+    Object.keys(cache).forEach(k => {
+      delete cache[k]
+    })
+
     // 1. Reset tenant settings localState
     const res = await fetch(`${apiUrl}/api/tenant`, { headers })
     if (res.ok) {

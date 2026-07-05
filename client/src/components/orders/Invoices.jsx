@@ -7,10 +7,10 @@
  */
 import React, { useState, useEffect } from "react"
 import { Btn, iSt, Card, Badge, SHead, Tabs } from "../common/ui.jsx"
-import { syncToBackend } from "../../lib/data.js"
+import { loadLocal, saveLocal } from "../../lib/data.js"
 
 export function Invoices({productions,company,prefillProd,setPrefillProd}){
-  const loadInvs=()=>{try{return JSON.parse(localStorage.getItem("ll_quote_invoices")||"[]")}catch{return[]}}
+  const loadInvs=()=>{return loadLocal("ll_quote_invoices",[])}
   const [invoices,setInvoices]=useState(loadInvs)
   const [search,setSearch]=useState("")
   const [filter,setFilter]=useState("all")
@@ -26,8 +26,7 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
   const markPaid=async(id)=>{
     const updated=invoices.map(i=>i.id===id?{...i,status:"paid"}:i)
     setInvoices(updated)
-    localStorage.setItem("ll_quote_invoices",JSON.stringify(updated))
-    await syncToBackend()
+    await saveLocal("ll_quote_invoices",updated)
   }
 
   const generateInvoice=(inv)=>{
