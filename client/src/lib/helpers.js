@@ -35,7 +35,7 @@ export const calcFullCost = (recipe, inv, flavors, decorationIds, accessoryPct) 
 }
 
 export async function callClaude(messages, system="") {
-  const apiKey = localStorage.getItem("ll_anthropic_key") || ""
+  const apiKey = window.__anthropic_key || localStorage.getItem("ll_anthropic_key") || ""
   if (!apiKey) {
     throw new Error("No API key set. Go to Settings → AI Features and enter your Anthropic API key.")
   }

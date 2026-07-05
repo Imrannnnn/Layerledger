@@ -9,6 +9,7 @@ import React, { useState } from "react"
 import { Btn, Card, SHead, TH, TR2 } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { mergeRevenueSources } from "../../lib/costing.jsx"
+import { loadLocal } from "../../lib/data.js"
 
 export function MonthlyOverview({ inventory, productions, expenses, company }) {
   const allRevenue = mergeRevenueSources(productions)
@@ -55,23 +56,13 @@ export function MonthlyOverview({ inventory, productions, expenses, company }) {
   }, {})
 
   // Purchases this month (from ll_purchases)
-  const getPurchases = () => {
-    try {
-      return JSON.parse(localStorage.getItem("ll_purchases") || "[]")
-    } catch {
-      return []
-    }
-  }
+  const getPurchases = () => loadLocal("ll_purchases", [])
   const mPurchases = getPurchases().filter(p => p.date?.startsWith(sel))
 
   // Starting inventory snapshot
   const getOS = () => {
-    try {
-      const d = JSON.parse(localStorage.getItem("ll_os_" + sel) || "{}")
-      return d.items || []
-    } catch {
-      return []
-    }
+    const d = loadLocal("ll_os_" + sel, {})
+    return d.items || []
   }
   const osItems = getOS()
   const getOSQty = id => {

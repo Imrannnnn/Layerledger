@@ -8,7 +8,7 @@
 import React, { useState, useRef } from "react"
 import { Btn, Card, Badge, SHead, TH, TR2 } from "../common/ui.jsx"
 import { fmt, uid, callClaude, today } from "../../lib/helpers.js"
-import { saveTxns, saveExpenses, saveProductionsList } from "../../lib/data.js"
+import { saveTxns, saveExpenses, saveProductionsList, loadLocal } from "../../lib/data.js"
 
 export function BankImport({ transactions, setTransactions, productions, setProductions, expenses, setExpenses }) {
   const [input, setInput] = useState("")
@@ -153,10 +153,7 @@ Ignore stamp duty and VAT lines under ₦500.`
 
   const saveAll = async () => {
     // 1. Split incoming payments that match an invoice with delivery
-    let invs = []
-    try {
-      invs = JSON.parse(localStorage.getItem("ll_quote_invoices") || "[]")
-    } catch (e) {}
+    const invs = loadLocal("ll_quote_invoices", [])
 
     const expandedCredits = []
     parsed.filter(t => t.type === "credit").forEach(t => {
@@ -221,7 +218,7 @@ Ignore stamp duty and VAT lines under ₦500.`
     if (debits.length > 0) {
       const updExp = [...debits, ...expenses]
       setExpenses(updExp)
-      saveExpenses(updExp)
+      await saveExpenses(updExp)
     }
 
     setParsed([])

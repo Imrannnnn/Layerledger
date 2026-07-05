@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
 import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
-import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, clearAllDataOnServer, logout } from "../../lib/data.js"
+import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, clearAllDataOnServer, logout, loadLocal } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
 
 // ═══════════════════════════════════════════════════════════
@@ -378,7 +378,7 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
   const ALL_KEYS=["ll_inv","ll_prods","ll_txns","ll_exp","ll_co","ll_quotes","ll_recipes","ll_purchases","ll_clients","ll_users","ll_coverings","ll_decorations","ll_packaging","ll_multipliers","ll_opening_stock","ll_quote_invoices","ll_accessories","ll_payables","ll_ap_payments","ll_opening_balance","ll_quote_revenue","accessoryPct","profitPct"]
   const exportData=()=>{
     const data={}
-    ALL_KEYS.forEach(k=>{const v=localStorage.getItem(k);if(v!==null)data[k]=v})
+    ALL_KEYS.forEach(k=>{const v=loadLocal(k,null);if(v!==null)data[k]=typeof v === "string" ? v : JSON.stringify(v)})
     data._exportedAt=new Date().toISOString();data._version="LayerLedger-v56"
     const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"})
     const url=URL.createObjectURL(blob)
@@ -400,9 +400,17 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
         const data=JSON.parse(text)
         if(!data._version&&!data.ll_inv&&!data.ll_quotes&&!data.ll_prods){setImportMsg("⚠ This doesn't look like a LayerLedger backup file.");return}
         let count=0
-        Object.keys(data).forEach(k=>{if(k.startsWith("_"))return;localStorage.setItem(k,data[k]);count++})
-        setImportMsg("✓ Imported "+count+" data sets. Reloading app...")
-        setTimeout(()=>window.location.reload(),1500)
+        const importPromises = Object.keys(data).map(async k=>{
+          if(k.startsWith("_"))return
+          let parsedVal = data[k]
+          try { parsedVal = JSON.parse(data[k]) } catch {}
+          await saveLocal(k, parsedVal)
+          count++
+        })
+        Promise.all(importPromises).then(() => {
+          setImportMsg("✓ Imported "+count+" data sets. Reloading app...")
+          setTimeout(()=>window.location.reload(),1500)
+        })
       }catch(err){setImportMsg("⚠ Could not read file: "+err.message+". Make sure it's the exported backup file (.json), not the app zip.")}
     }
     r.readAsText(f)
@@ -453,14 +461,14 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
             <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Anthropic API Key</label>
             <input
               type="password"
-              defaultValue={localStorage.getItem("ll_anthropic_key")||""}
-              onChange={e=>localStorage.setItem("ll_anthropic_key",e.target.value.trim())}
+              defaultValue={loadLocal("ll_anthropic_key")||""}
+              onChange={async e=>await saveLocal("ll_anthropic_key",e.target.value.trim())}
               placeholder="sk-ant-api03-..."
               style={{...iSt,fontFamily:"monospace",fontSize:13}}
             />
           </div>
           <Btn onClick={async()=>{
-            const key=localStorage.getItem("ll_anthropic_key")||""
+            const key=loadLocal("ll_anthropic_key")||""
             if(!key){alert("Please enter your API key first.");return}
             try{
               const r=await fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json","x-ll-key":key},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:10,messages:[{role:"user",content:"hi"}]})})
@@ -470,7 +478,7 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
             }catch(e){alert("❌ Could not connect: "+e.message)}
           }}>Test Key</Btn>
         </div>
-        {localStorage.getItem("ll_anthropic_key")&&<div style={{marginTop:8,fontSize:12,color:"#357A52"}}>✓ API key is saved on this device</div>}
+        {loadLocal("ll_anthropic_key")&&<div style={{marginTop:8,fontSize:12,color:"#357A52"}}>✓ API key is saved on this device</div>}
       </Card>
       <Card style={{marginTop:14}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:6}}>Invoice Template</div>

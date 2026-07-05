@@ -46,7 +46,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
     return Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)))
   }
 
-  const confirmOrder = (q) => {
+  const confirmOrder = async (q) => {
     // Block if already confirmed
     if (q.status === "confirmed" || q.confirmedAt) {
       alert("This quote is already confirmed and locked.")
@@ -118,7 +118,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
           })
         })
         setInventory(updInv)
-        saveInventory(updInv)
+        await saveInventory(updInv)
       }
     } catch (e) {
       console.error("Ingredient deduction error", e)
@@ -166,7 +166,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
       recipeId: ""
     }
     setProductions(prev => [prod, ...prev])
-    saveProduction(prod)
+    await saveProduction(prod)
 
     // Gift/sample — log the ingredient cost as a write-off expense
     if (q.orderPurpose === "gift" || q.orderPurpose === "sample") {
@@ -183,14 +183,14 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
           notes: "Ingredients consumed for " + q.orderPurpose + " — no revenue"
         }
         const updExp = [exp, ...loadExpenses()]
-        saveExpenses(updExp)
+        await saveExpenses(updExp)
       }
     }
 
     // Update quote status to confirmed and mark as confirmed
     const updated = quotes.map(x => x.id === q.id ? { ...x, status: "confirmed", confirmedAt: new Date().toISOString() } : x)
     setQuotes(updated)
-    saveQuotes(updated)
+    await saveQuotes(updated)
 
     const msg = (q.orderPurpose === "gift" || q.orderPurpose === "sample")
       ? "✓ " + (q.orderPurpose === "gift" ? "Gift" : "Sample") + " logged! Ingredients deducted from inventory and cost recorded as a " + q.orderPurpose + " expense (no revenue)."

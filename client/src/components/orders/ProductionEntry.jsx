@@ -9,7 +9,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Steps, Spinner } from "../common/ui.jsx"
 import { fmt, uid, today, calcFullCost, callClaude, compressImage } from "../../lib/helpers.js"
 import { DECORATION_ITEMS, FLAVOR_EXTRAS, PAYMENT_TYPES, DEFAULT_MULTS, DEFAULT_COVERINGS } from "../../constants.js"
-import { saveInventory, saveProduction } from "../../lib/data.js"
+import { saveInventory, saveProduction, loadLocal, saveLocal } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
 export function ProductionEntry({inventory,setInventory,recipes,productions,setProductions,settings,setView,user}){
@@ -26,15 +26,15 @@ export function ProductionEntry({inventory,setInventory,recipes,productions,setP
   const [flavors,setFlavors]=useState("");const [decorIds,setDecorIds]=useState([])
 
   // Multi-tier state — load from calculator prefill if available
-  const loadCovs=()=>{try{return JSON.parse(localStorage.getItem("ll_coverings")||"null")||DEFAULT_COVERINGS}catch{return DEFAULT_COVERINGS}}
+  const loadCovs=()=>loadLocal("ll_coverings", DEFAULT_COVERINGS)
   const availCoverings=loadCovs()
   const loadPrefill=()=>{
     try{
       // Check quote prefill first, then calc prefill
-      const q=JSON.parse(localStorage.getItem("ll_quote_prefill")||"null")
-      if(q){localStorage.removeItem("ll_quote_prefill");return{...q,fromQuote:true}}
-      const c=JSON.parse(localStorage.getItem("ll_calc_prefill")||"null")
-      if(c){localStorage.removeItem("ll_calc_prefill");return c}
+      const q=loadLocal("ll_quote_prefill", null)
+      if(q){saveLocal("ll_quote_prefill", null);return{...q,fromQuote:true}}
+      const c=loadLocal("ll_calc_prefill", null)
+      if(c){saveLocal("ll_calc_prefill", null);return c}
       return null
     }catch{return null}
   }
@@ -60,7 +60,7 @@ export function ProductionEntry({inventory,setInventory,recipes,productions,setP
   const [prefillPhone]=useState(()=>prefill?.clientPhone||"")
   const [decQtyMap,setDecQtyMap]=useState({})
   const layerRecipes=recipes.filter(r=>!r.type||r.type==="layer")
-  const loadMults=()=>{try{return JSON.parse(localStorage.getItem("ll_multipliers")||"null")||DEFAULT_MULTS}catch{return DEFAULT_MULTS}}
+  const loadMults=()=>loadLocal("ll_multipliers", DEFAULT_MULTS)
   const multTable=loadMults()
   const getMult=(s,sh)=>multTable[`${s}-${sh}`]||1
   const addProdTier=()=>setTiers(t=>[...t,{id:Date.now(),size:"6",shape:"round",covering:"Buttercream",layers:[{id:Date.now()+1,flavour:""}]}])

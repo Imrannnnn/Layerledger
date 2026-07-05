@@ -11,10 +11,11 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { fmt } from "./helpers.js"
+import { loadLocal } from "./data.js"
 
 export function loadQuoteRevenue(){
   try{
-    const qs=JSON.parse(localStorage.getItem("ll_quotes")||"[]")
+    const qs=loadLocal("ll_quotes", [])
     return qs
       .filter(q=>q.status === "confirmed" || q.confirmedAt)
       .map(q=>{
@@ -60,7 +61,7 @@ export function mergeRevenueSources(productions){
 
 // ═══════════════════════════════════════════════════════════
 export function loadOpeningBalance(){
-  try{return JSON.parse(localStorage.getItem("ll_opening_balance")||"null")}catch{return null}
+  return loadLocal("ll_opening_balance", null)
 }
 
 // ═══════════════════════════════════════════════════════════

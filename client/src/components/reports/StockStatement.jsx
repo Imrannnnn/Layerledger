@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, Card, SHead, TH, TR2, Alert } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
+import { loadLocal } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
 export function StockStatement({inventory,productions,expenses,company}){
@@ -17,7 +18,10 @@ export function StockStatement({inventory,productions,expenses,company}){
   const monthLabel=sel?new Date(sel+"-02").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):""
 
   // Load starting inventory snapshot for this month
-  const getOS=()=>{try{const d=JSON.parse(localStorage.getItem("ll_os_"+sel)||"{}");return d.items||[]}catch{return[]}}
+  const getOS=()=>{
+    const d=loadLocal("ll_os_"+sel, {})
+    return d.items||[]
+  }
   const osItems=getOS()
   const getOSQty=(id)=>{const found=osItems.find(i=>i.id===id);return found?found.openingQty:0}
 

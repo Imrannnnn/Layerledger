@@ -7,15 +7,15 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Card, SHead, TH, TR2 } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
-import { saveInventory, saveExpenses, syncToBackend } from "../../lib/data.js"
+import { saveInventory, saveExpenses, loadLocal, saveLocal } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
 export function Purchases({inventory,setInventory,expenses,setExpenses}){
   const [showForm,setShowForm]=useState(false)
-  const [purchases,setPurchases]=useState(()=>{try{return JSON.parse(localStorage.getItem("ll_purchases")||"[]")}catch{return[]}})
+  const [purchases,setPurchases]=useState(()=>loadLocal("ll_purchases",[]))
   const [f,setF]=useState({item:"",unit:"",unitSize:"",qty:"",price:"",date:new Date().toISOString().slice(0,10)})
 
-  const savePurchases=async(p)=>{setPurchases(p);localStorage.setItem("ll_purchases",JSON.stringify(p));await syncToBackend()}
+  const savePurchases=async(p)=>{setPurchases(p);await saveLocal("ll_purchases",p)}
 
   const cpu=f.price&&f.unitSize?parseFloat((+f.price/(+f.unitSize||1)).toFixed(2)):0
   const total=f.price&&f.qty?Math.round(+f.price*(+f.qty)):0
@@ -30,10 +30,10 @@ export function Purchases({inventory,setInventory,expenses,setExpenses}){
     setInventory(updInv);await saveInventory(updInv)
     // 2. Log as expense
     const exp={id:uid(),date:f.date,description:`Purchase: ${selItem?.name||f.item}`,amount:total,category:"Ingredients",paymentMethod:"transfer",source:"purchase",notes:`${f.qty}×${f.unitSize}${selItem?.unit||""} @ ₦${(+f.price).toLocaleString()} — cost/unit updated to ${fmt(cpu)}`}
-    const updExp=[exp,...expenses];setExpenses(updExp);saveExpenses(updExp)
+    const updExp=[exp,...expenses];setExpenses(updExp);await saveExpenses(updExp)
     // 3. Log purchase record
     const rec={id:uid(),date:f.date,itemId:f.item,item:selItem?.name||"",unit:selItem?.unit||"",unitSize:+f.unitSize,qty:+f.qty,price:+f.price,total,cpu,stockAdded}
-    savePurchases([rec,...purchases])
+    await savePurchases([rec,...purchases])
     setF({item:"",unit:"",unitSize:"",qty:"",price:"",date:new Date().toISOString().slice(0,10)})
     setShowForm(false)
   }

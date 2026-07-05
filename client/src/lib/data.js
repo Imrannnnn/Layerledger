@@ -18,11 +18,16 @@ const load = (key, fallback) => {
 }
 
 export const loadLocal = (key, fallback) => {
-  return load(key, fallback)
+  const val = load(key, fallback)
+  if (key === "ll_anthropic_key" && val) {
+    window.__anthropic_key = val
+  }
+  return val
 }
 
 let isSyncing = false
 let syncQueue = false
+let hasLoadedFromBackend = false
 
 const save = async (key, val) => {
   try {
@@ -34,6 +39,9 @@ const save = async (key, val) => {
 }
 
 export const saveLocal = async (key, val) => {
+  if (key === "ll_anthropic_key") {
+    window.__anthropic_key = val
+  }
   await save(key, val)
 }
 
@@ -49,6 +57,8 @@ export const getAuthHeaders = () => {
 }
 
 export const syncToBackend = async () => {
+  if (!hasLoadedFromBackend) return
+
   if (isSyncing) {
     syncQueue = true
     return
@@ -456,6 +466,7 @@ export const syncFromBackend = async () => {
     const res = await fetch(`${apiUrl}/api/tenant`, { headers })
     if (res.ok) {
       const tenant = await res.json()
+      hasLoadedFromBackend = true
       const tenantInfo = {
         id: tenant.id,
         name: tenant.name,
@@ -484,6 +495,9 @@ export const syncFromBackend = async () => {
               cache[k] = v
             }
             lastSyncedValues[k] = typeof v === "string" ? v : JSON.stringify(v)
+            if (k === "ll_anthropic_key") {
+              window.__anthropic_key = cache[k]
+            }
           }
         })
         return true
@@ -496,6 +510,7 @@ export const syncFromBackend = async () => {
 }
 
 export const logout = () => {
+  hasLoadedFromBackend = false
   Object.keys(cache).forEach(k => {
     delete cache[k]
   })
@@ -513,6 +528,7 @@ export const clearAllDataOnServer = async () => {
   if (!apiUrl) return
 
   try {
+    hasLoadedFromBackend = false
     Object.keys(cache).forEach(k => {
       delete cache[k]
     })

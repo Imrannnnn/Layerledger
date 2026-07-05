@@ -29,7 +29,7 @@ export function Expenses({ expenses, setExpenses }) {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(EXP_CATS[0])
 
   // Save manual Cash Expense
-  const saveExp = () => {
+  const saveExp = async () => {
     if (!ne.description.trim() || !ne.amount) {
       alert("Description and Amount are required")
       return
@@ -44,7 +44,7 @@ export function Expenses({ expenses, setExpenses }) {
       ...expenses
     ]
     setExpenses(updated)
-    saveExpenses(updated)
+    await saveExpenses(updated)
     
     setNe({
       date: today(),
@@ -63,18 +63,18 @@ export function Expenses({ expenses, setExpenses }) {
     setEditData({ ...e })
   }
   
-  const saveEdit = () => {
+  const saveEdit = async () => {
     const updated = expenses.map(e => e.id === editId ? { ...editData, amount: Number(editData.amount) } : e)
     setExpenses(updated)
-    saveExpenses(updated)
+    await saveExpenses(updated)
     setEditId(null)
   }
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm("Are you sure you want to delete this expense?")) {
       const updated = expenses.filter(e => e.id !== id)
       setExpenses(updated)
-      saveExpenses(updated)
+      await saveExpenses(updated)
     }
   }
 

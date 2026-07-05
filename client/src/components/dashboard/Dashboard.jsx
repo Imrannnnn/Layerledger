@@ -9,6 +9,7 @@
 import React, { useState } from "react"
 import { Btn, Card, Badge } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
+import { loadLocal, saveLocal } from "../../lib/data.js"
 
 export function Dashboard({ productions, inventory, expenses, setView, user, tenantInfo }) {
   const today = new Date()
@@ -52,12 +53,15 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
   const dayOfMonth = today.getDate()
   const daysLeft = daysInMonth - dayOfMonth
   const isFirstOfMonth = dayOfMonth === 1
-  const notifDays = parseInt(localStorage.getItem("ll_notif_days") || "2")
-  const notifEnabled = localStorage.getItem("ll_notif_enabled") !== "false"
-  const [bannerDismissed, setBannerDismissed] = useState(false)
+  const notifDays = parseInt(loadLocal("ll_notif_days", "2"))
+  const notifEnabled = loadLocal("ll_notif_enabled", true) !== false
+  const [bannerDismissed, setBannerDismissed] = useState(() => {
+    const dismissed = loadLocal("ll_banner_dismissed", "")
+    return dismissed === today.toISOString().slice(0, 10)
+  })
 
   const showBanner = notifEnabled && user?.role === "owner" && !bannerDismissed && (daysLeft <= (+notifDays) || isFirstOfMonth)
-  const dismissBanner = () => { localStorage.setItem("ll_banner_dismissed", today.toISOString().slice(0, 10)); setBannerDismissed(true) }
+  const dismissBanner = async () => { await saveLocal("ll_banner_dismissed", today.toISOString().slice(0, 10)); setBannerDismissed(true) }
   const prevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1).toLocaleDateString("en-NG", { month: "long", year: "numeric" })
 
   // Greeting

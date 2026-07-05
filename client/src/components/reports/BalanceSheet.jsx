@@ -9,7 +9,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Card, SHead } from "../common/ui.jsx"
 import { fmt, today } from "../../lib/helpers.js"
 import { mergeRevenueSources, loadOpeningBalance, PLRow } from "../../lib/costing.jsx"
-import { saveLocal } from "../../lib/data.js"
+import { saveLocal, loadLocal } from "../../lib/data.js"
 
 export function BalanceSheet({productions,expenses,inventory,transactions,company}){
   const ob=loadOpeningBalance()
@@ -25,7 +25,7 @@ export function BalanceSheet({productions,expenses,inventory,transactions,compan
   const inventoryValue=inventory.reduce((s,i)=>s+((i.stock||0)*(i.cost||0)),0)
 
   let payables=0
-  try{const bills=JSON.parse(localStorage.getItem("ll_payables")||"[]");payables=bills.reduce((s,b)=>s+(b.amount-(b.paid||0)),0)}catch(e){}
+  try{const bills=loadLocal("ll_payables",[]);payables=bills.reduce((s,b)=>s+(b.amount-(b.paid||0)),0)}catch(e){}
 
   const allRevenue=mergeRevenueSources(productions)
   const receivables=allRevenue.filter(p=>{const s=(p.status||"").toLowerCase();return s!=="paid"&&s!=="delivered"&&s!=="completed"}).reduce((s,p)=>s+(p.salePrice||0),0)

@@ -245,7 +245,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       if (newExps.length > 0) {
         const updExp = [...newExps, ...expenses]
         setExpenses(updExp)
-        saveExpenses(updExp)
+        await saveExpenses(updExp)
       }
     }
 

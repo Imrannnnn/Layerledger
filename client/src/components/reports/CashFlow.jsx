@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Card, SHead } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
+import { loadLocal } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
 export function CashFlow({productions,expenses,transactions,company}){
@@ -20,7 +21,7 @@ export function CashFlow({productions,expenses,transactions,company}){
   const clientIn=mt.filter(t=>t.type==="credit"&&/sales|payment from client|deposit/i.test(t.category||"")).reduce((s,t)=>s+t.amount,0)
   const supplierOut=mt.filter(t=>t.type==="debit"&&/ingredient|supplies|already logged/i.test(t.category||"")).reduce((s,t)=>s+t.amount,0)
   let apPayments=0
-  try{const pays=JSON.parse(localStorage.getItem("ll_ap_payments")||"[]");apPayments=pays.filter(p=>p.date?.startsWith(sel)).reduce((s,p)=>s+p.amount,0)}catch(e){}
+  try{const pays=loadLocal("ll_ap_payments",[]);apPayments=pays.filter(p=>p.date?.startsWith(sel)).reduce((s,p)=>s+p.amount,0)}catch(e){}
   const overheadOut=mt.filter(t=>t.type==="debit"&&/rent|salary|utilit|fuel|delivery|marketing|maintenance|other expense/i.test(t.category||"")).reduce((s,t)=>s+t.amount,0)
   const netOperating=clientIn-supplierOut-apPayments-overheadOut
 
