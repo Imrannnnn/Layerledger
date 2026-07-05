@@ -3,9 +3,9 @@ const cors = require("cors")
 const configCors = () => {
     return cors({
         origin: (origin, callback) => {
-            const allowedOrigin = process.env.ALLOWED_ORIGINS 
+            const allowedOrigin = process.env.ALLOWED_ORIGINS
                 ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-                : ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"];
+                : ["http://localhost:5173", "http://localhost:5174", "https://layerledger.netlify.app",];
 
             if (!origin || allowedOrigin.includes(origin)) {
                 callback(null, true)
