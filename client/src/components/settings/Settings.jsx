@@ -2,14 +2,14 @@
  * Settings.jsx
  * ----------------------------------------------------------------------------
  * Settings screen and all its tab panels.
- * Company profile, pricing & margins (incl. overhead), opening stock,
+ * Company profile, pricing & margins (incl. overhead), starting inventory,
  * notifications, users & access, and backup/restore.
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
-import { ROLES } from "../../constants.js"
+import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
 import { saveSetting, saveCompany, saveUsers } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
 
@@ -81,7 +81,7 @@ export function NotificationSettings(){
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:14}}>Notification Preferences</div>
 
       <PLRow title="Month-end reminder banner" sub="Shows on the dashboard in the last days of each month reminding you to lock closing stock." on={notifEnabled} onToggle={()=>setNotifEnabled(v=>!v)}/>
-      <PLRow title="Auto-set opening stock on the 1st" sub="Automatically locks current stock as the new month's opening stock at midnight on the 1st. After first-time setup you never have to do this manually again." on={autoStock} onToggle={()=>setAutoStock(v=>!v)}/>
+      <PLRow title="Auto-set starting inventory on the 1st" sub="Automatically locks current stock as the new month's starting inventory at midnight on the 1st. After first-time setup you never have to do this manually again." on={autoStock} onToggle={()=>setAutoStock(v=>!v)}/>
       <PLRow title="Low stock alerts on dashboard" sub="Shows a warning card on the dashboard whenever any ingredient falls below its minimum stock level." on={lowStockAlert} onToggle={()=>setLowStockAlert(v=>!v)}/>
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0"}}>
@@ -106,9 +106,9 @@ export function NotificationSettings(){
         {[
           "On the 29th/30th — amber reminder banner appears on your dashboard",
           "On the last day — banner turns red and more urgent",
-          "At midnight on the 1st — app automatically locks closing stock as next month's opening stock",
+          "At midnight on the 1st — app automatically locks closing stock as next month's starting inventory",
           "On the 1st when you open the app — green confirmation banner, previous month's statement ready to download",
-          "You never have to set opening stock manually again after the first time"
+          "You never have to set starting inventory manually again after the first time"
         ].map((s,i)=><div key={i} style={{display:"flex",gap:8,marginBottom:6}}>
           <span style={{color:"var(--gold)",fontWeight:700,flexShrink:0}}>{i+1}.</span>
           <span>{s}</span>
@@ -119,7 +119,7 @@ export function NotificationSettings(){
 }
 
 // ═══════════════════════════════════════════════════════════
-//  OPENING STOCK TAB (in Settings)
+//  STARTING INVENTORY TAB (in Settings)
 
 // ═══════════════════════════════════════════════════════════
 export function OpeningStockTab({inventory}){
@@ -146,13 +146,13 @@ export function OpeningStockTab({inventory}){
 
   return <div style={{maxWidth:640}}>
     <Card style={{marginBottom:14,background:"#FFF9EE",borderColor:"var(--gold)"}}>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:8}}>Opening Stock — {curMonth}</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:8}}>Starting Inventory — {curMonth}</div>
       <p style={{fontSize:12.5,color:"var(--muted)",marginTop:0,lineHeight:1.7,marginBottom:12}}>Set this once at the start of each month — or when you first set up the app. Once locked, this record never changes. It is used to generate your monthly stock statement automatically.</p>
-      <div style={{padding:"8px 12px",background:"#FFF3CD",borderRadius:7,fontSize:12,color:"#856404",marginBottom:14}}>⚠ Set opening stock at the beginning of each month before production starts. Once you lock it, it becomes a permanent record for that month.</div>
+      <div style={{padding:"8px 12px",background:"#FFF3CD",borderRadius:7,fontSize:12,color:"#856404",marginBottom:14}}>⚠ Set starting inventory at the beginning of each month before production starts. Once you lock it, it becomes a permanent record for that month.</div>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
           <thead><tr style={{background:"#EDE5D6"}}>
-            {["Item","Unit","Opening Stock Qty","Cost/Unit","Opening Value"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:h==="Item"||h==="Unit"?"left":"right",fontSize:10,textTransform:"uppercase",letterSpacing:.8,color:"var(--muted)",fontWeight:500}}>{h}</th>)}
+            {["Item","Unit","Starting Inventory Qty","Cost/Unit","Starting Value"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:h==="Item"||h==="Unit"?"left":"right",fontSize:10,textTransform:"uppercase",letterSpacing:.8,color:"var(--muted)",fontWeight:500}}>{h}</th>)}
           </tr></thead>
           <tbody>{inventory.map((item,i)=>{
             const qty=os[item.id]||0
@@ -167,14 +167,14 @@ export function OpeningStockTab({inventory}){
             </tr>
           })}</tbody>
           <tfoot><tr>
-            <td colSpan={4} style={{padding:"10px",textAlign:"right",fontWeight:600,fontSize:13}}>Total opening stock value</td>
+            <td colSpan={4} style={{padding:"10px",textAlign:"right",fontWeight:600,fontSize:13}}>Total starting inventory value</td>
             <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:"var(--gold)",fontSize:15}}>{fmt(inventory.reduce((s,i)=>s+(os[i.id]||0)*i.cost,0))}</td>
           </tr></tfoot>
         </table>
       </div>
       <div style={{marginTop:14,display:"flex",gap:10,alignItems:"center"}}>
-        <Btn variant="success" onClick={lockStock}>🔒 Lock Opening Stock for {curMonth}</Btn>
-        {saved&&<span style={{fontSize:12.5,color:"#357A52",fontWeight:500}}>✓ Opening stock locked and saved permanently</span>}
+        <Btn variant="success" onClick={lockStock}>🔒 Lock Starting Inventory for {curMonth}</Btn>
+        {saved&&<span style={{fontSize:12.5,color:"#357A52",fontWeight:500}}>✓ Starting inventory locked and saved permanently</span>}
       </div>
     </Card>
     <Card>
@@ -208,7 +208,12 @@ export function PricingSetup({settings,setSetting}){
   const saveCoverings=()=>{localStorage.setItem("ll_coverings",JSON.stringify(coverings));setSaved("covs");setTimeout(()=>setSaved(""),2000)}
   const saveAccessories=()=>{localStorage.setItem("ll_accessories",JSON.stringify(accessories));setSaved("accs");setTimeout(()=>setSaved(""),2000)}
 
-  const tabs=[{v:"mults",l:"Size multipliers"},{v:"margins",l:"Profit margins"}]
+  const tabs=[
+    {v:"mults",l:"Size multipliers"},
+    {v:"coverings",l:"Covering costs"},
+    {v:"accessories",l:"Accessories"},
+    {v:"margins",l:"Profit margins"}
+  ]
 
   return <div>
     <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
@@ -338,8 +343,18 @@ export function PricingSetup({settings,setSetting}){
 //  ONBOARDING (first-time setup checklist)
 
 // ═══════════════════════════════════════════════════════════
-export function Settings({company,setCompany,settings,setSettings,users,setUsers,inventory}){
+export function Settings({company,setCompany,settings,setSettings,users,setUsers,inventory,user}){
   const [tab,setTab]=useState("company")
+  const [clearConfirm, setClearConfirm]=useState("")
+  
+  const tabList = [
+    {v:"company",l:"Company"},
+    {v:"pricing",l:"Pricing & Margins"},
+    {v:"stock",l:"Starting Inventory"},
+    {v:"notifications",l:"Notifications"}
+  ]
+  if (user?.role === "owner") tabList.push({v:"users",l:"Users & Access"})
+  tabList.push({v:"backup",l:"Backup & Data"})
   const logoRef=useRef()
   const [newUser,setNewUser]=useState({name:"",role:"production",pin:""})
   const [userMsg,setUserMsg]=useState("")
@@ -393,9 +408,15 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
     r.readAsText(f)
   }
 
+  const clearAllData = () => {
+    if (clearConfirm !== (company.name || "LayerLedger")) return
+    ALL_KEYS.forEach(k => localStorage.removeItem(k))
+    window.location.reload()
+  }
+
   return <div>
     <SHead title="Settings" sub="Company profile, pricing, users, and access control."/>
-    <Tabs tabs={[{v:"company",l:"Company"},{v:"pricing",l:"Pricing & Margins"},{v:"stock",l:"Opening Stock"},{v:"notifications",l:"Notifications"},{v:"users",l:"Users & Access"},{v:"backup",l:"Backup & Data"}]} active={tab} onChange={setTab}/>
+    <Tabs tabs={tabList} active={tab} onChange={setTab}/>
 
     {tab==="company"&&<div style={{maxWidth:540}}>
       <Card>
@@ -527,9 +548,22 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
         <Btn variant="ghost" onClick={()=>importRef.current?.click()}>📤 Import Data From File</Btn>
         {importMsg&&<div style={{marginTop:10,fontSize:13,fontWeight:500,color:importMsg.startsWith("✓")?"#357A52":"#B03A2E"}}>{importMsg}</div>}
       </Card>
-      <div style={{fontSize:11.5,color:"var(--muted)",marginTop:12,lineHeight:1.6,fontStyle:"italic"}}>
+      <div style={{fontSize:11.5,color:"var(--muted)",marginTop:12,lineHeight:1.6,fontStyle:"italic",marginBottom:24}}>
         Note: this is a manual backup for now. A cloud version with automatic sync across all your devices is planned as the next major step.
       </div>
+
+      <Card style={{border:"1px solid #F0A89E"}}>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:6,color:"#B03A2E"}}>Danger Zone</div>
+        <div style={{fontSize:12.5,color:"var(--muted)",lineHeight:1.7,marginBottom:14}}>
+          Clear all data from this device. This will delete all inventory, orders, quotes, recipes, and settings. <strong>This cannot be undone.</strong>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+          <div style={{flex:1}}>
+            <Inp label={`Type "${company.name || 'LayerLedger'}" to confirm`} value={clearConfirm} onChange={setClearConfirm}/>
+          </div>
+          <Btn variant="danger" disabled={clearConfirm !== (company.name || 'LayerLedger')} onClick={clearAllData}>Clear All Data</Btn>
+        </div>
+      </Card>
     </div>}
   </div>
 }
@@ -544,6 +578,3 @@ const QUOTE_STATUSES=[
   {v:"pending",l:"Pending",c:"#BA7517",bg:"#FAEEDA"},
   {v:"approved",l:"Approved",c:"#085041",bg:"#E1F5EE"},
 ]
-
-const loadQuotes=()=>{try{return JSON.parse(localStorage.getItem("ll_quotes")||"[]")}catch{return[]}}
-const saveQuotes=(q)=>{try{localStorage.setItem("ll_quotes",JSON.stringify(q))}catch{}}

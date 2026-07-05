@@ -16,7 +16,7 @@ export function loadQuoteRevenue(){
   try{
     const qs=JSON.parse(localStorage.getItem("ll_quotes")||"[]")
     return qs
-      .filter(q=>q.confirmedAt)
+      .filter(q=>q.status === "confirmed" || q.confirmedAt)
       .map(q=>{
         const isGS=q.orderPurpose==="gift"||q.orderPurpose==="sample"
         return {

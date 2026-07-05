@@ -12,8 +12,8 @@ const app = express()
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // Limit each IP to 100 requests per 15 minutes
-    standardHeaders: true, 
-    legacyHeaders: false, 
+    standardHeaders: true,
+    legacyHeaders: false,
     message: { message: 'Too many requests from this IP, please try again after 15 minutes' }
 });
 
@@ -53,11 +53,13 @@ app.use('/api/packaging', require('./routes/packagingRoutes'));
 app.use('/api/decorations', require('./routes/decorationRoutes'));
 app.use('/api/purchases', require('./routes/purchaseRoutes'));
 app.use('/api/tokens', require('./routes/tokenRoutes'));
+app.use('/api/superadmin', require('./routes/superadminRoutes'));
 
 // Global error handler
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
+    const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
     console.error("Unhandled error:", err);
-    res.status(err.status || 500).json({
+    res.status(statusCode).json({
         message: err.message || 'Internal Server Error'
     });
 });
@@ -70,13 +72,13 @@ async function startServer() {
 
         const dbUrl = process.env.DATABASE_URL || '';
         const dbType = dbUrl.startsWith('file:') || dbUrl.startsWith('sqlite:') ? 'SQLite' : 'PostgreSQL';
-        console.log(`✅ ${dbType} Database Connected`);
+        console.log(`${dbType} Database Connected`);
 
         app.listen(PORT, () => {
-            console.log(`🚀 Server running on port ${PORT}`);
+            console.log(`Server running on port ${PORT}`);
         });
     } catch (error) {
-        console.error("❌ Database Connection Failed");
+        console.error("Database Connection Failed");
         console.error(error.message);
     }
 }

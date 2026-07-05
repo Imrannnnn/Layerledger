@@ -16,7 +16,7 @@ export function StockStatement({inventory,productions,expenses,company}){
 
   const monthLabel=sel?new Date(sel+"-02").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):""
 
-  // Load opening stock snapshot for this month
+  // Load starting inventory snapshot for this month
   const getOS=()=>{try{const d=JSON.parse(localStorage.getItem("ll_os_"+sel)||"{}");return d.items||[]}catch{return[]}}
   const osItems=getOS()
   const getOSQty=(id)=>{const found=osItems.find(i=>i.id===id);return found?found.openingQty:0}
@@ -47,7 +47,7 @@ export function StockStatement({inventory,productions,expenses,company}){
       <div class="scard"><div class="slabel">Used in production</div><div class="sval">₦${Math.round(totalUsedValue).toLocaleString()}</div></div>
       <div class="scard"><div class="slabel">Production orders</div><div class="sval">${monthProds.length}</div></div>
     </div>
-    <table><tr><th>Item</th><th>Unit</th><th class="right">Opening stock</th><th class="right" style="color:#1D9E75">+ Purchased</th><th class="right" style="color:#B03A2E">− Used</th><th class="right">Closing stock</th><th class="right">Cost/unit</th></tr>
+    <table><tr><th>Item</th><th>Unit</th><th class="right">Starting inventory</th><th class="right" style="color:#1D9E75">+ Purchased</th><th class="right" style="color:#B03A2E">− Used</th><th class="right">Closing stock</th><th class="right">Cost/unit</th></tr>
     ${inventory.map(item=>{
       const opening=getOSQty(item.id)
       const closing=item.stock
@@ -61,7 +61,7 @@ export function StockStatement({inventory,productions,expenses,company}){
   }
 
   return <div>
-    <SHead title="Monthly Stock Statement" sub="Auto-generated from opening stock, purchases, and production deductions."/>
+    <SHead title="Monthly Stock Statement" sub="Auto-generated from starting inventory, purchases, and production deductions."/>
     <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,flexWrap:"wrap"}}>
       <select value={sel} onChange={e=>setSel(e.target.value)} style={{padding:"7px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",fontSize:13,color:"var(--text)"}}>
         {(allMonths.length?allMonths:[cur]).map(m=><option key={m} value={m}>{new Date(m+"-02").toLocaleDateString("en-NG",{month:"long",year:"numeric"})}</option>)}
@@ -69,7 +69,7 @@ export function StockStatement({inventory,productions,expenses,company}){
       <Btn onClick={dl} variant="outline">📥 Download PDF</Btn>
     </div>
 
-    {osItems.length===0&&<Alert msg={`No opening stock locked for ${monthLabel}. Go to Settings → Opening Stock to set it.`} color="gold"/>}
+    {osItems.length===0&&<Alert msg={`No starting inventory locked for ${monthLabel}. Go to Settings → Starting Inventory to set it.`} color="gold"/>}
 
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:16}}>
       {[{l:"Total Purchased",v:fmt(totalPurchased),s:"from receipts this month",c:"#357A52"},
@@ -80,7 +80,7 @@ export function StockStatement({inventory,productions,expenses,company}){
 
     <Card style={{padding:0,overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-        <TH cols={["Item","Unit","Opening stock","− Used in prod.","Closing stock","Cost/unit","Closing value"]}/>
+        <TH cols={["Item","Unit","Starting inventory","− Used in prod.","Closing stock","Cost/unit","Closing value"]}/>
         <tbody>{inventory.map((item,i)=>{
           const opening=getOSQty(item.id)
           const closing=item.stock
@@ -101,7 +101,7 @@ export function StockStatement({inventory,productions,expenses,company}){
         </tr></tfoot>
       </table>
     </Card>
-    <div style={{marginTop:10,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Opening stock is locked in Settings → Opening Stock at the start of each month. Closing stock is the live current quantity. Used in production is calculated as opening − closing.</div>
+    <div style={{marginTop:10,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Starting inventory is locked in Settings → Starting Inventory at the start of each month. Closing stock is the live current quantity. Used in production is calculated as starting − closing.</div>
   </div>
 }
 

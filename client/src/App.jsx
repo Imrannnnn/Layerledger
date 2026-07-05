@@ -24,41 +24,42 @@
  * Supabase) with login and cross-device sync is the planned "Stage 2".
  * ============================================================================
  */
-import React, { useState, useRef, useEffect, useCallback } from "react"
+import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from "react"
 
 // ─── Data access layer (localStorage today; a backend API in Stage 2) ───────
 import { loadInventory, saveInventory, loadProductions, saveProduction, updateProdStatus,
   loadTransactions, saveTxns, loadExpenses, saveExpenses, loadSetting, saveSetting,
   loadCompany, saveCompany, loadInvoices, saveInvoice, loadUsers, saveUsers,
-  loadRecipes, saveRecipes } from "./lib/data.js"
+  loadRecipes, saveRecipes, syncToBackend, syncFromBackend, loadTenantInfo } from "./lib/data.js"
 
 // ─── Seed data & helpers ────────────────────────────────────────────────────
 import { DEFAULT_INV, DEFAULT_RECIPES } from "./constants.js"
+import { Spinner } from "./components/common/ui.jsx"
 
 // ─── Screen components (one import per screen) ──────────────────────────────
-import { Login } from "./components/auth/Login.jsx"
-import { Dashboard } from "./components/dashboard/Dashboard.jsx"
-import { MasterList } from "./components/inventory/MasterList.jsx"
-import { ProductionEntry } from "./components/orders/ProductionEntry.jsx"
-import { Records } from "./components/orders/Records.jsx"
-import { OrderCalculator } from "./components/orders/OrderCalculator.jsx"
-import { QuotesPage } from "./components/orders/QuotesPage.jsx"
-import { ProductionList } from "./components/orders/ProductionList.jsx"
-import { Invoices } from "./components/orders/Invoices.jsx"
-import { ReceiptScanner } from "./components/money/ReceiptScanner.jsx"
-import { Expenses } from "./components/money/Expenses.jsx"
-import { BankImport } from "./components/money/BankImport.jsx"
-import { Purchases } from "./components/money/Purchases.jsx"
-import { Payables } from "./components/money/Payables.jsx"
-import { Reports } from "./components/reports/Reports.jsx"
-import { PandL } from "./components/reports/PandL.jsx"
-import { BalanceSheet } from "./components/reports/BalanceSheet.jsx"
-import { CashFlow } from "./components/reports/CashFlow.jsx"
-import { MonthlyOverview } from "./components/reports/MonthlyOverview.jsx"
-import { ShoppingList } from "./components/reports/ShoppingList.jsx"
-import { StockStatement } from "./components/reports/StockStatement.jsx"
-import { Settings } from "./components/settings/Settings.jsx"
-import { Onboarding } from "./components/settings/Onboarding.jsx"
+const Login = lazy(() => import("./components/auth/Login.jsx").then(m => ({ default: m.Login })))
+const Dashboard = lazy(() => import("./components/dashboard/Dashboard.jsx").then(m => ({ default: m.Dashboard })))
+const MasterList = lazy(() => import("./components/inventory/MasterList.jsx").then(m => ({ default: m.MasterList })))
+const ProductionEntry = lazy(() => import("./components/orders/ProductionEntry.jsx").then(m => ({ default: m.ProductionEntry })))
+const Records = lazy(() => import("./components/orders/Records.jsx").then(m => ({ default: m.Records })))
+const OrderCalculator = lazy(() => import("./components/orders/OrderCalculator.jsx").then(m => ({ default: m.OrderCalculator })))
+const QuotesPage = lazy(() => import("./components/orders/QuotesPage.jsx").then(m => ({ default: m.QuotesPage })))
+const ProductionList = lazy(() => import("./components/orders/ProductionList.jsx").then(m => ({ default: m.ProductionList })))
+const Invoices = lazy(() => import("./components/orders/Invoices.jsx").then(m => ({ default: m.Invoices })))
+const ReceiptScanner = lazy(() => import("./components/money/ReceiptScanner.jsx").then(m => ({ default: m.ReceiptScanner })))
+const Expenses = lazy(() => import("./components/money/Expenses.jsx").then(m => ({ default: m.Expenses })))
+const BankImport = lazy(() => import("./components/money/BankImport.jsx").then(m => ({ default: m.BankImport })))
+const Purchases = lazy(() => import("./components/money/Purchases.jsx").then(m => ({ default: m.Purchases })))
+const Payables = lazy(() => import("./components/money/Payables.jsx").then(m => ({ default: m.Payables })))
+const Reports = lazy(() => import("./components/reports/Reports.jsx").then(m => ({ default: m.Reports })))
+const PandL = lazy(() => import("./components/reports/PandL.jsx").then(m => ({ default: m.PandL })))
+const BalanceSheet = lazy(() => import("./components/reports/BalanceSheet.jsx").then(m => ({ default: m.BalanceSheet })))
+const MonthlyOverview = lazy(() => import("./components/reports/MonthlyOverview.jsx").then(m => ({ default: m.MonthlyOverview })))
+const ShoppingList = lazy(() => import("./components/reports/ShoppingList.jsx").then(m => ({ default: m.ShoppingList })))
+const StockStatement = lazy(() => import("./components/reports/StockStatement.jsx").then(m => ({ default: m.StockStatement })))
+const Settings = lazy(() => import("./components/settings/Settings.jsx").then(m => ({ default: m.Settings })))
+const Onboarding = lazy(() => import("./components/settings/Onboarding.jsx").then(m => ({ default: m.Onboarding })))
+const SuperAdminDashboard = lazy(() => import("./components/superadmin/SuperAdminDashboard.jsx").then(m => ({ default: m.SuperAdminDashboard })))
 
 // ═══════════════════════════════════════════════════════════
 export class ErrorBoundary extends React.Component{
@@ -75,6 +76,18 @@ export class ErrorBoundary extends React.Component{
 
 
 export default function App(){
+  const isSuperAdminRoute = window.location.pathname.startsWith("/superadmin") || window.location.search.includes("superadmin")
+  if (isSuperAdminRoute) {
+    return (
+      <>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');*{box-sizing:border-box}body{margin:0;font-family:'DM Sans',sans-serif}:root{--gold:#C8912A;--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:#C8912A}`}</style>
+        <Suspense fallback={<Spinner />}>
+          <SuperAdminDashboard />
+        </Suspense>
+      </>
+    )
+  }
+
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem("ll_current_user");
@@ -100,6 +113,7 @@ export default function App(){
   const [loading,setLoading]=useState(true)
   const [sidebarOpen,setSidebarOpen]=useState(false)
   const [isMobile,setIsMobile]=useState(window.innerWidth<768)
+  const [tenantInfo,setTenantInfo]=useState(loadTenantInfo())
 
   useEffect(()=>{
     const handler=()=>setIsMobile(window.innerWidth<768)
@@ -109,15 +123,36 @@ export default function App(){
   useEffect(()=>{
     async function init(){
       setLoading(true)
+      if (currentUser) {
+        await syncFromBackend()
+        setTenantInfo(loadTenantInfo())
+      }
       const [inv,prods,txns]=await Promise.all([loadInventory(DEFAULT_INV),loadProductions([]),loadTransactions([])])
       setInventory(inv);setProductions(prods);setTransactions(txns)
       setExpenses(loadExpenses());setUsers(loadUsers());setCompany(loadCompany())
       const saved=loadRecipes();if(saved)setRecipes(saved)
       setSettings({accessoryPct:loadSetting("accessoryPct",10),profitPct:loadSetting("profitPct",40)})
+      setOnboarded(!!localStorage.getItem("ll_onboarded"))
       setLoading(false)
     }
     init()
-  },[])
+  },[currentUser])
+
+  // Periodic background sync every 10 seconds
+  useEffect(()=>{
+    if(currentUser){
+      const interval=setInterval(async ()=>{
+        await syncToBackend()
+        setTenantInfo(loadTenantInfo())
+      },10000)
+      return ()=>clearInterval(interval)
+    }
+  },[currentUser])
+
+  const setViewWithSync = (v) => {
+    syncToBackend()
+    setView(v)
+  }
 
   const gold=company.primaryColor||"var(--gold)"
   const sidebar=company.sidebarColor||"var(--sidebar)"
@@ -138,19 +173,18 @@ export default function App(){
     {id:"receipts",label:"Receipt Scanner",icon:"🧾",roles:["owner","production"]},
     {id:"shopping",label:"Shopping List",icon:"🛒",roles:["owner","production"]},
     {id:"quotes",label:"Quotes",icon:"💬",roles:["owner","customer_service"]},
-    {id:"records",label:"Records",icon:"≡",roles:["owner","customer_service"]},
+    {id:"records",label:"Order History",icon:"≡",roles:["owner","customer_service"]},
     {id:"prodlist",label:"Production List",icon:"📅",roles:["owner","production"]},
     {id:"invoices",label:"Invoices",icon:"📄",roles:["owner","customer_service"]},
     {id:"_accounts",label:"Accounts",icon:"",roles:["owner"],divider:true},
     {id:"purchases",label:"Purchases",icon:"🛍",roles:["owner"]},
     {id:"payables",label:"Credit Purchases",icon:"📋",roles:["owner"]},
     {id:"expenses",label:"Expenses",icon:"💸",roles:["owner"]},
-    {id:"bank",label:"Bank Import",icon:"⊞",roles:["owner"]},
+    {id:"bank",label:"Bank Statement",icon:"⊞",roles:["owner"]},
     {id:"_reports",label:"Reports",icon:"",roles:["owner"],divider:true},
     {id:"monthly",label:"Monthly Overview",icon:"📊",roles:["owner"]},
     {id:"pandl",label:"P&L Statement",icon:"📑",roles:["owner"]},
     {id:"balance",label:"Balance Sheet",icon:"⚖",roles:["owner"]},
-    {id:"cashflow",label:"Cash Flow",icon:"💧",roles:["owner"]},
     {id:"_system",label:"System",icon:"",roles:["owner","production","customer_service"],divider:true},
     {id:"settings",label:"Settings",icon:"⚙",roles:["owner"]},
   ].filter(n=>n.roles.includes(role))
@@ -162,23 +196,31 @@ export default function App(){
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');*{box-sizing:border-box}body{margin:0}:root{--gold:${gold};--sidebar:${sidebar};--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:${gold}}
 .main-content{color:var(--text)}
 .main-content h1,.main-content h2,.main-content h3{color:var(--text)}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <Login onLogin={(u)=>{
-        setCurrentUser(u);
-        localStorage.setItem("ll_current_user", JSON.stringify(u));
-        saveSetting("lastUser",u.id);
-        if(!localStorage.getItem("ll_onboarded"))setOnboarded(false);
-      }}/>
+      <Suspense fallback={<Spinner />}>
+        <Login onLogin={(u)=>{
+          setCurrentUser(u);
+          localStorage.setItem("ll_current_user", JSON.stringify(u));
+          saveSetting("lastUser",u.id);
+          if(!localStorage.getItem("ll_onboarded"))setOnboarded(false);
+        }}/>
+      </Suspense>
     </>
   }
 
   // Show onboarding for first-time users
   if(currentUser&&!onboarded){
-    return <Onboarding
+    return <Suspense fallback={<Spinner />}><Onboarding
       gold={gold}
-      onComplete={()=>{localStorage.setItem("ll_onboarded","1");setOnboarded(true)}}
-      onSkip={()=>{localStorage.setItem("ll_onboarded","1");setOnboarded(true)}}
-      setView={v=>{localStorage.setItem("ll_onboarded","1");setOnboarded(true);setView(v)}}
-    />
+      company={company}
+      setCompany={setCompany}
+      inventory={inventory}
+      setInventory={setInventory}
+      settings={settings}
+      setSettings={setSettings}
+      onComplete={()=>{localStorage.setItem("ll_onboarded","1");setOnboarded(true);syncToBackend()}}
+      onSkip={()=>{localStorage.setItem("ll_onboarded","1");setOnboarded(true);syncToBackend()}}
+      setView={v=>{localStorage.setItem("ll_onboarded","1");setOnboarded(true);setViewWithSync(v)}}
+    /></Suspense>
   }
 
   const sidebarContent = <>
@@ -204,6 +246,16 @@ export default function App(){
     </div>
   </>
 
+  let trialExpiryText = null
+  if (tenantInfo && tenantInfo.createdAt && tenantInfo.settings?.plan !== "pro") {
+    const trialLengthMs = 30 * 24 * 60 * 60 * 1000
+    const expires = new Date(tenantInfo.createdAt).getTime() + trialLengthMs
+    const diffDays = Math.ceil((expires - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    if (diffDays <= 3 && diffDays >= 0) {
+      trialExpiryText = `Trial ends in ${diffDays} day${diffDays !== 1 ? 's' : ''}`
+    }
+  }
+
   return <>
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');
@@ -224,36 +276,73 @@ export default function App(){
 
       {/* Main */}
       <div style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column",minWidth:0}}>
-        {/* Mobile header */}
-        {isMobile&&<div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"var(--sidebar)",position:"sticky",top:0,zIndex:50,flexShrink:0}}>
-          <button onClick={()=>setSidebarOpen(!sidebarOpen)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:gold,fontSize:22,lineHeight:1}}>☰</button>
-          {company.logo&&<img src={company.logo} alt="logo" style={{width:26,height:26,borderRadius:5,objectFit:"cover"}}/>}
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:gold,fontWeight:700,flex:1}}>{company.name||"LayerLedger"}</div>
-          <div style={{fontSize:11,color:"#6B4A2A"}}>{nav.find(n=>n.id===view)?.label}</div>
-        </div>}
+        {/* Top Header Bar */}
+        <div style={{
+          display:"flex",
+          alignItems:"center",
+          justifyContent:"space-between",
+          padding:"14px 24px",
+          background:"var(--sidebar)",
+          borderBottom:"1px solid rgba(200,145,42,0.15)",
+          position:"sticky",
+          top:0,
+          zIndex:50,
+          flexShrink:0
+        }}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            {isMobile && (
+              <button onClick={()=>setSidebarOpen(!sidebarOpen)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:gold,fontSize:22,lineHeight:1}}>☰</button>
+            )}
+            {company.logo&&<img src={company.logo} alt="logo" style={{width:28,height:28,borderRadius:6,objectFit:"cover"}}/>}
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:gold,fontWeight:700}}>{company.name||"LayerLedger"}</div>
+            {!isMobile && <div style={{fontSize:12,color:"#8B6B4A",marginLeft:10,background:"rgba(200,145,42,0.1)",padding:"2px 8px",borderRadius:4}}>{nav.find(n=>n.id===view)?.label}</div>}
+          </div>
+          
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            {trialExpiryText && (
+              <div style={{
+                background:"#FFF1F1",
+                border:"1px solid #FFCDCD",
+                color:"#B03A2E",
+                fontSize:12,
+                fontWeight:600,
+                padding:"4px 12px",
+                borderRadius:20,
+                display:"flex",
+                alignItems:"center",
+                gap:6,
+                boxShadow:"0 2px 4px rgba(176,58,46,0.05)"
+              }}>
+                <span>⏳</span>
+                <span>{trialExpiryText}</span>
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className="main-content" style={{padding:isMobile?"14px":"24px 26px",flex:1,overflowY:"auto",color:"var(--text)"}}>
-          {loading?<Spinner/>:<>
-            {view==="dashboard"  &&<Dashboard productions={productions} inventory={inventory} expenses={expenses} setView={setView} user={currentUser}/>}
-            {view==="masterlist" &&<MasterList inventory={inventory} setInventory={setInventory} recipes={recipes} setRecipes={setRecipes} user={currentUser} setView={setView}/>}
-            {view==="calculator"  &&<OrderCalculator inventory={inventory} recipes={recipes} settings={settings} setView={setView} company={company}/>}
-            {view==="production" &&<ProductionEntry inventory={inventory} setInventory={setInventory} recipes={recipes} productions={productions} setProductions={setProductions} settings={settings} setView={setView} user={currentUser}/>}
-            {view==="receipts"   &&<ReceiptScanner inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses}/>}
-            {view==="purchases"  &&<Purchases inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses}/>}
-            {view==="expenses"   &&<Expenses expenses={expenses} setExpenses={setExpenses}/>}
-            {view==="quotes"     &&<QuotesPage inventory={inventory} setInventory={setInventory} recipes={recipes} setView={setView} productions={productions} setProductions={setProductions}/>}
-            {view==="records"    &&<Records productions={productions} setProductions={setProductions} setView={setView} setPrefillProd={setPrefillProd} user={currentUser}/>}
-            {view==="prodlist"   &&<ProductionList productions={productions} company={company} setView={setView}/>}
-            {view==="bank"       &&<BankImport transactions={transactions} setTransactions={setTransactions} productions={productions} expenses={expenses} setExpenses={setExpenses}/>}
-            {view==="monthly"    &&<MonthlyOverview inventory={inventory} productions={productions} expenses={expenses} company={company}/>}
-            {view==="pandl"      &&<PandL productions={productions} expenses={expenses} company={company}/>}
-            {view==="payables"   &&<Payables inventory={inventory} setInventory={setInventory}/>}
-            {view==="balance"    &&<BalanceSheet productions={productions} expenses={expenses} inventory={inventory} transactions={transactions} company={company}/>}
-            {view==="cashflow"   &&<CashFlow productions={productions} expenses={expenses} transactions={transactions} company={company}/>}
-            {view==="shopping"   &&<ShoppingList inventory={inventory} company={company}/>}
-            {view==="invoices"   &&<Invoices productions={productions} company={company} prefillProd={prefillProd} setPrefillProd={setPrefillProd}/>}
-            {view==="settings"   &&<Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory}/>}
-          </>}
+          {loading?<Spinner/>:
+            <Suspense fallback={<Spinner />}>
+              {view==="dashboard"  &&<Dashboard productions={productions} inventory={inventory} expenses={expenses} setView={setViewWithSync} user={currentUser} tenantInfo={tenantInfo}/>}
+              {view==="masterlist" &&<MasterList inventory={inventory} setInventory={setInventory} recipes={recipes} setRecipes={setRecipes} user={currentUser} setView={setViewWithSync}/>}
+              {view==="calculator"  &&<OrderCalculator inventory={inventory} recipes={recipes} settings={settings} setView={setViewWithSync} company={company}/>}
+              {view==="production" &&<ProductionEntry inventory={inventory} setInventory={setInventory} recipes={recipes} productions={productions} setProductions={setProductions} settings={settings} setView={setViewWithSync} user={currentUser}/>}
+              {view==="receipts"   &&<ReceiptScanner inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses}/>}
+              {view==="purchases"  &&<Purchases inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses}/>}
+              {view==="expenses"   &&<Expenses expenses={expenses} setExpenses={setExpenses}/>}
+              {view==="quotes"     &&<QuotesPage inventory={inventory} setInventory={setInventory} recipes={recipes} setView={setViewWithSync} productions={productions} setProductions={setProductions}/>}
+              {view==="records"    &&<Records productions={productions} setProductions={setProductions} setView={setViewWithSync} setPrefillProd={setPrefillProd} user={currentUser}/>}
+              {view==="prodlist"   &&<ProductionList productions={productions} setProductions={setProductions} company={company} setView={setViewWithSync}/>}
+              {view==="bank"       &&<BankImport transactions={transactions} setTransactions={setTransactions} productions={productions} setProductions={setProductions} expenses={expenses} setExpenses={setExpenses}/>}
+              {view==="monthly"    &&<MonthlyOverview inventory={inventory} productions={productions} expenses={expenses} company={company}/>}
+              {view==="pandl"      &&<PandL productions={productions} expenses={expenses} company={company}/>}
+              {view==="payables"   &&<Payables inventory={inventory} setInventory={setInventory}/>}
+              {view==="balance"    &&<BalanceSheet productions={productions} expenses={expenses} inventory={inventory} transactions={transactions} company={company}/>}
+              {view==="shopping"   &&<ShoppingList inventory={inventory} setInventory={setInventory} company={company}/>}
+              {view==="invoices"   &&<Invoices productions={productions} company={company} prefillProd={prefillProd} setPrefillProd={setPrefillProd}/>}
+              {view==="settings"   &&<Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory} user={currentUser}/>}
+            </Suspense>
+          }
         </div>
       </div>
     </div>

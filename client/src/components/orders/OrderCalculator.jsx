@@ -9,12 +9,12 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
-import { DECORATION_ITEMS } from "../../constants.js"
+import { DECORATION_ITEMS, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
 import { loadCompany } from "../../lib/data.js"
 
 
 export function OrderCalculator({inventory,recipes,settings,setView,company}){
-  const getMults=()=>{try{return JSON.parse(localStorage.getItem("ll_multipliers")||"null")||{}}catch{return{}}}
+  const getMults=()=>{try{return JSON.parse(localStorage.getItem("ll_multipliers")||"null")||DEFAULT_MULTS}catch{return DEFAULT_MULTS}}
   const getDecs=()=>{try{const v=localStorage.getItem("ll_decorations");return v?JSON.parse(v):DECORATION_ITEMS}catch{return DECORATION_ITEMS}}
 
   const mults=getMults()
@@ -143,6 +143,13 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   const photoRef=useRef(null)
 
   // Non-cake product states
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 800)
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 800)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
   const [donutGroups,setDonutGroups]=useState(()=>saved?.donutGroups||[{id:uid2(),flavour:"",qty:12,filling:"",fillingGrams:0}])
   const [loaves,setLoaves]=useState(()=>saved?.loaves||[{id:uid2(),flavour:""}])
   const [tartQty,setTartQty]=useState(()=>saved?.tartQty||12)
@@ -155,7 +162,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   }
   const [tiers,setTiers]=useState(()=>saved?.tiers?.length>0?saved.tiers:[])
   const [decQty,setDecQty]=useState(()=>saved?.decQty||{})
-  const [accRows,setAccRows]=useState(()=>saved?.accRows?.length>0?saved.accRows:[{id:uid2(),itemId:"p2",name:"Cake Board 8\"",price:450}])
+  const [accRows,setAccRows]=useState(()=>saved?.accRows?.length>0?saved.accRows:[{id:uid2(),itemId:"",name:"",price:0}])
   const [topper,setTopper]=useState(()=>saved?.topper||{enabled:false,make:"",deliver:"",description:""})
   const [margin,setMargin]=useState(()=>saved?.margin||settings.profitPct||40)
   const [orderPurpose,setOrderPurpose]=useState(()=>saved?.orderPurpose||"sale")
@@ -191,25 +198,27 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
     tier.layers.reduce((s,l)=>s+(l.flavour?layerCost(l.flavour,tier.size,tier.shape):0),0)+
     tier.coverings.reduce((s,c)=>s+coverFillCost(c.type,c.grams),0)+
     tier.fillings.reduce((s,f)=>s+coverFillCost(f.type,f.grams),0)
-  const totalTiers=tiers.reduce((s,t)=>s+tierCost(t),0)
-  const totalDecs=decorations.reduce((s,d)=>{const qty=decQty[d.id]||0;const it=inventory.find(x=>x.id===d.iid);return s+(it&&qty?it.cost*d.qty*qty:0)},0)
-  const totalAcc=accRows.reduce((s,r)=>s+(r.price||0),0)
+  const totalTiers=useMemo(() => tiers.reduce((s,t)=>s+tierCost(t),0), [tiers, inventory, recipes, mults])
+  const totalDecs=useMemo(() => decorations.reduce((s,d)=>{const qty=decQty[d.id]||0;const it=inventory.find(x=>x.id===d.iid);return s+(it&&qty?it.cost*d.qty*qty:0)},0), [decorations, decQty, inventory])
+  const totalAcc=useMemo(() => accRows.reduce((s,r)=>{
+    const pkg=packagingItems.find(p=>p.id===r.itemId)
+    return s+(pkg?pkg.price:(r.price||0))
+  },0), [accRows, packagingItems])
   const topperCost=(+topper.make||0)+(+topper.deliver||0)
 
-  // Non-cake cost calculations — placed here after all state is declared
-  const donutTotalQty=donutGroups.reduce((s,g)=>s+(+g.qty||0),0)
-  const donutCost=donutGroups.reduce((s,g)=>{
+  const donutTotalQty=useMemo(() => donutGroups.reduce((s,g)=>s+(+g.qty||0),0), [donutGroups])
+  const donutCost=useMemo(() => donutGroups.reduce((s,g)=>{
     const pieceCost=g.flavour?costPerPiece(g.flavour):0
     return s+(pieceCost*(+g.qty||0))+(g.filling?coverFillCost(g.filling,+g.fillingGrams||0):0)
-  },0)
-  const loafCost=loaves.reduce((s,l)=>s+(l.flavour?batchCost(l.flavour):0),0)
-  const tartShellCost=tartQty>0?(()=>{
+  },0), [donutGroups, inventory, recipes])
+  const loafCost=useMemo(() => loaves.reduce((s,l)=>s+(l.flavour?batchCost(l.flavour):0),0), [loaves, inventory, recipes])
+  const tartShellCost=useMemo(() => tartQty>0?(()=>{
     const r=pastryRecipes.find(x=>x.name.toLowerCase().includes("tart"))||recipes.find(x=>x.name.toLowerCase().includes("tart"))
     if(!r)return 0
     const bc=r.ing.reduce((s,ing)=>{const it=inventory.find(x=>x.id===ing.iid);return s+(it?it.cost*ing.qty:0)},0)
     return r.batchSize>0?bc/r.batchSize*tartQty:bc*Math.ceil(tartQty/12)
-  })():0
-  const tartFillCost=tartFillings.reduce((s,f)=>s+coverFillCost(f.type,+f.grams||0),0)
+  })():0, [tartQty, pastryRecipes, recipes, inventory])
+  const tartFillCost=useMemo(() => tartFillings.reduce((s,f)=>s+coverFillCost(f.type,+f.grams||0),0), [tartFillings, inventory, recipes])
   const productBaseCost=productType==="Cake"||productType==="Cupcakes"?totalTiers+totalDecs+topperCost
     :productType==="Donuts"?donutCost
     :productType==="Cake Loaf"?loafCost
@@ -359,7 +368,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
         </div>}
     </Card>
 
-    <div style={{display:"grid",gridTemplateColumns:"1.3fr 0.7fr",gap:18}}>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.3fr 0.7fr",gap:18}}>
       <div>
         {/* Add Item — choose Cake or Pastry */}
         {!productType&&<div style={{marginBottom:14}}>
@@ -538,14 +547,18 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
         {/* Boards & Accessories — shared across all product types */}
         <div style={{marginBottom:18}}>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:10}}>Boards & packaging</div>
-          {accRows.map(row=><div key={row.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,alignItems:"center",marginBottom:8}}>
+          {accRows.map(row=>{
+            const pkg=packagingItems.find(p=>p.id===row.itemId)
+            const currentPrice = pkg?pkg.price:(row.price||0)
+            return <div key={row.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,alignItems:"center",marginBottom:8}}>
             <select value={row.itemId||""} onChange={e=>updateAcc(row.id,e.target.value)} style={{...iSt}}>
               <option value="">— Select item —</option>
               {packagingItems.map(p=><option key={p.id} value={p.id}>{p.name} — {fmt(p.price)}</option>)}
             </select>
-            <span style={{fontSize:12,color:"var(--gold)",fontWeight:500,whiteSpace:"nowrap",minWidth:52,textAlign:"right"}}>{row.price?fmt(row.price):""}</span>
+            <span style={{fontSize:12,color:"var(--gold)",fontWeight:500,whiteSpace:"nowrap",minWidth:52,textAlign:"right"}}>{currentPrice?fmt(currentPrice):""}</span>
             <button onClick={()=>removeAcc(row.id)} style={{width:28,height:28,padding:0,borderRadius:6,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",fontSize:14,color:"var(--muted)"}}>×</button>
-          </div>)}
+          </div>
+          })}
           <Btn variant="ghost" onClick={addAcc}>+ Add board/packaging item</Btn>
         </div>
       </div>
@@ -710,8 +723,3 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   </div>
 }
 
-
-const DEFAULT_MULTS={"4-round":0.5,"4-square":0.6,"4-sheet":0.8,"5-round":0.7,"5-square":0.85,"5-sheet":0.9,"6-round":1.0,"6-square":1.2,"6-sheet":1.3,"7-round":1.4,"7-square":1.65,"7-sheet":1.7,"8-round":1.8,"8-square":2.15,"8-sheet":2.2,"9-round":2.3,"9-square":2.75,"9-sheet":2.8,"10-round":2.8,"10-square":3.35,"10-sheet":3.4,"12-round":4.0,"12-square":4.8,"12-sheet":4.9,"14-round":5.5,"14-square":6.6,"14-sheet":6.7}
-const DEFAULT_COVERINGS=[{name:"Naked",cost:0,scales:false},{name:"Buttercream",cost:2500,scales:true},{name:"Fondant",cost:4500,scales:true},{name:"Drip",cost:3000,scales:true},{name:"Whipped Cream",cost:2000,scales:true},{name:"Mirror Glaze",cost:5500,scales:true}]
-const DEFAULT_ACCESSORIES=[{id:"acc1",name:"Cake board",cost:500,per:"tier"},{id:"acc2",name:"Cake box",cost:800,per:"order"},{id:"acc3",name:"Dowels/support",cost:300,per:"tier"},{id:"acc4",name:"Cake drum",cost:1200,per:"order"}]
-const PRICING_SIZES=["4","5","6","7","8","9","10","12","14"]

@@ -19,23 +19,59 @@ export async function onRequestPost(context) {
   try {
     const body = await request.json()
     const key = request.headers.get("x-ll-key") || context.env.ANTHROPIC_API_KEY
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    })
-    const data = await res.text()
-    return new Response(data, {
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-    })
+    
+    const maxRetries = 3;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+           const errorText = await res.text();
+           if (res.status >= 500 || res.status === 429) {
+             throw new Error(`Anthropic API error (${res.status}): ${errorText}`);
+           } else {
+             // Client error, don't retry
+             return new Response(errorText, {
+               status: res.status,
+               headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+             });
+           }
+        }
+
+        const data = await res.text();
+        return new Response(data, {
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      } catch (err) {
+        lastError = err;
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, attempt * 1500));
+        }
+      }
+    }
+    
+    throw new Error(`Failed after ${maxRetries} attempts. Last error: ${lastError.message}`);
+
   } catch (e) {
     return new Response(JSON.stringify({ error: { message: e.message } }), {
       status: 500,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
     })
   }
 }

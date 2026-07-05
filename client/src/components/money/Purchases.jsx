@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Card, SHead, TH, TR2 } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
-import { saveInventory, saveExpenses } from "../../lib/data.js"
+import { saveInventory, saveExpenses, syncToBackend } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
 export function Purchases({inventory,setInventory,expenses,setExpenses}){
@@ -15,7 +15,7 @@ export function Purchases({inventory,setInventory,expenses,setExpenses}){
   const [purchases,setPurchases]=useState(()=>{try{return JSON.parse(localStorage.getItem("ll_purchases")||"[]")}catch{return[]}})
   const [f,setF]=useState({item:"",unit:"",unitSize:"",qty:"",price:"",date:new Date().toISOString().slice(0,10)})
 
-  const savePurchases=(p)=>{setPurchases(p);localStorage.setItem("ll_purchases",JSON.stringify(p))}
+  const savePurchases=async(p)=>{setPurchases(p);localStorage.setItem("ll_purchases",JSON.stringify(p));await syncToBackend()}
 
   const cpu=f.price&&f.unitSize?parseFloat((+f.price/(+f.unitSize||1)).toFixed(2)):0
   const total=f.price&&f.qty?Math.round(+f.price*(+f.qty)):0
@@ -44,7 +44,7 @@ export function Purchases({inventory,setInventory,expenses,setExpenses}){
   return <div>
     <SHead title="Purchases" sub="Log every ingredient purchase — cost per unit updates inventory automatically."/>
     <div style={{background:"#E8EFFC",border:"1px solid #B5D4F4",borderRadius:8,padding:"10px 14px",fontSize:12.5,color:"#185FA5",marginBottom:14,lineHeight:1.7}}>
-      🔗 When you log a purchase here, the <strong>Cost/Unit</strong> in your Inventory and Opening Stock updates automatically. No manual changes needed anywhere.
+      🔗 When you log a purchase here, the <strong>Cost/Unit</strong> in your Inventory and Starting Inventory updates automatically. No manual changes needed anywhere.
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:14}}>
       <Card style={{padding:"12px 14px"}}><div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>This month</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:"var(--text)"}}>{fmt(monthTotal)}</div></Card>
@@ -98,7 +98,7 @@ export function Purchases({inventory,setInventory,expenses,setExpenses}){
         }</tbody>
       </table>
     </Card>
-    <div style={{marginTop:8,fontSize:11.5,color:"var(--muted)"}}>✦ Cost/unit = Price per pack ÷ Pack size. Updates inventory and opening stock immediately.</div>
+    <div style={{marginTop:8,fontSize:11.5,color:"var(--muted)"}}>✦ Cost/unit = Price per pack ÷ Pack size. Updates inventory and starting inventory immediately.</div>
   </div>
 }
 

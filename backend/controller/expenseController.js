@@ -1,121 +1,91 @@
 const prisma = require('../prisma');
+const { asyncHandler } = require('../middleware/custommiddleware');
 
 /**
  * @desc    Get all expenses for the tenant
  * @route   GET /api/expenses
  * @access  Private (Owner only)
  */
-const getExpenses = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const expenses = await prisma.expense.findMany({
-            where: { tenantId },
-            orderBy: { date: 'desc' }
-        });
-        res.json(expenses);
-    } catch (error) {
-        console.error("Error in getExpenses:", error);
-        res.status(500).json({ message: 'Server Error' });
-    }
-};
+const getExpenses = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const expenses = await prisma.expense.findMany({
+        where: { tenantId },
+        orderBy: { date: 'desc' }
+    });
+    res.json(expenses);
+});
 
 /**
  * @desc    Create a new expense
  * @route   POST /api/expenses
  * @access  Private (Owner only)
  */
-const createExpense = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const { date, amount, category, description, receiptUrl } = req.body;
+const createExpense = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const { date, amount, category, description, receiptUrl } = req.body;
 
-        if (amount === undefined || typeof amount !== 'number' || amount < 0) {
-            return res.status(400).json({ message: 'Valid non-negative amount is required' });
+    const expense = await prisma.expense.create({
+        data: {
+            id: req.body.id || undefined,
+            tenantId,
+            date: date ? new Date(date) : new Date(),
+            amount,
+            category,
+            description,
+            receiptUrl
         }
-        if (!category || typeof category !== 'string' || category.trim() === '') {
-            return res.status(400).json({ message: 'Category is required' });
-        }
-
-        const expense = await prisma.expense.create({
-            data: {
-                tenantId,
-                date: date ? new Date(date) : new Date(),
-                amount,
-                category,
-                description,
-                receiptUrl
-            }
-        });
-        res.status(201).json(expense);
-    } catch (error) {
-        console.error("Error in createExpense:", error);
-        res.status(500).json({ message: 'Server Error' });
-    }
-};
+    });
+    res.status(201).json(expense);
+});
 
 /**
  * @desc    Update an expense
  * @route   PUT /api/expenses/:id
  * @access  Private (Owner only)
  */
-const updateExpense = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const { date, amount, category, description, receiptUrl } = req.body;
+const updateExpense = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const { date, amount, category, description, receiptUrl } = req.body;
 
-        if (amount !== undefined && (typeof amount !== 'number' || amount < 0)) {
-            return res.status(400).json({ message: 'Amount must be a non-negative number' });
+    const updatedExpense = await prisma.expense.updateMany({
+        where: { id: req.params.id, tenantId },
+        data: {
+            date: date ? new Date(date) : undefined,
+            amount,
+            category,
+            description,
+            receiptUrl
         }
-        if (category !== undefined && (typeof category !== 'string' || category.trim() === '')) {
-            return res.status(400).json({ message: 'Category cannot be empty' });
-        }
+    });
 
-        const updatedExpense = await prisma.expense.updateMany({
-            where: { id: req.params.id, tenantId },
-            data: {
-                date: date ? new Date(date) : undefined,
-                amount,
-                category,
-                description,
-                receiptUrl
-            }
-        });
-
-        if (updatedExpense.count === 0) {
-            return res.status(404).json({ message: 'Expense not found' });
-        }
-        
-        const expense = await prisma.expense.findFirst({
-            where: { id: req.params.id, tenantId }
-        });
-        res.json(expense);
-    } catch (error) {
-        console.error("Error in updateExpense:", error);
-        res.status(500).json({ message: 'Server Error' });
+    if (updatedExpense.count === 0) {
+        res.status(404);
+        throw new Error('Expense not found');
     }
-};
+    
+    const expense = await prisma.expense.findFirst({
+        where: { id: req.params.id, tenantId }
+    });
+    res.json(expense);
+});
 
 /**
  * @desc    Delete an expense
  * @route   DELETE /api/expenses/:id
  * @access  Private (Owner only)
  */
-const deleteExpense = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const deletedExpense = await prisma.expense.deleteMany({
-            where: { id: req.params.id, tenantId }
-        });
-        
-        if (deletedExpense.count === 0) {
-            return res.status(404).json({ message: 'Expense not found' });
-        }
-        res.json({ message: 'Expense removed successfully' });
-    } catch (error) {
-        console.error("Error in deleteExpense:", error);
-        res.status(500).json({ message: 'Server Error' });
+const deleteExpense = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const deletedExpense = await prisma.expense.deleteMany({
+        where: { id: req.params.id, tenantId }
+    });
+    
+    if (deletedExpense.count === 0) {
+        res.status(404);
+        throw new Error('Expense not found');
     }
-};
+    res.json({ message: 'Expense removed successfully' });
+});
 
 module.exports = {
     getExpenses,

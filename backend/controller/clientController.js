@@ -1,131 +1,102 @@
 const prisma = require('../prisma');
+const { asyncHandler } = require('../middleware/custommiddleware');
 
 /**
  * @desc    Get all clients for the tenant
  * @route   GET /api/clients
  * @access  Private
  */
-const getClients = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const clients = await prisma.client.findMany({
-            where: { tenantId },
-            orderBy: { createdAt: 'desc' }
-        });
-        res.json(clients);
-    } catch (error) {
-        console.error("Error in getClients:", error);
-        res.status(500).json({ message: 'Server Error' });
-    }
-};
+const getClients = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const clients = await prisma.client.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' }
+    });
+    res.json(clients);
+});
 
 /**
  * @desc    Get a specific client by ID
  * @route   GET /api/clients/:id
  * @access  Private
  */
-const getClientById = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const client = await prisma.client.findFirst({
-            where: { id: req.params.id, tenantId }
-        });
-        
-        if (!client) {
-            return res.status(404).json({ message: 'Client not found' });
-        }
-        res.json(client);
-    } catch (error) {
-        console.error("Error in getClientById:", error);
-        res.status(500).json({ message: 'Server Error' });
+const getClientById = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const client = await prisma.client.findFirst({
+        where: { id: req.params.id, tenantId }
+    });
+    
+    if (!client) {
+        res.status(404);
+        throw new Error('Client not found');
     }
-};
+    res.json(client);
+});
 
 /**
  * @desc    Create a new client
  * @route   POST /api/clients
  * @access  Private
  */
-const createClient = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const { name, phone, email, address, notes } = req.body;
+const createClient = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const { name, phone, email, address, notes } = req.body;
 
-        if (!name || typeof name !== 'string' || name.trim() === '') {
-            return res.status(400).json({ message: 'Client name is required' });
+    const client = await prisma.client.create({
+        data: {
+            tenantId,
+            name,
+            phone,
+            email,
+            address,
+            notes
         }
-
-        const client = await prisma.client.create({
-            data: {
-                tenantId,
-                name,
-                phone,
-                email,
-                address,
-                notes
-            }
-        });
-        res.status(201).json(client);
-    } catch (error) {
-        console.error("Error in createClient:", error);
-        res.status(500).json({ message: 'Server Error' });
-    }
-};
+    });
+    res.status(201).json(client);
+});
 
 /**
  * @desc    Update a client's details
  * @route   PUT /api/clients/:id
  * @access  Private
  */
-const updateClient = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const { name, phone, email, address, notes } = req.body;
+const updateClient = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const { name, phone, email, address, notes } = req.body;
 
-        if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
-            return res.status(400).json({ message: 'Client name cannot be empty' });
-        }
+    const updatedClient = await prisma.client.updateMany({
+        where: { id: req.params.id, tenantId },
+        data: { name, phone, email, address, notes }
+    });
 
-        const updatedClient = await prisma.client.updateMany({
-            where: { id: req.params.id, tenantId },
-            data: { name, phone, email, address, notes }
-        });
-
-        if (updatedClient.count === 0) {
-            return res.status(404).json({ message: 'Client not found' });
-        }
-        
-        const client = await prisma.client.findFirst({
-            where: { id: req.params.id, tenantId }
-        });
-        res.json(client);
-    } catch (error) {
-        console.error("Error in updateClient:", error);
-        res.status(500).json({ message: 'Server Error' });
+    if (updatedClient.count === 0) {
+        res.status(404);
+        throw new Error('Client not found');
     }
-};
+    
+    const client = await prisma.client.findFirst({
+        where: { id: req.params.id, tenantId }
+    });
+    res.json(client);
+});
 
 /**
  * @desc    Delete a client
  * @route   DELETE /api/clients/:id
  * @access  Private
  */
-const deleteClient = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const deletedClient = await prisma.client.deleteMany({
-            where: { id: req.params.id, tenantId }
-        });
-        
-        if (deletedClient.count === 0) {
-            return res.status(404).json({ message: 'Client not found' });
-        }
-        res.json({ message: 'Client removed successfully' });
-    } catch (error) {
-        console.error("Error in deleteClient:", error);
-        res.status(500).json({ message: 'Server Error' });
+const deleteClient = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const deletedClient = await prisma.client.deleteMany({
+        where: { id: req.params.id, tenantId }
+    });
+    
+    if (deletedClient.count === 0) {
+        res.status(404);
+        throw new Error('Client not found');
     }
-};
+    res.json({ message: 'Client removed successfully' });
+});
 
 module.exports = {
     getClients,

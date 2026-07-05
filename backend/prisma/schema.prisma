@@ -127,6 +127,7 @@ model Order {
 
   @@index([tenantId])
   @@index([clientId])
+  @@index([tenantId, orderDate])
 }
 
 model OrderItem {
@@ -174,6 +175,7 @@ model Transaction {
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([tenantId, date])
 }
 
 model Expense {
@@ -189,6 +191,7 @@ model Expense {
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([tenantId, date])
 }
 
 model Invoice {
@@ -207,6 +210,7 @@ model Invoice {
 
   @@index([tenantId])
   @@index([orderId])
+  @@index([tenantId, issueDate])
 }
 
 model Packaging {
@@ -250,6 +254,7 @@ model Purchase {
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([tenantId, date])
 }
 
 model TokenTransaction {

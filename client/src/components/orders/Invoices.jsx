@@ -5,10 +5,10 @@
  * Generates a printable invoice window with a Share button.
  * ----------------------------------------------------------------------------
  */
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import React, { useState, useEffect } from "react"
 import { Btn, iSt, Card, Badge, SHead, Tabs } from "../common/ui.jsx"
+import { syncToBackend } from "../../lib/data.js"
 
-// ═══════════════════════════════════════════════════════════
 export function Invoices({productions,company,prefillProd,setPrefillProd}){
   const loadInvs=()=>{try{return JSON.parse(localStorage.getItem("ll_quote_invoices")||"[]")}catch{return[]}}
   const [invoices,setInvoices]=useState(loadInvs)
@@ -19,14 +19,15 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
   useEffect(()=>{ setInvoices(loadInvs()) },[])
 
   const filtered=invoices
-    .filter(inv=>filter==="all"||inv.status===filter)
+    .filter(inv=>filter==="all"||(filter==="paid" ? inv.status==="paid" : inv.status!=="paid"))
     .filter(inv=>!search||inv.clientName?.toLowerCase().includes(search.toLowerCase())||inv.id?.toLowerCase().includes(search.toLowerCase()))
     .sort((a,b)=>new Date(b.date||0)-new Date(a.date||0))
 
-  const markPaid=(id)=>{
+  const markPaid=async(id)=>{
     const updated=invoices.map(i=>i.id===id?{...i,status:"paid"}:i)
     setInvoices(updated)
     localStorage.setItem("ll_quote_invoices",JSON.stringify(updated))
+    await syncToBackend()
   }
 
   const generateInvoice=(inv)=>{
@@ -98,6 +99,10 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
     w.document.close()
   }
 
+  const totalInvoices = invoices.length
+  const totalInvoiced = invoices.reduce((s,i)=>s+(i.amount||0), 0)
+  const totalOutstanding = invoices.filter(i=>i.status!=="paid").reduce((s,i)=>s+(i.amount||0), 0)
+
   return <div>
     <SHead title="Invoices" sub="All invoices generated from client quotes."/>
 
@@ -106,7 +111,6 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
         <div style={{fontSize:32,marginBottom:12}}>🧾</div>
         <div style={{fontSize:16,fontWeight:600,marginBottom:8,color:"var(--text)"}}>No invoices yet</div>
         <div style={{fontSize:13,color:"var(--muted)",marginBottom:20}}>Invoices are created from the Quotes page. Open a quote and click "Convert to invoice" to generate one.</div>
-        <Btn variant="ghost" onClick={()=>{}}>Go to Quotes</Btn>
       </Card>
       :<>
         {/* Search and filter */}
@@ -118,9 +122,9 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
         {/* Summary row */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:18}}>
           {[
-            {l:"Total invoices",v:invoices.length,c:"var(--text)"},
-            {l:"Total invoiced",v:"₦"+invoices.reduce((s,i)=>s+(i.amount||0),0).toLocaleString(),c:"var(--gold)"},
-            {l:"Unpaid",v:invoices.filter(i=>i.status!=="paid").length+" invoice"+(invoices.filter(i=>i.status!=="paid").length!==1?"s":""),c:"#B03A2E"},
+            {l:"Total invoices",v:totalInvoices,c:"var(--text)"},
+            {l:"Total invoiced",v:"₦"+totalInvoiced.toLocaleString(),c:"var(--gold)"},
+            {l:"Total outstanding",v:"₦"+totalOutstanding.toLocaleString(),c:"#B03A2E"},
           ].map(s=><Card key={s.l} style={{padding:"12px 16px"}}>
             <div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>{s.l}</div>
             <div style={{fontSize:18,fontWeight:700,color:s.c}}>{s.v}</div>
@@ -157,6 +161,3 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
       </>}
   </div>
 }
-
-// ═══════════════════════════════════════════════════════════
-//  P&L STATEMENT HELPERS

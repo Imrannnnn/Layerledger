@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert } from "../common/ui.jsx"
 import { fmt, uid, recipeCost, parseCSV } from "../../lib/helpers.js"
-import { DECORATION_ITEMS } from "../../constants.js"
+import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
 import { saveInventory, saveRecipes } from "../../lib/data.js"
 
 
@@ -33,12 +33,12 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
   const [batchCount,setBatchCount]=useState("1")
 
   const isPastry=r.type==="pastry"
-  const isCovering=r.type==="covering"
+  const isCovering=r.type==="covering" || r.type==="filling"
 
   // Load multipliers from localStorage (set in Settings → Pricing setup)
   const getMult=()=>{
     try{
-      const all=JSON.parse(localStorage.getItem("ll_multipliers")||"{}")
+      const all=JSON.parse(localStorage.getItem("ll_multipliers")||"null")||DEFAULT_MULTS
       const key=size.replace(" inch","").replace('"','').trim()+"-"+shape.toLowerCase()
       return all[key]||null
     }catch{return null}
@@ -215,15 +215,36 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
 export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
   const [showImport,setShowImport]=useState(false)
   const [showAdd,setShowAdd]=useState(false)
+  const [marketRun,setMarketRun]=useState(false)
+  const [marketQuantities,setMarketQuantities]=useState({})
   const [importStep,setImportStep]=useState(1) // 1=paste 2=preview 3=done
   const [prevItems,setPrevItems]=useState([])
   const [pasteN,setPasteN]=useState("")
   const [pasteU,setPasteU]=useState("")
   const [pasteC,setPasteC]=useState("")
-  const [newItem,setNewItem]=useState({name:"",unit:"kg",cost:"",minStock:""})
+  const [newItem,setNewItem]=useState({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods"})
   const [editId,setEditId]=useState(null)
   const [editRow,setEditRow]=useState({})
   const [warnMsg,setWarnMsg]=useState("")
+
+  const [collapsedCats, setCollapsedCats] = useState({
+    "Dry Goods": false,
+    "Dairy and Fats": false,
+    "Flavours and Extracts": false,
+    "Decoration and Finishing": false,
+    "Other": false
+  })
+
+  const toggleCat = (cat) => setCollapsedCats(prev => ({ ...prev, [cat]: !prev[cat] }))
+
+  const mapCategory = (cat) => {
+    const c = (cat || "").toLowerCase()
+    if (c.includes("dry") || c.includes("chocolate") || c.includes("flour") || c.includes("sugar")) return "Dry Goods"
+    if (c.includes("dairy") || c.includes("fat") || c.includes("oil") || c.includes("butter") || c.includes("margarine") || c.includes("egg")) return "Dairy and Fats"
+    if (c.includes("flavor") || c.includes("extract") || c.includes("color") || c.includes("essence")) return "Flavours and Extracts"
+    if (c.includes("decor") || c.includes("finish") || c.includes("fruit") || c.includes("flower") || c.includes("topper") || c.includes("ribbon") || c.includes("packaging")) return "Decoration and Finishing"
+    return "Other"
+  }
 
   const L=v=>v.trim().split(String.fromCharCode(10)).map(s=>s.replace(/,/g,"").trim()).filter(Boolean)
 
@@ -246,7 +267,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
       id:uid(),name,
       unit:us[i]||"kg",
       cost:parseFloat(cs[i])||0,
-      stock:0,minStock:5,on:true
+      stock:0,minStock:5,on:true,cat:"Dry Goods"
     })).filter(p=>p.name&&p.cost)
     if(!items.length)return showMsg("No valid items found","red")
     setPrevItems(items);setImportStep(2)
@@ -257,16 +278,16 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
     const updated=[...inventory,...approved.filter(ni=>!inventory.find(i=>i.name.toLowerCase()===ni.name.toLowerCase()))]
     setInventory(updated);await saveInventory(updated)
     setPasteN("");setPasteU("");setPasteC("");setImportStep(3)
-    showMsg(`✓ ${approved.length} items imported. Set opening stock in Settings → Opening Stock.`,"green")
+    showMsg(`✓ ${approved.length} items imported. Set starting inventory in Settings → Starting Inventory.`,"green")
   }
 
   const addSingle=async()=>{
     if(!newItem.name||!newItem.cost)return showMsg("Name and cost per unit are required","red")
-    const item={id:uid(),name:newItem.name,unit:newItem.unit||"kg",cost:+newItem.cost,stock:0,minStock:+newItem.minStock||5}
+    const item={id:uid(),name:newItem.name,unit:newItem.unit||"kg",cost:+newItem.cost,stock:0,minStock:+newItem.minStock||5,cat:newItem.cat||"Dry Goods"}
     const updated=[...inventory,item]
     setInventory(updated);await saveInventory(updated)
-    setNewItem({name:"",unit:"kg",cost:"",minStock:""});setShowAdd(false)
-    showMsg("✓ Item added. Set opening stock in Settings → Opening Stock.","green")
+    setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods"});setShowAdd(false)
+    showMsg("✓ Item added. Set starting inventory in Settings → Starting Inventory.","green")
   }
 
   const startEdit=(item)=>{setEditId(item.id);setEditRow({...item})}
@@ -280,24 +301,92 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
     const updated=inventory.filter(i=>i.id!==id);setInventory(updated);await saveInventory(updated)
   }
 
-  const badge=(item)=>{
-    if(item.stock===0)return<span style={{background:"#FDEBE9",color:"#912622",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:500}}>Out</span>
-    if(item.stock<=(item.minStock||5))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:500}}>Low ⚠</span>
-    return<span style={{background:"#E5F4EC",color:"#2D7A50",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:500}}>OK</span>
+  const handleSaveMarketRun = async () => {
+    const updated = inventory.map(item => {
+      const added = parseFloat(marketQuantities[item.id]) || 0
+      if (added > 0) {
+        return { ...item, stock: parseFloat((item.stock + added).toFixed(3)) }
+      }
+      return item
+    })
+    setInventory(updated)
+    await saveInventory(updated)
+    setMarketQuantities({})
+    setMarketRun(false)
+    showMsg("✓ Stock updated from market run!", "green")
   }
+
+  const badge=(item)=>{
+    if(item.stock===0)return<span style={{background:"#FDEBE9",color:"#912622",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Out of Stock</span>
+    if(item.stock<=(item.minStock||5))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Low stock ⚠</span>
+    return<span style={{background:"#E5F4EC",color:"#2D7A50",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>In Stock</span>
+  }
+
+  // Group inventory by mapped category
+  const categories = {
+    "Dry Goods": [],
+    "Dairy and Fats": [],
+    "Flavours and Extracts": [],
+    "Decoration and Finishing": [],
+    "Other": []
+  }
+  inventory.forEach(item => {
+    const mapped = mapCategory(item.cat)
+    categories[mapped].push(item)
+  })
 
   return <div>
     {/* HEADER */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-        <span style={{fontSize:13,color:"var(--muted)"}}>{inventory.length} items</span>
+        <span style={{fontSize:13,color:"var(--muted)",fontWeight:500}}>{inventory.length} items total</span>
         {lowStock.length>0&&<span onClick={()=>setView("shopping")} style={{fontSize:12.5,color:"#B03A2E",fontWeight:600,cursor:"pointer",background:"#FDEBE9",padding:"3px 10px",borderRadius:20}}>⚠ {lowStock.length} low stock → Shopping List</span>}
       </div>
-      {isOwner&&<div style={{display:"flex",gap:8}}>
+      {isOwner&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <Btn small variant="ghost" onClick={() => setMarketRun(true)}>🛒 Update stock after market run</Btn>
         <Btn small variant="ghost" onClick={()=>{setShowImport(s=>!s);setShowAdd(false);setImportStep(1)}}>📋 Import from Excel</Btn>
         <Btn small onClick={()=>{setShowAdd(s=>!s);setShowImport(false)}}>+ Add Item</Btn>
       </div>}
     </div>
+
+    {/* MARKET RUN MODAL */}
+    {marketRun && (
+      <Modal title="Market Run Stock Update" onClose={() => setMarketRun(false)}>
+        <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
+          Enter the quantities purchased for low-stock and out-of-stock ingredients. Click **Save All** to update inventory levels simultaneously.
+        </div>
+        {lowStock.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "20px 0", fontSize: 14, color: "green", fontWeight: 600 }}>
+            ✓ All items are fully stocked! No low-stock items to update.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 350, overflowY: "auto", paddingRight: 6, marginBottom: 14 }}>
+            {lowStock.map(item => (
+              <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#FAF7F0", padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{item.name}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Current stock: {item.stock} {item.unit} | Min: {item.minStock} {item.unit}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    type="number"
+                    placeholder="+ Qty"
+                    value={marketQuantities[item.id] || ""}
+                    onChange={e => setMarketQuantities({ ...marketQuantities, [item.id]: e.target.value })}
+                    style={{ ...iSt, width: 90, padding: "8px 10px", fontSize: 13, fontWeight: 600, textAlign: "right" }}
+                  />
+                  <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--muted)", width: 26 }}>{item.unit}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+          <Btn variant="success" onClick={handleSaveMarketRun} disabled={Object.keys(marketQuantities).length === 0}>Save All Updates</Btn>
+          <Btn variant="ghost" onClick={() => setMarketRun(false)}>Cancel</Btn>
+        </div>
+      </Modal>
+    )}
 
     {/* SUMMARY CARDS */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:12}}>
@@ -357,7 +446,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
 
       {/* STEP 2 — preview */}
       {importStep===2&&<div>
-        <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:10}}>Check every row. Toggle off anything you don't want. Opening stock is set in Settings after import.</div>
+        <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:10}}>Check every row. Toggle off anything you don't want. Starting inventory is set in Settings after import.</div>
         <div style={{overflowX:"auto",marginBottom:10}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5}}>
             <thead><tr style={{background:"#EDE5D6"}}>
@@ -372,7 +461,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
           </table>
         </div>
         <div style={{background:"#EEF8F3",border:"1px solid #C2E0CF",borderRadius:7,padding:"8px 12px",fontSize:12,color:"#357A52",marginBottom:10}}>
-          After import, go to <strong>Settings → Opening Stock</strong> to set your starting quantities. Stock will then track automatically from there.
+          After import, go to <strong>Settings → Starting Inventory</strong> to set your starting quantities. Stock will then track automatically from there.
         </div>
         <div style={{display:"flex",gap:8}}>
           <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p=>p.on)}>✓ Confirm & Import {prevItems.filter(p=>p.on).length} Items</Btn>
@@ -383,7 +472,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
       {/* STEP 3 — done */}
       {importStep===3&&<div style={{textAlign:"center",padding:"16px 0"}}>
         <div style={{fontSize:16,color:"#357A52",fontWeight:600,marginBottom:6}}>✓ Import complete</div>
-        <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>Go to <strong>Settings → Opening Stock</strong> to set starting quantities.</div>
+        <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>Go to <strong>Settings → Starting Inventory</strong> to set starting quantities.</div>
         <Btn variant="ghost" onClick={()=>{setImportStep(1);setShowImport(false)}}>Done</Btn>
       </div>}
     </Card>}
@@ -391,8 +480,9 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
     {/* ADD SINGLE ITEM */}
     {showAdd&&isOwner&&<Card style={{marginBottom:14,background:"#FFF9EE",borderColor:"var(--gold)"}}>
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Add New Item</div>
-      <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr 1fr 1fr 1fr",gap:10,marginBottom:10}}>
         <Inp label="Item Name *" value={newItem.name} onChange={v=>setNewItem(p=>({...p,name:v}))} placeholder="e.g. Flour"/>
+        <Sel label="Category" value={newItem.cat} onChange={v=>setNewItem(p=>({...p,cat:v}))} options={["Dry Goods", "Dairy and Fats", "Flavours and Extracts", "Decoration and Finishing", "Other"].map(c=>({value:c,label:c}))}/>
         <Sel label="Unit *" value={newItem.unit} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["kg","g","L","ml","pcs","pack","bottle","roll","set"].map(u=>({value:u,label:u}))}/>
         <Inp label="Cost/Unit (₦) *" type="number" value={newItem.cost} onChange={v=>setNewItem(p=>({...p,cost:v}))} placeholder="e.g. 1140"/>
         <Inp label="Min Alert" type="number" value={newItem.minStock} onChange={v=>setNewItem(p=>({...p,minStock:v}))} placeholder="e.g. 10"/>
@@ -400,39 +490,89 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
       <div style={{display:"flex",gap:8}}><Btn onClick={addSingle}>Save</Btn><Btn variant="ghost" onClick={()=>setShowAdd(false)}>Cancel</Btn></div>
     </Card>}
 
-    {/* MAIN TABLE */}
-    <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",background:"var(--panel)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
-        <TH cols={["Item","Unit","Stock qty","Cost/Unit","Min Alert","Status",...(isOwner?["Actions"]:[])]}/>
-        <tbody>{inventory.length===0
-          ?<tr><td colSpan={7} style={{padding:32,textAlign:"center",color:"var(--muted)",fontSize:13}}>No items yet — import from Excel or add one at a time</td></tr>
-          :inventory.map((item,i)=>{
-            const isLow=item.stock<=(item.minStock||5)
-            const editing=editId===item.id
-            return <tr key={item.id} style={{background:isLow?"#FFF9EE":i%2===0?"var(--panel)":"#F8F3EA"}}>
-              {editing?<>
-                <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12}}/></td>
-                <td style={{padding:"6px 8px"}}><select value={editRow.unit||"kg"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}>{["kg","g","L","ml","pcs","pack","bottle"].map(u=><option key={u}>{u}</option>)}</select></td>
-                <td style={{padding:"6px 8px"}}><input type="number" value={editRow.stock||""} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:70}}/></td>
-                <td style={{padding:"6px 8px"}}><input type="number" value={editRow.cost||""} onChange={e=>setEditRow(r=>({...r,cost:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:80}}/></td>
-                <td style={{padding:"6px 8px"}}><input type="number" value={editRow.minStock||""} onChange={e=>setEditRow(r=>({...r,minStock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}/></td>
-                <td style={{padding:"6px 8px"}}></td>
-                <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={doSaveEdit}>✓</Btn><Btn small variant="ghost" onClick={cancelEdit}>✗</Btn></div></td>
-              </>:<>
-                <td style={{padding:"9px 10px",fontWeight:500,fontSize:13}}>{item.name}</td>
-                <td style={{padding:"9px 10px",color:"var(--muted)",fontSize:13}}>{item.unit}</td>
-                <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{item.stock||0} {item.unit}</td>
-                <td style={{padding:"9px 10px",fontSize:13,fontWeight:500,color:"var(--gold)"}}>{fmt(item.cost)}/{item.unit}</td>
-                <td style={{padding:"9px 10px",fontSize:13,color:"var(--muted)"}}>{item.minStock||5} {item.unit}</td>
-                <td style={{padding:"9px 10px"}}>{badge(item)}</td>
-                {isOwner&&<td style={{padding:"9px 10px"}}><div style={{display:"flex",gap:4}}><Btn small variant="ghost" onClick={()=>startEdit(item)}>✎</Btn><Btn small variant="danger" onClick={()=>doDelete(item.id)}>×</Btn></div></td>}
-              </>}
-            </tr>
-          })
-        }</tbody>
-      </table>
+    {/* COLLAPSIBLE CATEGORIES */}
+    <div>
+      {Object.entries(categories).map(([catName, items]) => {
+        const isCollapsed = collapsedCats[catName]
+        return (
+          <div key={catName} style={{ marginBottom: 14 }}>
+            {/* Section Header */}
+            <div 
+              onClick={() => toggleCat(catName)}
+              style={{ 
+                background: "#FAF7F0", 
+                border: "1px solid var(--border)", 
+                borderRadius: 8, 
+                padding: "10px 14px", 
+                display: "flex", 
+                justifyContent: "space-between", 
+                alignItems: "center", 
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 13.5,
+                color: "var(--text)",
+                userSelect: "none"
+              }}
+            >
+              <span>📁 {catName} ({items.length} item{items.length !== 1 ? "s" : ""})</span>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>{isCollapsed ? "▼ Click to expand" : "▲ Click to collapse"}</span>
+            </div>
+
+            {/* Section Content */}
+            {!isCollapsed && (
+              <div style={{ marginTop: 8, overflowX: "auto" }}>
+                <table style={{width:"100%",borderCollapse:"collapse",background:"var(--panel)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
+                  <TH cols={["Item", "Unit", "Stock qty", "Cost/Unit", "Min Alert", "Status", ...(isOwner ? ["Actions"] : [])]}/>
+                  <tbody>
+                    {items.length === 0 ? (
+                      <tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No items in this category yet.</td></tr>
+                    ) : (
+                      items.map((item, idx) => {
+                        const isLow = item.stock <= (item.minStock || 5)
+                        const editing = editId === item.id
+                        return (
+                          <tr key={item.id} style={{background:isLow?"#FFF9EE":idx%2===0?"var(--panel)":"#F8F3EA"}}>
+                            {editing ? (
+                              <>
+                                <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12}}/></td>
+                                <td style={{padding:"6px 8px"}}><select value={editRow.unit||"kg"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}>{["kg","g","L","ml","pcs","pack","bottle"].map(u=><option key={u}>{u}</option>)}</select></td>
+                                <td style={{padding:"6px 8px"}}><input type="number" value={editRow.stock||""} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:70}}/></td>
+                                <td style={{padding:"6px 8px"}}><input type="number" value={editRow.cost||""} onChange={e=>setEditRow(r=>({...r,cost:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:80}}/></td>
+                                <td style={{padding:"6px 8px"}}><input type="number" value={editRow.minStock||""} onChange={e=>setEditRow(r=>({...r,minStock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}/></td>
+                                <td style={{padding:"6px 8px"}}></td>
+                                <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={doSaveEdit}>✓</Btn><Btn small variant="ghost" onClick={cancelEdit}>✗</Btn></div></td>
+                              </>
+                            ) : (
+                              <>
+                                <td style={{padding:"9px 10px",fontWeight:500,fontSize:13}}>{item.name}</td>
+                                <td style={{padding:"9px 10px",color:"var(--muted)",fontSize:13}}>{item.unit}</td>
+                                <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{item.stock||0} {item.unit}</td>
+                                <td style={{padding:"9px 10px",fontSize:13,fontWeight:500,color:"var(--gold)"}}>{fmt(item.cost)}/{item.unit}</td>
+                                <td style={{padding:"9px 10px",fontSize:13,color:"var(--muted)"}}>{item.minStock||5} {item.unit}</td>
+                                <td style={{padding:"9px 10px"}}>{badge(item)}</td>
+                                {isOwner && (
+                                  <td style={{padding:"9px 10px"}}>
+                                    <div style={{display:"flex",gap:4}}>
+                                      <Btn small variant="ghost" onClick={()=>startEdit(item)}>✎ Edit</Btn>
+                                      <Btn small variant="danger" onClick={()=>doDelete(item.id)}>×</Btn>
+                                    </div>
+                                  </td>
+                                )}
+                              </>
+                            )}
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
-    <div style={{marginTop:8,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Stock reduces automatically as production orders are saved. Set opening stock in <strong>Settings → Opening Stock</strong>. Restock by scanning a purchase receipt.</div>
+    <div style={{marginTop:8,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Stock reduces automatically as production orders are saved. Set starting inventory in <strong>Settings → Starting Inventory</strong>. Restock by scanning a purchase receipt.</div>
   </div>
 }
 

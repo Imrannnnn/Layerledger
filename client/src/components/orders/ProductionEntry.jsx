@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Steps, Spinner } from "../common/ui.jsx"
 import { fmt, uid, today, calcFullCost, callClaude, compressImage } from "../../lib/helpers.js"
-import { DECORATION_ITEMS, FLAVOR_EXTRAS, PAYMENT_TYPES } from "../../constants.js"
+import { DECORATION_ITEMS, FLAVOR_EXTRAS, PAYMENT_TYPES, DEFAULT_MULTS, DEFAULT_COVERINGS } from "../../constants.js"
 import { saveInventory, saveProduction } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
@@ -26,7 +26,7 @@ export function ProductionEntry({inventory,setInventory,recipes,productions,setP
   const [flavors,setFlavors]=useState("");const [decorIds,setDecorIds]=useState([])
 
   // Multi-tier state — load from calculator prefill if available
-  const loadCovs=()=>{try{return JSON.parse(localStorage.getItem("ll_coverings")||"null")||[{name:"Naked",cost:0},{name:"Buttercream",cost:2500},{name:"Fondant",cost:4500},{name:"Drip",cost:3000}]}catch{return[]}}
+  const loadCovs=()=>{try{return JSON.parse(localStorage.getItem("ll_coverings")||"null")||DEFAULT_COVERINGS}catch{return DEFAULT_COVERINGS}}
   const availCoverings=loadCovs()
   const loadPrefill=()=>{
     try{
@@ -60,7 +60,7 @@ export function ProductionEntry({inventory,setInventory,recipes,productions,setP
   const [prefillPhone]=useState(()=>prefill?.clientPhone||"")
   const [decQtyMap,setDecQtyMap]=useState({})
   const layerRecipes=recipes.filter(r=>!r.type||r.type==="layer")
-  const loadMults=()=>{try{return JSON.parse(localStorage.getItem("ll_multipliers")||"null")||{}}catch{return{}}}
+  const loadMults=()=>{try{return JSON.parse(localStorage.getItem("ll_multipliers")||"null")||DEFAULT_MULTS}catch{return DEFAULT_MULTS}}
   const multTable=loadMults()
   const getMult=(s,sh)=>multTable[`${s}-${sh}`]||1
   const addProdTier=()=>setTiers(t=>[...t,{id:Date.now(),size:"6",shape:"round",covering:"Buttercream",layers:[{id:Date.now()+1,flavour:""}]}])

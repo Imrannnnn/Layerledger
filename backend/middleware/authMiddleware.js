@@ -24,12 +24,22 @@ const protect = async (req, res, next) => {
                     tenantId: true,
                     name: true,
                     email: true,
-                    role: true
+                    role: true,
+                    tenant: {
+                        select: {
+                            settings: true
+                        }
+                    }
                 }
             });
 
             if (!req.user) {
                 return res.status(401).json({ message: 'Not authorized, user no longer exists' });
+            }
+
+            // Block suspended accounts
+            if (req.user.tenant?.settings?.status === "Suspended") {
+                return res.status(403).json({ message: 'Access denied: Your account has been suspended. Please contact support.' });
             }
 
             return next();
