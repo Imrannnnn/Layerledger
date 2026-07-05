@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════
 
 const cache = {}
+const lastSyncedValues = {}
 
 const load = (key, fallback) => {
   if (cache[key] !== undefined && cache[key] !== null) {
@@ -118,19 +119,53 @@ export const syncToBackend = async () => {
       }
     }
 
-    // Sync to individual tables and await completions
-    await Promise.all([
-      syncInventoryItems(headers, JSON.parse(data["ll_inv"] || "[]")).catch(console.error),
-      syncRecipesList(headers, JSON.parse(data["ll_recipes"] || "[]")).catch(console.error),
-      syncExpensesList(headers, JSON.parse(data["ll_exp"] || "[]")).catch(console.error),
-      syncOrdersList(
+    // Sync to individual tables and await completions ONLY if data has changed
+    const syncPromises = []
+
+    if (data["ll_inv"] !== lastSyncedValues["ll_inv"]) {
+      syncPromises.push(syncInventoryItems(headers, JSON.parse(data["ll_inv"] || "[]"))
+        .then(() => { lastSyncedValues["ll_inv"] = data["ll_inv"] })
+        .catch(console.error))
+    }
+
+    if (data["ll_recipes"] !== lastSyncedValues["ll_recipes"]) {
+      syncPromises.push(syncRecipesList(headers, JSON.parse(data["ll_recipes"] || "[]"))
+        .then(() => { lastSyncedValues["ll_recipes"] = data["ll_recipes"] })
+        .catch(console.error))
+    }
+
+    if (data["ll_exp"] !== lastSyncedValues["ll_exp"]) {
+      syncPromises.push(syncExpensesList(headers, JSON.parse(data["ll_exp"] || "[]"))
+        .then(() => { lastSyncedValues["ll_exp"] = data["ll_exp"] })
+        .catch(console.error))
+    }
+
+    if (data["ll_prods"] !== lastSyncedValues["ll_prods"] || data["ll_quotes"] !== lastSyncedValues["ll_quotes"]) {
+      syncPromises.push(syncOrdersList(
         headers, 
         JSON.parse(data["ll_prods"] || "[]"), 
         JSON.parse(data["ll_quotes"] || "[]")
-      ).catch(console.error),
-      syncInvoicesList(headers, JSON.parse(data["ll_quote_invoices"] || "[]")).catch(console.error),
-      syncPurchasesList(headers, JSON.parse(data["ll_purchases"] || "[]")).catch(console.error)
-    ])
+      )
+        .then(() => { 
+          lastSyncedValues["ll_prods"] = data["ll_prods"]
+          lastSyncedValues["ll_quotes"] = data["ll_quotes"]
+        })
+        .catch(console.error))
+    }
+
+    if (data["ll_quote_invoices"] !== lastSyncedValues["ll_quote_invoices"]) {
+      syncPromises.push(syncInvoicesList(headers, JSON.parse(data["ll_quote_invoices"] || "[]"))
+        .then(() => { lastSyncedValues["ll_quote_invoices"] = data["ll_quote_invoices"] })
+        .catch(console.error))
+    }
+
+    if (data["ll_purchases"] !== lastSyncedValues["ll_purchases"]) {
+      syncPromises.push(syncPurchasesList(headers, JSON.parse(data["ll_purchases"] || "[]"))
+        .then(() => { lastSyncedValues["ll_purchases"] = data["ll_purchases"] })
+        .catch(console.error))
+    }
+
+    await Promise.all(syncPromises)
 
   } catch (error) {
     console.error("Sync to backend error:", error)
@@ -438,6 +473,9 @@ export const syncFromBackend = async () => {
         Object.keys(cache).forEach(k => {
           delete cache[k]
         })
+        Object.keys(lastSyncedValues).forEach(k => {
+          delete lastSyncedValues[k]
+        })
         Object.entries(state).forEach(([k, v]) => {
           if (v !== null) {
             try {
@@ -445,6 +483,7 @@ export const syncFromBackend = async () => {
             } catch {
               cache[k] = v
             }
+            lastSyncedValues[k] = typeof v === "string" ? v : JSON.stringify(v)
           }
         })
         return true
@@ -460,6 +499,9 @@ export const logout = () => {
   Object.keys(cache).forEach(k => {
     delete cache[k]
   })
+  Object.keys(lastSyncedValues).forEach(k => {
+    delete lastSyncedValues[k]
+  })
   localStorage.removeItem("ll_current_user")
   localStorage.removeItem("ll_tenant_info")
 }
@@ -473,6 +515,9 @@ export const clearAllDataOnServer = async () => {
   try {
     Object.keys(cache).forEach(k => {
       delete cache[k]
+    })
+    Object.keys(lastSyncedValues).forEach(k => {
+      delete lastSyncedValues[k]
     })
 
     // 1. Reset tenant settings localState
