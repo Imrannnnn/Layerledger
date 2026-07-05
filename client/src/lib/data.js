@@ -11,13 +11,20 @@ const load = (key, fallback) => {
   }
 }
 
-const save = (key, val) => {
+let isSyncing = false
+let syncQueue = false
+
+const save = async (key, val) => {
   try {
     localStorage.setItem(key, JSON.stringify(val))
-    syncToBackend()
+    await syncToBackend()
   } catch {
     // Ignored
   }
+}
+
+export const saveLocal = async (key, val) => {
+  await save(key, val)
 }
 
 export const getAuthHeaders = () => {
@@ -32,18 +39,34 @@ export const getAuthHeaders = () => {
 }
 
 export const syncToBackend = async () => {
+  if (isSyncing) {
+    syncQueue = true
+    return
+  }
+  isSyncing = true
+
   const headers = getAuthHeaders()
-  if (!headers) return
+  if (!headers) {
+    isSyncing = false
+    return
+  }
   const apiUrl = import.meta.env.VITE_API_URL
-  if (!apiUrl) return
+  if (!apiUrl) {
+    isSyncing = false
+    return
+  }
 
   try {
-    const keys = [
-      "ll_inv", "ll_recipes", "ll_prods", "ll_quotes", "ll_txns", "ll_exp",
-      "ll_purchases", "ll_payables", "ll_ap_payments", "ll_opening_balance",
-      "ll_co", "ll_users", "ll_clients", "ll_quote_invoices", "ll_multipliers",
-      "ll_onboarded", "ll_coverings", "ll_accessories", "ll_decorations", "ll_packaging"
-    ]
+    const keys = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith("ll_") && 
+          key !== "ll_current_user" && 
+          key !== "ll_superadmin_token" && 
+          key !== "ll_superadmin_email") {
+        keys.push(key)
+      }
+    }
     const data = {}
     keys.forEach(k => {
       data[k] = localStorage.getItem(k)
@@ -96,20 +119,28 @@ export const syncToBackend = async () => {
       }
     }
 
-    // Background sync to individual tables
-    syncInventoryItems(headers, JSON.parse(data["ll_inv"] || "[]")).catch(console.error)
-    syncRecipesList(headers, JSON.parse(data["ll_recipes"] || "[]")).catch(console.error)
-    syncExpensesList(headers, JSON.parse(data["ll_exp"] || "[]")).catch(console.error)
-    syncOrdersList(
-      headers, 
-      JSON.parse(data["ll_prods"] || "[]"), 
-      JSON.parse(data["ll_quotes"] || "[]")
-    ).catch(console.error)
-    syncInvoicesList(headers, JSON.parse(data["ll_quote_invoices"] || "[]")).catch(console.error)
-    syncPurchasesList(headers, JSON.parse(data["ll_purchases"] || "[]")).catch(console.error)
+    // Sync to individual tables and await completions
+    await Promise.all([
+      syncInventoryItems(headers, JSON.parse(data["ll_inv"] || "[]")).catch(console.error),
+      syncRecipesList(headers, JSON.parse(data["ll_recipes"] || "[]")).catch(console.error),
+      syncExpensesList(headers, JSON.parse(data["ll_exp"] || "[]")).catch(console.error),
+      syncOrdersList(
+        headers, 
+        JSON.parse(data["ll_prods"] || "[]"), 
+        JSON.parse(data["ll_quotes"] || "[]")
+      ).catch(console.error),
+      syncInvoicesList(headers, JSON.parse(data["ll_quote_invoices"] || "[]")).catch(console.error),
+      syncPurchasesList(headers, JSON.parse(data["ll_purchases"] || "[]")).catch(console.error)
+    ])
 
   } catch (error) {
     console.error("Sync to backend error:", error)
+  } finally {
+    isSyncing = false
+    if (syncQueue) {
+      syncQueue = false
+      await syncToBackend()
+    }
   }
 }
 
@@ -419,37 +450,92 @@ export const syncFromBackend = async () => {
   return false
 }
 
+export const logout = () => {
+  const keysToRemove = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key && key.startsWith("ll_") && 
+        key !== "ll_current_user" && 
+        key !== "ll_superadmin_token" && 
+        key !== "ll_superadmin_email") {
+      keysToRemove.push(key)
+    }
+  }
+  keysToRemove.forEach(k => localStorage.removeItem(k))
+}
+
+export const clearAllDataOnServer = async () => {
+  const headers = getAuthHeaders()
+  if (!headers) return
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) return
+
+  try {
+    // 1. Reset tenant settings localState
+    const res = await fetch(`${apiUrl}/api/tenant`, { headers })
+    if (res.ok) {
+      const tenant = await res.json()
+      const updatedSettings = {
+        ...(tenant.settings || {}),
+        localState: {}
+      }
+      await fetch(`${apiUrl}/api/tenant`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          name: tenant.name,
+          contactEmail: tenant.contactEmail || "",
+          contactPhone: tenant.contactPhone || "",
+          settings: updatedSettings
+        })
+      })
+    }
+
+    // 2. Clear individual tables
+    await Promise.all([
+      syncInventoryItems(headers, []),
+      syncRecipesList(headers, []),
+      syncExpensesList(headers, []),
+      syncOrdersList(headers, [], []),
+      syncInvoicesList(headers, []),
+      syncPurchasesList(headers, [])
+    ])
+  } catch (e) {
+    console.error("Failed to clear server data:", e)
+  }
+}
+
 
 // Inventory
 export const loadInventory = async (def = []) => {
   const t = load("ll_inv", null)
   return t && t.length > 0 ? t : (def || [])
 }
-export const saveInventory = async (data) => save("ll_inv", data)
+export const saveInventory = async (data) => await save("ll_inv", data)
 
 // Productions
 export const loadProductions = async (def = []) => load("ll_prods", def)
-export const saveProductionsList = async (data) => save("ll_prods", data)
+export const saveProductionsList = async (data) => await save("ll_prods", data)
 export const saveProduction = async (prod) => {
   const all = load("ll_prods", [])
   const exists = all.find(p => p.id === prod.id)
-  save("ll_prods", exists ? all.map(p => p.id === prod.id ? prod : p) : [...all, prod])
+  await save("ll_prods", exists ? all.map(p => p.id === prod.id ? prod : p) : [...all, prod])
 }
 export const updateProdStatus = async (id, status) => {
-  save("ll_prods", load("ll_prods", []).map(p => p.id === id ? { ...p, status } : p))
+  await save("ll_prods", load("ll_prods", []).map(p => p.id === id ? { ...p, status } : p))
 }
 
 // Transactions
 export const loadTransactions = async (def = []) => load("ll_txns", def)
-export const saveTxns = async (data) => save("ll_txns", data)
+export const saveTxns = async (data) => await save("ll_txns", data)
 
 // Expenses
 export const loadExpenses = () => load("ll_exp", [])
-export const saveExpenses = (data) => save("ll_exp", data)
+export const saveExpenses = async (data) => await save("ll_exp", data)
 
 // Settings
 export const loadSetting = (key, def) => load("ll_setting_" + key, def)
-export const saveSetting = (key, val) => save("ll_setting_" + key, val)
+export const saveSetting = async (key, val) => await save("ll_setting_" + key, val)
 
 // Company
 export const loadCompany = () => load("ll_co", {
@@ -461,37 +547,37 @@ export const loadCompany = () => load("ll_co", {
   primaryColor: "#f6ae13",
   sidebarColor: "#0a0a0a",
 })
-export const saveCompany = (data) => save("ll_co", data)
+export const saveCompany = async (data) => await save("ll_co", data)
 
 // Quotes
 export const loadQuotes = () => load("ll_quotes", [])
-export const saveQuotes = (data) => save("ll_quotes", data)
+export const saveQuotes = async (data) => await save("ll_quotes", data)
 
 // Invoices
 export const loadInvoices = () => load("ll_invoices", [])
-export const saveInvoice = (data) => save("ll_invoices", data)
+export const saveInvoice = async (data) => await save("ll_invoices", data)
 
 // Users
 export const loadUsers = () => load("ll_users", [{ id: "u1", name: "Owner", pin: "1234", role: "owner" }])
-export const saveUsers = (data) => save("ll_users", data)
+export const saveUsers = async (data) => await save("ll_users", data)
 
 // Recipes
 export const loadRecipes = () => load("ll_recipes", null)
-export const saveRecipes = (data) => save("ll_recipes", data)
+export const saveRecipes = async (data) => await save("ll_recipes", data)
 
 // Clients
 export const loadClients = () => load("ll_clients", [])
-export const upsertClient = (name, phone, email) => {
+export const upsertClient = async (name, phone, email) => {
   if (!name || !name.trim()) return
   const all = loadClients()
   if (all.find(c => c.name.toLowerCase() === name.toLowerCase())) {
-    save("ll_clients", all.map(c =>
+    await save("ll_clients", all.map(c =>
       c.name.toLowerCase() === name.toLowerCase()
         ? { ...c, phone: phone || c.phone, email: email || c.email, lastOrder: new Date().toISOString().slice(0, 10) }
         : c
     ))
   } else {
-    save("ll_clients", [...all, {
+    await save("ll_clients", [...all, {
       id: "cl_" + Date.now(),
       name: name.trim(),
       phone: phone || "",

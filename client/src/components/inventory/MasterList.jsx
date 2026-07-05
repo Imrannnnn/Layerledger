@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert } from "../common/ui.jsx"
 import { fmt, uid, recipeCost, parseCSV } from "../../lib/helpers.js"
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
-import { saveInventory, saveRecipes } from "../../lib/data.js"
+import { saveInventory, saveRecipes, saveLocal } from "../../lib/data.js"
 
 
 export function RestockCell({id,unit,onRestock}){
@@ -584,7 +584,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
 export function DecorationsTab({inventory, isOwner}){
   const LS_KEY = "ll_decorations"
   const load = () => { try { const v=localStorage.getItem(LS_KEY); return v?JSON.parse(v):DECORATION_ITEMS } catch { return DECORATION_ITEMS } }
-  const save = (items) => { try { localStorage.setItem(LS_KEY, JSON.stringify(items)) } catch {} }
+  const save = (items) => { saveLocal(LS_KEY, items) }
 
   const [items, setItems] = useState(load)
   const [editId, setEditId] = useState(null)
@@ -690,7 +690,7 @@ export function PackagingTab({isOwner}){
     {id:"p11",name:"Cake Box 10\"",price:800,unit:"per piece"},{id:"p12",name:"Cake Box 12\"",price:1000,unit:"per piece"},
     {id:"p13",name:"Dowels (pack)",price:500,unit:"per pack"},{id:"p14",name:"Delivery box",price:1500,unit:"per piece"},
   ]}catch{return[]}}
-  const save=(items)=>{try{localStorage.setItem(LS_KEY,JSON.stringify(items))}catch{}}
+  const save=(items)=>{saveLocal(LS_KEY,items)}
   const [items,setItems]=useState(load)
   const [adding,setAdding]=useState(false)
   const [newItem,setNewItem]=useState({name:"",price:"",unit:"per piece"})

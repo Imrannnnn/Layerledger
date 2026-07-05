@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
 import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
-import { saveSetting, saveCompany, saveUsers } from "../../lib/data.js"
+import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, clearAllDataOnServer, logout } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
 
 // ═══════════════════════════════════════════════════════════
@@ -68,11 +68,12 @@ export function NotificationSettings(){
   const [notifDays,setNotifDays]=useState(()=>load("ll_notif_days","2"))
   const [saved,setSaved]=useState(false)
 
-  const save=()=>{
+  const save=async ()=>{
     localStorage.setItem("ll_notif_enabled",notifEnabled)
     localStorage.setItem("ll_auto_stock",autoStock)
     localStorage.setItem("ll_lowstock_alert",lowStockAlert)
     localStorage.setItem("ll_notif_days",notifDays)
+    await syncToBackend()
     setSaved(true);setTimeout(()=>setSaved(false),2500)
   }
 
@@ -129,18 +130,18 @@ export function OpeningStockTab({inventory}){
   const [saved,setSaved]=useState(false)
   const curMonth=new Date().toLocaleDateString("en-NG",{month:"long",year:"numeric"})
 
-  const updateOS=(id,val)=>{
+  const updateOS=async (id,val)=>{
     const updated={...os,[id]:parseFloat(val)||0}
     setOs(updated)
-    localStorage.setItem(LS_KEY,JSON.stringify(updated))
+    await saveLocal(LS_KEY, updated)
     setSaved(false)
   }
 
-  const lockStock=()=>{
+  const lockStock=async ()=>{
     // Save with month key so it's permanent for this month
     const monthKey="ll_os_"+new Date().toISOString().slice(0,7)
     const snapshot={date:new Date().toISOString(),items:inventory.map(i=>({id:i.id,name:i.name,unit:i.unit,openingQty:os[i.id]||0,cost:i.cost}))}
-    localStorage.setItem(monthKey,JSON.stringify(snapshot))
+    await saveLocal(monthKey, snapshot)
     setSaved(true)
   }
 
@@ -204,9 +205,9 @@ export function PricingSetup({settings,setSetting}){
   const [newAcc,setNewAcc]=useState({name:"",cost:"",per:"order"})
   const [saved,setSaved]=useState("")
 
-  const saveMults=()=>{localStorage.setItem("ll_multipliers",JSON.stringify(mults));setSaved("mults");setTimeout(()=>setSaved(""),2000)}
-  const saveCoverings=()=>{localStorage.setItem("ll_coverings",JSON.stringify(coverings));setSaved("covs");setTimeout(()=>setSaved(""),2000)}
-  const saveAccessories=()=>{localStorage.setItem("ll_accessories",JSON.stringify(accessories));setSaved("accs");setTimeout(()=>setSaved(""),2000)}
+  const saveMults=async()=>{await saveLocal("ll_multipliers",mults);setSaved("mults");setTimeout(()=>setSaved(""),2000)}
+  const saveCoverings=async()=>{await saveLocal("ll_coverings",coverings);setSaved("covs");setTimeout(()=>setSaved(""),2000)}
+  const saveAccessories=async()=>{await saveLocal("ll_accessories",accessories);setSaved("accs");setTimeout(()=>setSaved(""),2000)}
 
   const tabs=[
     {v:"mults",l:"Size multipliers"},
@@ -408,9 +409,10 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
     r.readAsText(f)
   }
 
-  const clearAllData = () => {
+  const clearAllData = async () => {
     if (clearConfirm !== (company.name || "LayerLedger")) return
-    ALL_KEYS.forEach(k => localStorage.removeItem(k))
+    await clearAllDataOnServer()
+    logout()
     window.location.reload()
   }
 

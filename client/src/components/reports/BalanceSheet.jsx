@@ -9,15 +9,16 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Card, SHead } from "../common/ui.jsx"
 import { fmt, today } from "../../lib/helpers.js"
 import { mergeRevenueSources, loadOpeningBalance, PLRow } from "../../lib/costing.jsx"
+import { saveLocal } from "../../lib/data.js"
 
 export function BalanceSheet({productions,expenses,inventory,transactions,company}){
   const ob=loadOpeningBalance()
   const [editing,setEditing]=useState(!ob)
   const [ob2,setOb2]=useState(ob||{cash:"",equipment:"",capital:"",loanBalance:"",asOf:today()})
 
-  const saveOB=()=>{
+  const saveOB=async ()=>{
     const data={cash:+ob2.cash||0,equipment:+ob2.equipment||0,capital:+ob2.capital||0,loanBalance:+ob2.loanBalance||0,asOf:ob2.asOf}
-    localStorage.setItem("ll_opening_balance",JSON.stringify(data))
+    await saveLocal("ll_opening_balance",data)
     setEditing(false)
   }
 

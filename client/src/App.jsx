@@ -30,7 +30,7 @@ import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 
 import { loadInventory, saveInventory, loadProductions, saveProduction, updateProdStatus,
   loadTransactions, saveTxns, loadExpenses, saveExpenses, loadSetting, saveSetting,
   loadCompany, saveCompany, loadInvoices, saveInvoice, loadUsers, saveUsers,
-  loadRecipes, saveRecipes, syncToBackend, syncFromBackend, loadTenantInfo } from "./lib/data.js"
+  loadRecipes, saveRecipes, syncToBackend, syncFromBackend, loadTenantInfo, logout } from "./lib/data.js"
 
 // ─── Seed data & helpers ────────────────────────────────────────────────────
 import { DEFAULT_INV, DEFAULT_RECIPES } from "./constants.js"
@@ -238,9 +238,10 @@ export default function App(){
       {viewHistory.length>1&&<div onClick={goBack} style={{cursor:"pointer",color:gold,marginBottom:6,display:"flex",alignItems:"center",gap:4,fontSize:12,fontWeight:500}}>← Back</div>}
       <div style={{fontSize:11.5,color:"#6B4A2A",fontWeight:500}}>{currentUser?.name}</div>
       <div style={{fontSize:10.5,color:"#3D2010",marginTop:1,display:"flex",justifyContent:"space-between"}}>
-        <span style={{cursor:"pointer",color:gold}} onClick={()=>{
+        <span style={{cursor:"pointer",color:gold}} onClick={async ()=>{
+          await syncToBackend();
+          logout();
           setCurrentUser(null);
-          localStorage.removeItem("ll_current_user");
         }}>Logout</span>
       </div>
     </div>

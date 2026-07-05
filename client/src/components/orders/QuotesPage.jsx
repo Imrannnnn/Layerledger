@@ -9,7 +9,7 @@
 import React, { useState } from "react"
 import { Btn, Card, SHead, iSt } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
-import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes } from "../../lib/data.js"
+import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal } from "../../lib/data.js"
 import { DEFAULT_MULTS } from "../../constants.js"
 import { Invoices } from "./Invoices.jsx"
 
@@ -384,7 +384,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                           </>
                         )}
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             // Build and show invoice
                             const co = loadCompany()
                             const trs = q.tiers || []
@@ -504,8 +504,8 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                             w.document.close()
                             // Auto-save invoice to Invoices page
                             const savedInv = { id: invoiceNum, quoteId: q.id, clientName: q.clientName, clientPhone: q.clientPhone || "", date: q.date, deliveryDate: q.deliveryDate || "", amount: q.grandTotal || ((q.salePrice || q.quotePrice || 0) + (q.deliveryCharge || 0) + (q.vatAmount || 0)), cakeAmount: q.salePrice || q.quotePrice || 0, deliveryCharge: q.deliveryCharge || 0, vatAmount: q.vatAmount || 0, vatRate: q.vatRate || 0, productType: q.productType || "Cake", cakeSummary: q.cakeSummary || "", notes: q.notes || "", status: "unpaid", bankName: co.bankName || "", bankAccount: co.bankAccount || "", bankAccountName: co.bankAccountName || "", businessName: co.name || "Fayvouree Cakes" }
-                            const existing = JSON.parse(localStorage.getItem("ll_quote_invoices") || "[]")
-                            if (!existing.find(i => i.id === invoiceNum)) { localStorage.setItem("ll_quote_invoices", JSON.stringify([savedInv, ...existing])) }
+                             const existing = JSON.parse(localStorage.getItem("ll_quote_invoices") || "[]")
+                             if (!existing.find(i => i.id === invoiceNum)) { await saveLocal("ll_quote_invoices", [savedInv, ...existing]) }
                           }}
                           style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: "#1D9E75", color: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}
                         >
