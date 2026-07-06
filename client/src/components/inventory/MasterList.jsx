@@ -263,12 +263,17 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
     const ns=L(pasteN),us=L(pasteU),cs=L(pasteC)
     if(!ns.length||!cs.length)return showMsg("Item names and cost per unit are required","red")
     if(ns.length!==cs.length)return showMsg(`Names (${ns.length}) and costs (${cs.length}) must have same number of rows`,"red")
-    const items=ns.map((name,i)=>({
-      id:uid(),name,
-      unit:us[i]||"kg",
-      cost:parseFloat(cs[i])||0,
-      stock:0,minStock:5,on:true,cat:"Dry Goods"
-    })).filter(p=>p.name&&p.cost)
+    const items=ns.map((name,i)=>{
+      const rawCost = cs[i] || ""
+      const cleanedCostStr = rawCost.replace(/[^0-9.]/g, "")
+      const parsedCost = parseFloat(cleanedCostStr) || 0
+      return {
+        id:uid(),name,
+        unit:us[i]||"kg",
+        cost:parsedCost,
+        stock:0,minStock:5,on:true,cat:"Dry Goods"
+      }
+    }).filter(p=>p.name&&p.cost)
     if(!items.length)return showMsg("No valid items found","red")
     setPrevItems(items);setImportStep(2)
   }
