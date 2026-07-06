@@ -134,17 +134,22 @@ export default function App(){
   useEffect(()=>{
     async function init(){
       setLoading(true)
-      if (currentUser) {
-        await syncFromBackend()
-        setTenantInfo(loadTenantInfo())
+      try {
+        if (currentUser) {
+          await syncFromBackend()
+          setTenantInfo(loadTenantInfo())
+        }
+        const [inv,prods,txns]=await Promise.all([loadInventory(DEFAULT_INV),loadProductions([]),loadTransactions([])])
+        setInventory(inv);setProductions(prods);setTransactions(txns)
+        setExpenses(loadExpenses());setUsers(loadUsers());setCompany(loadCompany())
+        const saved=loadRecipes();if(saved)setRecipes(saved)
+        setSettings({accessoryPct:loadSetting("accessoryPct",10),profitPct:loadSetting("profitPct",40)})
+        setOnboarded(!!loadLocal("ll_onboarded", false))
+      } catch (err) {
+        console.error("Initialization error:", err)
+      } finally {
+        setLoading(false)
       }
-      const [inv,prods,txns]=await Promise.all([loadInventory(DEFAULT_INV),loadProductions([]),loadTransactions([])])
-      setInventory(inv);setProductions(prods);setTransactions(txns)
-      setExpenses(loadExpenses());setUsers(loadUsers());setCompany(loadCompany())
-      const saved=loadRecipes();if(saved)setRecipes(saved)
-      setSettings({accessoryPct:loadSetting("accessoryPct",10),profitPct:loadSetting("profitPct",40)})
-      setOnboarded(!!loadLocal("ll_onboarded", false))
-      setLoading(false)
     }
     init()
   },[currentUser])
@@ -220,6 +225,7 @@ export default function App(){
 
   // Show onboarding for first-time users
   if(currentUser&&!onboarded){
+    if (loading) return <Spinner />
     return <Suspense fallback={<Spinner />}><Onboarding
       gold={gold}
       company={company}

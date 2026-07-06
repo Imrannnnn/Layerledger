@@ -14,6 +14,21 @@ const load = (key, fallback) => {
       return cache[key]
     }
   }
+  try {
+    const localVal = localStorage.getItem(key)
+    if (localVal !== null && localVal !== undefined) {
+      try {
+        const parsed = JSON.parse(localVal)
+        cache[key] = parsed
+        return parsed
+      } catch {
+        cache[key] = localVal
+        return localVal
+      }
+    }
+  } catch (e) {
+    // Ignored
+  }
   return fallback
 }
 
@@ -32,8 +47,13 @@ let hasLoadedFromBackend = false
 const save = async (key, val) => {
   try {
     cache[key] = val
+    try {
+      localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val))
+    } catch (e) {
+      // Ignored
+    }
     await syncToBackend()
-  } catch {
+  } catch (e) {
     // Ignored
   }
 }
@@ -507,6 +527,11 @@ export const syncFromBackend = async () => {
               cache[k] = v
             }
             lastSyncedValues[k] = typeof v === "string" ? v : JSON.stringify(v)
+            try {
+              localStorage.setItem(k, typeof v === "string" ? v : JSON.stringify(v))
+            } catch (e) {
+              // Ignore
+            }
             if (k === "ll_anthropic_key") {
               window.__anthropic_key = cache[k]
             }
@@ -531,8 +556,21 @@ export const logout = () => {
   Object.keys(lastSyncedValues).forEach(k => {
     delete lastSyncedValues[k]
   })
-  localStorage.removeItem("ll_current_user")
-  localStorage.removeItem("ll_tenant_info")
+  try {
+    localStorage.removeItem("ll_current_user")
+    localStorage.removeItem("ll_tenant_info")
+    // Remove all cache-related keys from localStorage
+    const keysToRemove = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith("ll_")) {
+        keysToRemove.push(key)
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k))
+  } catch (e) {
+    // Ignore
+  }
 }
 
 export const clearAllDataOnServer = async () => {
