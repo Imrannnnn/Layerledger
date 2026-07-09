@@ -136,7 +136,7 @@ export function MonthlyOverview({ inventory, productions, expenses, company }) {
         <Btn onClick={dl}>📥 Download PDF</Btn>
         {osItems.length === 0 && (
           <span style={{ fontSize: 12, color: "#B03A2E", background: "#FDEBE9", padding: "4px 10px", borderRadius: 20 }}>
-            ⚠ No starting inventory set for {monthLabel} — go to Settings → Starting Inventory
+            ⚠ No opening stock set for {monthLabel} — go to Settings → Opening Stock
           </span>
         )}
       </div>

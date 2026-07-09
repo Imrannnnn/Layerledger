@@ -73,7 +73,7 @@ export function StockStatement({inventory,productions,expenses,company}){
       <Btn onClick={dl} variant="outline">📥 Download PDF</Btn>
     </div>
 
-    {osItems.length===0&&<Alert msg={`No starting inventory locked for ${monthLabel}. Go to Settings → Starting Inventory to set it.`} color="gold"/>}
+    {osItems.length===0&&<Alert msg={`No opening stock locked for ${monthLabel}. Go to Settings → Opening Stock to set it.`} color="gold"/>}
 
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:16}}>
       {[{l:"Total Purchased",v:fmt(totalPurchased),s:"from receipts this month",c:"#357A52"},
@@ -84,7 +84,7 @@ export function StockStatement({inventory,productions,expenses,company}){
 
     <Card style={{padding:0,overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-        <TH cols={["Item","Unit","Starting inventory","− Used in prod.","Closing stock","Cost/unit","Closing value"]}/>
+        <TH cols={["Item","Unit","Opening stock","− Used in prod.","Closing stock","Cost/unit","Closing value"]}/>
         <tbody>{inventory.map((item,i)=>{
           const opening=getOSQty(item.id)
           const closing=item.stock
@@ -105,7 +105,7 @@ export function StockStatement({inventory,productions,expenses,company}){
         </tr></tfoot>
       </table>
     </Card>
-    <div style={{marginTop:10,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Starting inventory is locked in Settings → Starting Inventory at the start of each month. Closing stock is the live current quantity. Used in production is calculated as starting − closing.</div>
+    <div style={{marginTop:10,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Opening stock is locked in Settings → Opening Stock at the start of each month. Closing stock is the live current quantity. Used in production is calculated as opening − closing.</div>
   </div>
 }
 

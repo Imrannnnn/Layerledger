@@ -283,7 +283,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
     const updated=[...inventory,...approved.filter(ni=>!inventory.find(i=>i.name.toLowerCase()===ni.name.toLowerCase()))]
     setInventory(updated);await saveInventory(updated)
     setPasteN("");setPasteU("");setPasteC("");setImportStep(3)
-    showMsg(`✓ ${approved.length} items imported. Set starting inventory in Settings → Starting Inventory.`,"green")
+    showMsg(`✓ ${approved.length} items imported. Set opening stock in Settings → Opening Stock.`,"green")
   }
 
   const addSingle=async()=>{
@@ -292,7 +292,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
     const updated=[...inventory,item]
     setInventory(updated);await saveInventory(updated)
     setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods"});setShowAdd(false)
-    showMsg("✓ Item added. Set starting inventory in Settings → Starting Inventory.","green")
+    showMsg("✓ Item added. Set opening stock in Settings → Opening Stock.","green")
   }
 
   const startEdit=(item)=>{setEditId(item.id);setEditRow({...item})}
@@ -451,7 +451,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
 
       {/* STEP 2 — preview */}
       {importStep===2&&<div>
-        <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:10}}>Check every row. Toggle off anything you don't want. Starting inventory is set in Settings after import.</div>
+        <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:10}}>Check every row. Toggle off anything you don't want. Opening stock is set in Settings after import.</div>
         <div style={{overflowX:"auto",marginBottom:10}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5}}>
             <thead><tr style={{background:"#EDE5D6"}}>
@@ -466,7 +466,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
           </table>
         </div>
         <div style={{background:"#EEF8F3",border:"1px solid #C2E0CF",borderRadius:7,padding:"8px 12px",fontSize:12,color:"#357A52",marginBottom:10}}>
-          After import, go to <strong>Settings → Starting Inventory</strong> to set your starting quantities. Stock will then track automatically from there.
+          After import, go to <strong>Settings → Opening Stock</strong> to set your opening quantities. Stock will then track automatically from there.
         </div>
         <div style={{display:"flex",gap:8}}>
           <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p=>p.on)}>✓ Confirm & Import {prevItems.filter(p=>p.on).length} Items</Btn>
@@ -477,7 +477,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
       {/* STEP 3 — done */}
       {importStep===3&&<div style={{textAlign:"center",padding:"16px 0"}}>
         <div style={{fontSize:16,color:"#357A52",fontWeight:600,marginBottom:6}}>✓ Import complete</div>
-        <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>Go to <strong>Settings → Starting Inventory</strong> to set starting quantities.</div>
+        <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>Go to <strong>Settings → Opening Stock</strong> to set opening quantities.</div>
         <Btn variant="ghost" onClick={()=>{setImportStep(1);setShowImport(false)}}>Done</Btn>
       </div>}
     </Card>}
@@ -577,7 +577,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
         )
       })}
     </div>
-    <div style={{marginTop:8,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Stock reduces automatically as production orders are saved. Set starting inventory in <strong>Settings → Starting Inventory</strong>. Restock by scanning a purchase receipt.</div>
+    <div style={{marginTop:8,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Stock reduces automatically as production orders are saved. Set opening stock in <strong>Settings → Opening Stock</strong>. Restock by scanning a purchase receipt.</div>
   </div>
 }
 

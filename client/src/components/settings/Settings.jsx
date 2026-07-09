@@ -146,13 +146,13 @@ export function OpeningStockTab({inventory}){
 
   return <div style={{maxWidth:640}}>
     <Card style={{marginBottom:14,background:"#FFF9EE",borderColor:"var(--gold)"}}>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:8}}>Starting Inventory — {curMonth}</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:8}}>Opening Stock — {curMonth}</div>
       <p style={{fontSize:12.5,color:"var(--muted)",marginTop:0,lineHeight:1.7,marginBottom:12}}>Set this once at the start of each month — or when you first set up the app. Once locked, this record never changes. It is used to generate your monthly stock statement automatically.</p>
-      <div style={{padding:"8px 12px",background:"#FFF3CD",borderRadius:7,fontSize:12,color:"#856404",marginBottom:14}}>⚠ Set starting inventory at the beginning of each month before production starts. Once you lock it, it becomes a permanent record for that month.</div>
+      <div style={{padding:"8px 12px",background:"#FFF3CD",borderRadius:7,fontSize:12,color:"#856404",marginBottom:14}}>⚠ Set opening stock at the beginning of each month before production starts. Once you lock it, it becomes a permanent record for that month.</div>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
           <thead><tr style={{background:"#EDE5D6"}}>
-            {["Item","Unit","Starting Inventory Qty","Cost/Unit","Starting Value"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:h==="Item"||h==="Unit"?"left":"right",fontSize:10,textTransform:"uppercase",letterSpacing:.8,color:"var(--muted)",fontWeight:500}}>{h}</th>)}
+            {["Item","Unit","Opening Stock Qty","Cost/Unit","Opening Value"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:h==="Item"||h==="Unit"?"left":"right",fontSize:10,textTransform:"uppercase",letterSpacing:.8,color:"var(--muted)",fontWeight:500}}>{h}</th>)}
           </tr></thead>
           <tbody>{inventory.map((item,i)=>{
             const qty=os[item.id]||0
@@ -167,14 +167,14 @@ export function OpeningStockTab({inventory}){
             </tr>
           })}</tbody>
           <tfoot><tr>
-            <td colSpan={4} style={{padding:"10px",textAlign:"right",fontWeight:600,fontSize:13}}>Total starting inventory value</td>
+            <td colSpan={4} style={{padding:"10px",textAlign:"right",fontWeight:600,fontSize:13}}>Total opening stock value</td>
             <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:"var(--gold)",fontSize:15}}>{fmt(inventory.reduce((s,i)=>s+(os[i.id]||0)*i.cost,0))}</td>
           </tr></tfoot>
         </table>
       </div>
       <div style={{marginTop:14,display:"flex",gap:10,alignItems:"center"}}>
-        <Btn variant="success" onClick={lockStock}>🔒 Lock Starting Inventory for {curMonth}</Btn>
-        {saved&&<span style={{fontSize:12.5,color:"#357A52",fontWeight:500}}>✓ Starting inventory locked and saved permanently</span>}
+        <Btn variant="success" onClick={lockStock}>🔒 Lock Open Stock for {curMonth}</Btn>
+        {saved&&<span style={{fontSize:12.5,color:"#357A52",fontWeight:500}}>✓ Opening stock locked and saved permanently</span>}
       </div>
     </Card>
     <Card>
@@ -350,7 +350,7 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
   const tabList = [
     {v:"company",l:"Company"},
     {v:"pricing",l:"Pricing & Margins"},
-    {v:"stock",l:"Starting Inventory"},
+    {v:"stock",l:"Opening Stock"},
     {v:"notifications",l:"Notifications"}
   ]
   if (user?.role === "owner") tabList.push({v:"users",l:"Users & Access"})

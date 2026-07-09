@@ -74,21 +74,7 @@ export const DEFAULT_INV = [
 // `ing` = list of { iid: inventory item id, qty: amount in that item's unit }.
 export const DEFAULT_RECIPES = [
   { id: "r1", name: "Vanilla Cake", notes: "Classic vanilla sponge — quantities for 1 layer",
-    ing: [{ iid: "i1", qty: 0.3 }, { iid: "i2", qty: 0.25 }, { iid: "i5", qty: 0.2 }, { iid: "i7", qty: 3 }, { iid: "i8", qty: 0.15 }, { iid: "i11", qty: 0.3 }, { iid: "i15", qty: 0.005 }, { iid: "i26", qty: 0.1 }] },
-  { id: "r2", name: "Red Velvet Cake", notes: "Red velvet sponge — quantities for 1 layer",
-    ing: [{ iid: "i1", qty: 0.3 }, { iid: "i2", qty: 0.25 }, { iid: "i5", qty: 0.2 }, { iid: "i7", qty: 3 }, { iid: "i3", qty: 0.12 }, { iid: "i16", qty: 0.01 }, { iid: "i23", qty: 0.03 }, { iid: "i24", qty: 3 }, { iid: "i15", qty: 0.005 }] },
-  { id: "r3", name: "Chocolate Cake", notes: "Rich chocolate sponge — quantities for 1 layer",
-    ing: [{ iid: "i1", qty: 0.28 }, { iid: "i2", qty: 0.25 }, { iid: "i5", qty: 0.2 }, { iid: "i7", qty: 3 }, { iid: "i8", qty: 0.1 }, { iid: "i20", qty: 0.06 }, { iid: "i21", qty: 0.05 }, { iid: "i15", qty: 0.005 }] },
-  { id: "r4", name: "Carrot Cake", notes: "Moist carrot cake — quantities for 1 layer",
-    ing: [{ iid: "i1", qty: 0.25 }, { iid: "i2", qty: 0.2 }, { iid: "i3", qty: 0.15 }, { iid: "i7", qty: 3 }, { iid: "i28", qty: 0.2 }, { iid: "i15", qty: 0.005 }] },
-  { id: "r5", name: "Lemon Cake", notes: "Light lemon sponge — quantities for 1 layer",
-    ing: [{ iid: "i1", qty: 0.3 }, { iid: "i2", qty: 0.25 }, { iid: "i4", qty: 0.15 }, { iid: "i7", qty: 3 }, { iid: "i8", qty: 0.1 }, { iid: "i15", qty: 0.005 }] },
-  { id: "r6", name: "Fruit Cake", notes: "Rich fruit cake — quantities for 1 layer",
-    ing: [{ iid: "i1", qty: 0.25 }, { iid: "i2", qty: 0.2 }, { iid: "i5", qty: 0.18 }, { iid: "i7", qty: 3 }, { iid: "i27", qty: 0.2 }, { iid: "i15", qty: 0.004 }] },
-  { id: "r7", name: "Cupcakes (x12)", notes: "Yields 12 cupcakes — do not multiply by layers",
-    ing: [{ iid: "i1", qty: 0.2 }, { iid: "i2", qty: 0.15 }, { iid: "i5", qty: 0.15 }, { iid: "i7", qty: 2 }, { iid: "i8", qty: 0.1 }, { iid: "i11", qty: 0.2 }, { iid: "i15", qty: 0.003 }, { iid: "i42", qty: 1 }] },
-  { id: "r8", name: "Cake Loaf", notes: "Standard loaf — do not multiply by layers",
-    ing: [{ iid: "i1", qty: 0.25 }, { iid: "i2", qty: 0.2 }, { iid: "i5", qty: 0.18 }, { iid: "i7", qty: 3 }, { iid: "i8", qty: 0.15 }, { iid: "i15", qty: 0.004 }] },
+    ing: [{ iid: "i1", qty: 0.3 }, { iid: "i2", qty: 0.25 }, { iid: "i5", qty: 0.2 }, { iid: "i7", qty: 3 }, { iid: "i8", qty: 0.15 }, { iid: "i11", qty: 0.3 }, { iid: "i15", qty: 0.005 }, { iid: "i26", qty: 0.1 }] }
 ]
 
 // ─── Decoration extras ──────────────────────────────────────────────────────

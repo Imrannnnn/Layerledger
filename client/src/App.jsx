@@ -232,6 +232,8 @@ export default function App(){
       setCompany={setCompany}
       inventory={inventory}
       setInventory={setInventory}
+      recipes={recipes}
+      setRecipes={setRecipes}
       settings={settings}
       setSettings={setSettings}
       onComplete={async ()=>{await saveLocal("ll_onboarded","1");setOnboarded(true)}}
