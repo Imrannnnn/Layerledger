@@ -37,6 +37,10 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   const [warnMsg, setWarnMsg] = useState("")
   const [importMsg, setImportMsg] = useState("")
 
+  // Step 2: Manual Add State
+  const [showManualAdd, setShowManualAdd] = useState(false)
+  const [manualItem, setManualItem] = useState({ name: "", unit: "kg", cost: "", openingQty: "" })
+
   const co = (field, val) => {
     const u = { ...company, [field]: val }
     setCompany(u)
@@ -148,6 +152,36 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
     }, 800)
   }
 
+  const handleManualAdd = async () => {
+    if (!manualItem.name.trim() || !manualItem.cost) {
+      alert("Item name and cost per unit are required")
+      return
+    }
+    const costNum = parseFloat(manualItem.cost) || 0
+    const qtyNum = parseFloat(manualItem.openingQty) || 0
+    const newItem = {
+      id: uid(),
+      name: manualItem.name.trim(),
+      unit: manualItem.unit || "kg",
+      cost: costNum,
+      stock: qtyNum,
+      minStock: 5,
+      on: true,
+      cat: "Dry Goods"
+    }
+
+    const updated = [...inventory, newItem]
+    setInventory(updated)
+    await saveInventory(updated)
+
+    const updatedOS = { ...os, [newItem.id]: qtyNum }
+    setOs(updatedOS)
+    await saveLocal("ll_opening_stock", updatedOS)
+
+    setManualItem({ name: "", unit: "kg", cost: "", openingQty: "" })
+    setShowManualAdd(false)
+  }
+
   // Recipe Helpers (Step 3)
   const openRecipe = (r) => {
     setRecipeModal(r ? { ...r } : { id: uid(), name: "", type: "layer", notes: "", ing: [{ iid: "", qty: "" }] })
@@ -241,8 +275,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             <Inp label="Phone Number" value={company.phone} onChange={v => co("phone", v)} placeholder="e.g. +234 80 1234 5678" />
             <Inp label="Email Address" value={company.email} onChange={v => co("email", v)} placeholder="e.g. contact@fayvoureecakes.com" />
 
-            <div style={{ marginTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <Btn variant="outline" onClick={() => { setImportStep(1); setShowImport(true) }}>📋 Import from Excel</Btn>
+            <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
               <Btn disabled={!company.name?.trim()} onClick={() => setStep(2)}>Next: Set Up Opening Stock →</Btn>
             </div>
 
@@ -332,34 +365,53 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
               <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>Set your starting quantities for {curMonth}. These levels establish your initial record for the month.</div>
             </div>
 
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>Inventory Items</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn small variant="outline" onClick={() => { setImportStep(1); setShowImport(true) }}>📋 Import from Excel</Btn>
+                <Btn small variant="outline" onClick={() => setShowManualAdd(true)}>➕ Add Item</Btn>
+              </div>
+            </div>
+
             <div style={{ overflowY: "auto", maxHeight: 260, border: "1px solid var(--border)", borderRadius: 10, marginBottom: 16 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: "#EDE5D6", position: "sticky", top: 0, zIndex: 10 }}>
-                    {["Item", "Unit", "Opening Qty"].map(h => (
-                      <th key={h} style={{ padding: "8px 10px", textAlign: h === "Opening Qty" ? "right" : "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>
+                    {["Item", "Unit", "Opening Stock Qty", "Cost/Unit", "Opening Value"].map(h => (
+                      <th key={h} style={{ padding: "8px 10px", textAlign: (h === "Item" || h === "Unit") ? "left" : "right", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {inventory.map((item, i) => {
-                    const qty = os[item.id] || 0
-                    return (
-                      <tr key={item.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
-                        <td style={{ padding: "8px 10px", fontWeight: 500 }}>{item.name}</td>
-                        <td style={{ padding: "8px 10px", color: "var(--muted)" }}>{item.unit}</td>
-                        <td style={{ padding: "8px 10px", textAlign: "right" }}>
-                          <input
-                            type="number"
-                            value={qty || ""}
-                            onChange={e => updateOS(item.id, e.target.value)}
-                            placeholder="0"
-                            style={{ ...iSt, width: 80, padding: "4px 8px", fontSize: 13, textAlign: "right" }}
-                          />
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {inventory.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ padding: "20px", textAlign: "center", color: "var(--muted)", fontSize: 12.5 }}>
+                        No items added yet. Click "Import from Excel" or "Add Item" above to get started.
+                      </td>
+                    </tr>
+                  ) : (
+                    inventory.map((item, i) => {
+                      const qty = os[item.id] || 0
+                      const value = qty * item.cost
+                      return (
+                        <tr key={item.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
+                          <td style={{ padding: "8px 10px", fontWeight: 500 }}>{item.name}</td>
+                          <td style={{ padding: "8px 10px", color: "var(--muted)" }}>{item.unit}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                            <input
+                              type="number"
+                              value={qty || ""}
+                              onChange={e => updateOS(item.id, e.target.value)}
+                              placeholder="0"
+                              style={{ ...iSt, width: 70, padding: "4px 8px", fontSize: 13, textAlign: "right" }}
+                            />
+                          </td>
+                          <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--muted)" }}>{fmt(item.cost)}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>{fmt(value)}</td>
+                        </tr>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -371,6 +423,27 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                 <Btn variant="success" onClick={lockOpeningStock}>🔒 Lock Open Stock for {curMonth}</Btn>
               </div>
             </div>
+
+            {/* MANUAL ADD MODAL */}
+            {showManualAdd && (
+              <Modal title="Add Item Manually" onClose={() => setShowManualAdd(false)}>
+                <Inp label="Item Name *" value={manualItem.name} onChange={v => setManualItem(m => ({ ...m, name: v }))} placeholder="e.g. Flour, Butter, Eggs" />
+                <Sel 
+                  label="Unit *" 
+                  value={manualItem.unit} 
+                  onChange={v => setManualItem(m => ({ ...m, unit: v }))} 
+                  options={["kg", "g", "L", "ml", "pcs", "pack"]} 
+                  placeholder="Select unit"
+                />
+                <Inp label="Cost per Unit (₦) *" type="number" value={manualItem.cost} onChange={v => setManualItem(m => ({ ...m, cost: v }))} placeholder="e.g. 1500" />
+                <Inp label="Opening Qty (optional)" type="number" value={manualItem.openingQty} onChange={v => setManualItem(m => ({ ...m, openingQty: v }))} placeholder="e.g. 5" />
+                
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+                  <Btn variant="success" onClick={handleManualAdd} disabled={!manualItem.name.trim() || !manualItem.cost}>✓ Add Item</Btn>
+                  <Btn variant="ghost" onClick={() => setShowManualAdd(false)}>Cancel</Btn>
+                </div>
+              </Modal>
+            )}
           </div>
         )}
 

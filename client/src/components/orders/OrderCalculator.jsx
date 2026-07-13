@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
 import { DECORATION_ITEMS, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
-import { loadCompany, loadLocal, saveLocal } from "../../lib/data.js"
+import { loadCompany, loadLocal, saveLocal, loadQuotes, saveQuotes } from "../../lib/data.js"
 
 
 export function OrderCalculator({inventory,recipes,settings,setView,company}){
@@ -226,15 +226,16 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
     :totalTiers+totalDecs+topperCost
 
   const subtotal=productBaseCost+totalAcc
-  const accPct=(1+(settings.accessoryPct||10)/100)
-  const totalCost=Math.round(subtotal*accPct)
-  // Price covers ingredient cost + overhead share + profit share (both as % of selling price)
-  const profitPct=settings.profitPct||50
+  const accessoryPct=settings.accessoryPct||10
+  const profitPct=margin
   const overheadPct=settings.overheadPct||27
-  const combinedPct=Math.min(90,profitPct+overheadPct)
-  const suggestedPrice=Math.round(totalCost/(1-combinedPct/100))
-  const overheadAmount=Math.round(suggestedPrice*(overheadPct/100))
-  const profit=Math.round(suggestedPrice*(profitPct/100))
+
+  const overheadAmount=Math.round(subtotal*(overheadPct/100))
+  const accessoryAmount=Math.round(subtotal*(accessoryPct/100))
+  const totalCost=Math.round(subtotal+overheadAmount+accessoryAmount)
+  const suggestedPrice=Math.round(totalCost/Math.max(0.05,1-profitPct/100))
+  const profit=suggestedPrice-totalCost
+
   const cakePrice=(orderPurpose==="gift"||orderPurpose==="sample")?0:(+salePrice||suggestedPrice)
   const delivCharge=+deliveryCharge||0
   const vatAmount=vatEnabled?Math.round(cakePrice*(vatRate/100)):0
@@ -589,7 +590,8 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
               {tartFillings.filter(f=>f.type&&f.grams>0).map(f=><div key={f.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>{f.type} {f.grams}g</span><span>{fmt(coverFillCost(f.type,f.grams))}</span></div>)}
             </>}
             {totalAcc>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Boards & accessories</span><span>{fmt(totalAcc)}</span></div>}
-            {(productType==="Cake"||productType==="Cupcakes")&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Accessory {settings.accessoryPct||10}%</span><span>{fmt(Math.round(subtotal*((settings.accessoryPct||10)/100)))}</span></div>}
+            {(productType==="Cake"||productType==="Cupcakes")&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Accessory {settings.accessoryPct||10}%</span><span>{fmt(accessoryAmount)}</span></div>}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Overhead {settings.overheadPct||27}%</span><span>{fmt(overheadAmount)}</span></div>
             <div style={{display:"flex",justifyContent:"space-between",fontWeight:600,fontSize:13,paddingTop:6,borderTop:"1px solid var(--border)",marginTop:4}}>
               <span>Total cost</span><span>{fmt(totalCost)}</span>
             </div>
@@ -606,7 +608,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
           <div style={{background:suggestedPrice>0?"#E8F5EE":"#F5F0E4",border:`1px solid ${suggestedPrice>0?"#C2E0CF":"var(--border)"}`,borderRadius:10,padding:"12px 14px",textAlign:"center",marginBottom:10}}>
             <div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Suggested price</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:"var(--gold)"}}>{fmt(suggestedPrice)}</div>
-            <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>Profit: {fmt(profit)} ({margin}% margin)</div>
+            <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>Profit: {fmt(profit)} ({margin}% profit)</div>
           </div>
           {/* Order purpose */}
           <div style={{margin:"4px 0 14px"}}>

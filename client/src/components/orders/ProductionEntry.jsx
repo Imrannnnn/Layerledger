@@ -100,7 +100,16 @@ export function ProductionEntry({inventory,setInventory,recipes,productions,setP
   const discount = paymentType==="discount"?(+salePrice*(+discountPct/100)):0
   const effectiveSale = paymentType==="full"||paymentType==="deposit" ? +salePrice : paymentType==="discount" ? +salePrice-discount : 0
   const costPerLayer = calcFullCost(matchedRecipe, inventory, flavors, decorIds, settings.accessoryPct)
-  const suggestedPrice = baseCost * (1 + (settings.profitPct||40)/100) + delivCost
+
+  const profitPct = settings.profitPct || 40
+  const overheadPct = settings.overheadPct || 27
+  const accessoryPct = settings.accessoryPct || 10
+
+  const costWithoutAccessory = baseCost / (1 + accessoryPct / 100)
+  const suggestedPrice = Math.round(costWithoutAccessory * (1 + (profitPct + overheadPct + accessoryPct) / 100)) + delivCost
+
+  const customBaseWithoutAccessory = tierTotalCost + topperCost
+  const customSuggestedPrice = Math.round(customBaseWithoutAccessory * (1 + (profitPct + overheadPct + accessoryPct) / 100))
 
   const handleFile=e=>{const file=e.target.files[0];if(!file)return;setPhoto(URL.createObjectURL(file));const r=new FileReader();r.onload=ev=>setPhotoB64(ev.target.result.split(",")[1]);r.readAsDataURL(file)}
 
@@ -265,13 +274,13 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
           <Inp label="Delivery Date *" type="date" value={delivDate} onChange={setDelivDate}/>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <Inp label="Sale Price (₦)" type="number" value={salePrice} onChange={setSalePrice} placeholder={newTotalCost>0?`Suggested: ${fmt(Math.round(newTotalCost/(1-(settings.profitPct||40)/100)))}`:"0"}/>
+          <Inp label="Sale Price (₦)" type="number" value={salePrice} onChange={setSalePrice} placeholder={newTotalCost>0?`Suggested: ${fmt(customSuggestedPrice)}`:"0"}/>
           <Inp label="Delivery Cost (₦)" type="number" value={deliveryCost} onChange={setDeliveryCost} placeholder="0"/>
         </div>
         <Sel label="Payment Type" value={paymentType} onChange={setPaymentType} options={PAYMENT_TYPES.map(p=>({value:p.v,label:p.l}))}/>
         {paymentType==="discount"&&<Inp label="Discount %" type="number" value={discountPct} onChange={setDiscountPct}/>}
         <Inp label="Notes" value={notes} onChange={setNotes} placeholder="Colour theme, special requests…"/>
-        {newTotalCost>0&&!salePrice&&<div style={{padding:"7px 12px",background:"#E8EFFC",borderRadius:8,fontSize:12.5,marginBottom:10,color:"#2355A0"}}>💡 Suggested price ({settings.profitPct||40}% profit): <strong>{fmt(Math.round(newTotalCost/(1-(settings.profitPct||40)/100)))}</strong></div>}
+        {newTotalCost>0&&!salePrice&&<div style={{padding:"7px 12px",background:"#E8EFFC",borderRadius:8,fontSize:12.5,marginBottom:10,color:"#2355A0"}}>💡 Suggested price ({profitPct}% profit + {overheadPct}% overhead): <strong>{fmt(customSuggestedPrice)}</strong></div>}
         <Btn full onClick={()=>setStep(2)} disabled={!client||!delivDate||!tiers.some(t=>t.layers.some(l=>l.flavour))}>Review Cost Breakdown →</Btn>
       </Card>
     </div>}

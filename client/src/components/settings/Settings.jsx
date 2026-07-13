@@ -198,19 +198,15 @@ export const SHAPES=["round","square","sheet"]
 export function PricingSetup({settings,setSetting}){
   const [ptab,setPtab]=useState("mults")
   const [mults,setMults]=useState(()=>loadLocal("ll_multipliers",DEFAULT_MULTS))
-  const [coverings,setCoverings]=useState(()=>loadLocal("ll_coverings",DEFAULT_COVERINGS))
   const [accessories,setAccessories]=useState(()=>loadLocal("ll_accessories",DEFAULT_ACCESSORIES))
-  const [newCov,setNewCov]=useState("")
   const [newAcc,setNewAcc]=useState({name:"",cost:"",per:"order"})
   const [saved,setSaved]=useState("")
 
   const saveMults=async()=>{await saveLocal("ll_multipliers",mults);setSaved("mults");setTimeout(()=>setSaved(""),2000)}
-  const saveCoverings=async()=>{await saveLocal("ll_coverings",coverings);setSaved("covs");setTimeout(()=>setSaved(""),2000)}
   const saveAccessories=async()=>{await saveLocal("ll_accessories",accessories);setSaved("accs");setTimeout(()=>setSaved(""),2000)}
 
   const tabs=[
     {v:"mults",l:"Size multipliers"},
-    {v:"coverings",l:"Covering costs"},
     {v:"accessories",l:"Accessories"},
     {v:"margins",l:"Profit margins"}
   ]
@@ -249,33 +245,6 @@ export function PricingSetup({settings,setSetting}){
       </div>
     </div>}
 
-    {/* COVERING COSTS */}
-    {ptab==="coverings"&&<div>
-      <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:14,lineHeight:1.7}}>Set the cost per layer for each covering at the 6" base size. If "Scales with size" is on, the cost multiplies with the size multiplier automatically.</div>
-      <Card style={{padding:0,overflowX:"auto",marginBottom:12}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-          <TH cols={["Covering","Cost/layer at 6\" base (₦)","Scales with size",""]}/>
-          <tbody>{coverings.map((c,i)=><TR2 key={i} i={i} row={[
-            <span style={{fontWeight:500}}>{c.name}</span>,
-            <input type="number" value={c.cost} disabled={c.name==="Naked"} onChange={e=>setCoverings(cv=>cv.map((x,j)=>j===i?{...x,cost:+e.target.value}:x))} style={{...iSt,width:100,padding:"4px 8px",fontSize:12,textAlign:"right"}}/>,
-            <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12.5}}>
-              <input type="checkbox" checked={c.scales} onChange={e=>setCoverings(cv=>cv.map((x,j)=>j===i?{...x,scales:e.target.checked}:x))}/>
-              Yes
-            </label>,
-            <Btn small variant="danger" onClick={()=>setCoverings(cv=>cv.filter((_,j)=>j!==i))}>×</Btn>
-          ]}/>)}</tbody>
-        </table>
-      </Card>
-      <div style={{display:"flex",gap:8,marginBottom:12}}>
-        <Inp label="" value={newCov} onChange={setNewCov} placeholder="New covering name e.g. Mirror Glaze"/>
-        <Btn onClick={()=>{if(newCov.trim()){setCoverings(c=>[...c,{name:newCov.trim(),cost:0,scales:true}]);setNewCov("")}}}>+ Add</Btn>
-      </div>
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        <Btn onClick={saveCoverings}>Save coverings</Btn>
-        {saved==="covs"&&<span style={{fontSize:12.5,color:"#357A52"}}>✓ Saved</span>}
-      </div>
-    </div>}
-
     {/* ACCESSORIES */}
     {ptab==="accessories"&&<div>
       <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:14,lineHeight:1.7}}>Set costs for cake boards, boxes and accessories. These are added per order in the order calculator. "Per tier" items multiply by number of tiers.</div>
@@ -308,28 +277,37 @@ export function PricingSetup({settings,setSetting}){
     {/* PROFIT MARGINS */}
     {ptab==="margins"&&<div style={{maxWidth:480}}>
       <Card style={{marginBottom:14}}>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Default profit margin</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Default Profit Margin</div>
         <div style={{display:"flex",alignItems:"center",gap:14,margin:"12px 0"}}>
           <input type="range" min={10} max={80} value={settings.profitPct||50} onChange={e=>setSetting("profitPct",+e.target.value)} style={{flex:1,accentColor:"var(--gold)"}}/>
           <div style={{fontSize:22,fontWeight:700,color:"var(--gold)",minWidth:46}}>{settings.profitPct||50}%</div>
         </div>
-        <div style={{fontSize:12,color:"var(--muted)",lineHeight:1.6}}>This is your true profit — the share of every sale that is yours to keep after both ingredients and overheads are covered.</div>
+        <div style={{fontSize:12,color:"var(--muted)",lineHeight:1.6}}>This is the share of the final price that you keep as profit, after every cost is covered. Set it to 40% and ₦40 out of every ₦100 a customer pays is yours; the rest pays for ingredients, overhead and accessories. Raise it and you earn more per cake, but your prices go up too.</div>
       </Card>
       <Card style={{marginBottom:14}}>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Overhead margin</div>
-        <p style={{fontSize:12.5,color:"var(--muted)",marginTop:0,lineHeight:1.7}}>The share of each sale set aside to cover running costs — rent, fuel, electricity, salaries, marketing. Industry standard for bakeries is 25–30%.</p>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Overhead Allowance</div>
+        <p style={{fontSize:12.5,color:"var(--muted)",marginTop:0,lineHeight:1.7}}>Your rent, fuel, electricity, salaries and your own time have to be paid whether you bake or not, so every cake should carry a share of them. This adds that share on top of your ingredient cost, so those costs come out of the cake's price instead of quietly eating your profit.</p>
         <div style={{display:"flex",alignItems:"center",gap:14,margin:"12px 0"}}>
           <input type="range" min={0} max={45} value={settings.overheadPct||27} onChange={e=>setSetting("overheadPct",+e.target.value)} style={{flex:1,accentColor:"var(--gold)"}}/>
           <div style={{fontSize:22,fontWeight:700,color:"var(--gold)",minWidth:46}}>{settings.overheadPct||27}%</div>
         </div>
-        {((settings.profitPct||50)+(settings.overheadPct||27))>=95&&<div style={{padding:"8px 12px",background:"#FDEBE9",borderRadius:8,fontSize:12,color:"#B03A2E",lineHeight:1.6}}>⚠ Profit + Overhead is very high ({(settings.profitPct||50)+(settings.overheadPct||27)}%). Leave room for ingredient cost — keep the total below about 90%.</div>}
+        {((settings.profitPct||50))>=90&&<div style={{padding:"8px 12px",background:"#FDEBE9",borderRadius:8,fontSize:12,color:"#B03A2E",lineHeight:1.6}}>⚠ Desired profit margin is very high ({settings.profitPct||50}%). Please keep it below 90% to leave room for costs.</div>}
         <div style={{padding:"10px 12px",background:"#F5F0E4",borderRadius:8,fontSize:12.5,color:"var(--muted)",marginTop:6,lineHeight:1.7}}>
-          Example: if a cake costs <strong style={{color:"var(--text)"}}>₦10,000</strong> in ingredients, the app prices it so <strong style={{color:"var(--text)"}}>{settings.profitPct||50}%</strong> is your profit and <strong style={{color:"var(--text)"}}>{settings.overheadPct||27}%</strong> covers overheads → suggested price <strong style={{color:"var(--gold)"}}>{fmt(Math.round(10000/Math.max(0.05,1-((settings.profitPct||50)+(settings.overheadPct||27))/100)))}</strong>
+          Example: if a cake costs <strong style={{color:"var(--text)"}}>₦10,000</strong> in ingredients:
+          <div style={{marginLeft:12,marginTop:4,fontSize:12}}>
+            1. Overhead ({settings.overheadPct||27}%): ₦{Math.round(10000*((settings.overheadPct||27)/100)).toLocaleString()}
+            <br />
+            2. Accessories ({settings.accessoryPct||10}%): ₦{Math.round(10000*((settings.accessoryPct||10)/100)).toLocaleString()}
+            <br />
+            3. Total Cost: ₦{Math.round(10000*(1 + (settings.overheadPct||27)/100 + (settings.accessoryPct||10)/100)).toLocaleString()}
+            <br />
+            4. Applying {settings.profitPct||50}% profit margin → suggested price <strong style={{color:"var(--gold)"}}>{fmt(Math.round((10000*(1 + (settings.overheadPct||27)/100 + (settings.accessoryPct||10)/100))/Math.max(0.05, 1 - (settings.profitPct||50)/100)))}</strong>
+          </div>
         </div>
       </Card>
       <Card>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Accessory percentage</div>
-        <p style={{fontSize:12.5,color:"var(--muted)",marginTop:0,lineHeight:1.7}}>Added to ingredient costs to cover cling film, greaseproof paper, electricity and small items not measured per recipe.</p>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Accessories Allowance</div>
+        <p style={{fontSize:12.5,color:"var(--muted)",marginTop:0,lineHeight:1.7}}>Small items like cling film, greaseproof paper and gas are too fiddly to measure for every single cake. This adds a small percentage on top of your ingredients to cover them, so nothing gets forgotten.</p>
         <div style={{display:"flex",alignItems:"center",gap:14,margin:"12px 0"}}>
           <input type="range" min={0} max={30} value={settings.accessoryPct||10} onChange={e=>setSetting("accessoryPct",+e.target.value)} style={{flex:1,accentColor:"var(--gold)"}}/>
           <div style={{fontSize:22,fontWeight:700,color:"var(--gold)",minWidth:46}}>{settings.accessoryPct||10}%</div>
