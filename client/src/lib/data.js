@@ -309,7 +309,7 @@ const syncExpensesList = async (headers, localExpenses) => {
   for (const exp of localExpenses) {
     const sExp = serverExps.find(e => e.id === exp.id)
     let parsedDate = new Date().toISOString()
-    try { if (exp.date) parsedDate = new Date(exp.date).toISOString() } catch (e) {}
+    try { if (exp.date) parsedDate = new Date(exp.date).toISOString() } catch (e) { /* ignore invalid date */ }
 
     const body = {
       id: exp.id,
@@ -414,8 +414,8 @@ const syncInvoicesList = async (headers, localInvs) => {
     const sInv = serverInvs.find(si => si.id === inv.id)
     let parsedIssue = new Date().toISOString()
     let parsedDue = null
-    try { if (inv.date) parsedIssue = new Date(inv.date).toISOString() } catch (e) {}
-    try { if (inv.deliveryDate) parsedDue = new Date(inv.deliveryDate).toISOString() } catch (e) {}
+    try { if (inv.date) parsedIssue = new Date(inv.date).toISOString() } catch (e) { /* ignore invalid date */ }
+    try { if (inv.deliveryDate) parsedDue = new Date(inv.deliveryDate).toISOString() } catch (e) { /* ignore invalid date */ }
 
     const body = {
       id: inv.id,
@@ -461,7 +461,7 @@ const syncPurchasesList = async (headers, localPurchases) => {
   for (const pur of localPurchases) {
     const sPur = serverPurchases.find(sp => sp.id === pur.id)
     let parsedDate = new Date().toISOString()
-    try { if (pur.date) parsedDate = new Date(pur.date).toISOString() } catch (e) {}
+    try { if (pur.date) parsedDate = new Date(pur.date).toISOString() } catch (e) { /* ignore invalid date */ }
 
     const body = {
       id: pur.id,
