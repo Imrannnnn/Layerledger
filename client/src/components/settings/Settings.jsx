@@ -7,10 +7,10 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert } from "../common/ui.jsx"
-import { fmt, uid } from "../../lib/helpers.js"
+import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert, Modal } from "../common/ui.jsx"
+import { fmt, uid, callClaude } from "../../lib/helpers.js"
 import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
-import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, clearAllDataOnServer, logout, loadLocal } from "../../lib/data.js"
+import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, clearAllDataOnServer, logout, loadLocal, saveInventory } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
 
 // ═══════════════════════════════════════════════════════════
@@ -122,26 +122,120 @@ export function NotificationSettings(){
 //  STARTING INVENTORY TAB (in Settings)
 
 // ═══════════════════════════════════════════════════════════
-export function OpeningStockTab({inventory}){
+export function OpeningStockTab({inventory, setInventory}){
   const LS_KEY="ll_opening_stock"
-  const loadOS=()=>{return loadLocal(LS_KEY, {})}
-  const [os,setOs]=useState(loadOS)
-  const [saved,setSaved]=useState(false)
-  const curMonth=new Date().toLocaleDateString("en-NG",{month:"long",year:"numeric"})
+  const currentMonthStr = new Date().toISOString().slice(0, 7)
+  const curMonth = new Date().toLocaleDateString("en-NG", { month: "long", year: "numeric" })
 
-  const updateOS=async (id,val)=>{
-    const updated={...os,[id]:parseFloat(val)||0}
-    setOs(updated)
-    await saveLocal(LS_KEY, updated)
+  const loadOS = () => {
+    const saved = loadLocal(LS_KEY, null)
+    if (saved && saved.month === currentMonthStr && Array.isArray(saved.items)) {
+      return saved.items
+    }
+    // Automatically convert current master list to opening stock
+    const initializedItems = inventory.map(i => ({
+      id: i.id,
+      name: i.name,
+      unit: i.unit,
+      cost: i.cost,
+      openingQty: i.stock || 0
+    }))
+    saveLocal(LS_KEY, { month: currentMonthStr, items: initializedItems })
+    return initializedItems
+  }
+
+  const [items, setItems] = useState(loadOS)
+  const [saved, setSaved] = useState(() => !!loadLocal("ll_os_" + currentMonthStr, null))
+  const [addingItem, setAddingItem] = useState(false)
+  const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: 0 })
+
+  // Check if today is the last day of the month
+  const isLastDayOfMonth = () => {
+    const today = new Date()
+    const tomorrow = new Date(today)
+    tomorrow.setDate(today.getDate() + 1)
+    return tomorrow.getDate() === 1
+  }
+  
+  const isLocked = saved
+  const isEditable = isLastDayOfMonth() && !isLocked
+
+  const updateOSQty = async (id, val) => {
+    const updated = items.map(item => item.id === id ? { ...item, openingQty: parseFloat(val) || 0 } : item)
+    setItems(updated)
+    await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
     setSaved(false)
   }
 
-  const lockStock=async ()=>{
+  const updateOSCost = async (id, val) => {
+    const updated = items.map(item => item.id === id ? { ...item, cost: parseFloat(val) || 0 } : item)
+    setItems(updated)
+    await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
+    setSaved(false)
+  }
+
+  const updateOSUnit = async (id, val) => {
+    const updated = items.map(item => item.id === id ? { ...item, unit: val } : item)
+    setItems(updated)
+    await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
+    setSaved(false)
+  }
+
+  const lockStock = async () => {
     // Save with month key so it's permanent for this month
-    const monthKey="ll_os_"+new Date().toISOString().slice(0,7)
-    const snapshot={date:new Date().toISOString(),items:inventory.map(i=>({id:i.id,name:i.name,unit:i.unit,openingQty:os[i.id]||0,cost:i.cost}))}
+    const monthKey = "ll_os_" + currentMonthStr
+    const snapshot = {
+      date: new Date().toISOString(),
+      items: items.map(item => ({
+        id: item.id,
+        name: item.name,
+        unit: item.unit,
+        openingQty: item.openingQty,
+        cost: item.cost
+      }))
+    }
     await saveLocal(monthKey, snapshot)
     setSaved(true)
+  }
+
+  const addNewItemToOS = async () => {
+    if (!newItem.name.trim() || !newItem.cost) {
+      alert("Name and cost are required.")
+      return
+    }
+    const id = "_" + Math.random().toString(36).slice(2, 9)
+    const cost = parseFloat(newItem.cost) || 0
+    const openingQty = parseFloat(newItem.openingQty) || 0
+    
+    const osItem = {
+      id,
+      name: newItem.name.trim(),
+      unit: newItem.unit,
+      cost,
+      openingQty
+    }
+    
+    const updatedOSItems = [...items, osItem]
+    setItems(updatedOSItems)
+    await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedOSItems })
+    
+    const masterItem = {
+      id,
+      name: newItem.name.trim(),
+      cat: "Dry Goods", // Default category
+      unit: newItem.unit,
+      cost,
+      stock: openingQty,
+      minStock: 5
+    }
+    
+    const updatedInventory = [...inventory, masterItem]
+    if (setInventory) {
+      setInventory(updatedInventory)
+    }
+    await saveInventory(updatedInventory)
+    setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0 })
+    setAddingItem(false)
   }
 
   return <div style={{maxWidth:640}}>
@@ -154,27 +248,64 @@ export function OpeningStockTab({inventory}){
           <thead><tr style={{background:"#EDE5D6"}}>
             {["Item","Unit","Opening Stock Qty","Cost/Unit","Opening Value"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:h==="Item"||h==="Unit"?"left":"right",fontSize:10,textTransform:"uppercase",letterSpacing:.8,color:"var(--muted)",fontWeight:500}}>{h}</th>)}
           </tr></thead>
-          <tbody>{inventory.map((item,i)=>{
-            const qty=os[item.id]||0
+          <tbody>{items.map((item,i)=>{
+            const qty=item.openingQty||0
             return <tr key={item.id} style={{background:i%2===0?"var(--panel)":"#F8F3EA"}}>
               <td style={{padding:"8px 10px",fontWeight:500}}>{item.name}</td>
-              <td style={{padding:"8px 10px",color:"var(--muted)"}}>{item.unit}</td>
-              <td style={{padding:"8px 10px",textAlign:"right"}}>
-                <input type="number" value={qty||""} onChange={e=>updateOS(item.id,e.target.value)} placeholder="0" style={{...iSt,width:90,padding:"4px 8px",fontSize:13,textAlign:"right"}}/>
+              <td style={{padding:"8px 10px",color:"var(--muted)"}}>
+                {isEditable ? (
+                  <select value={item.unit||"kg"} onChange={e=>updateOSUnit(item.id,e.target.value)} style={{...iSt,width:70,padding:"2px 4px",fontSize:12}}>
+                    {["kg","g","L","ml","pcs","pack","bottle","roll","set"].map(u=><option key={u}>{u}</option>)}
+                  </select>
+                ) : (
+                  item.unit
+                )}
               </td>
-              <td style={{padding:"8px 10px",textAlign:"right",color:"var(--gold)",fontWeight:500}}>{fmt(item.cost)}/{item.unit}</td>
+              <td style={{padding:"8px 10px",textAlign:"right"}}>
+                <input 
+                  type="number" 
+                  value={qty||""} 
+                  onChange={e=>updateOSQty(item.id,e.target.value)} 
+                  placeholder="0" 
+                  disabled={isLocked}
+                  style={{
+                    ...iSt,
+                    width:90,
+                    padding:"4px 8px",
+                    fontSize:13,
+                    textAlign:"right",
+                    ...(isLocked ? { background: "#F5F5F5", color: "var(--muted)", cursor: "not-allowed" } : {})
+                  }}
+                />
+              </td>
+              <td style={{padding:"8px 10px",textAlign:"right",color:"var(--gold)",fontWeight:500}}>
+                {isEditable ? (
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>
+                    <span>₦</span>
+                    <input type="number" value={item.cost||""} onChange={e=>updateOSCost(item.id,e.target.value)} placeholder="0" style={{...iSt,width:90,padding:"4px 8px",fontSize:13,textAlign:"right"}}/>
+                  </div>
+                ) : (
+                  `${fmt(item.cost)}/${item.unit}`
+                )}
+              </td>
               <td style={{padding:"8px 10px",textAlign:"right",color:"var(--muted)",fontSize:12}}>{fmt(qty*item.cost)}</td>
             </tr>
           })}</tbody>
           <tfoot><tr>
             <td colSpan={4} style={{padding:"10px",textAlign:"right",fontWeight:600,fontSize:13}}>Total opening stock value</td>
-            <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:"var(--gold)",fontSize:15}}>{fmt(inventory.reduce((s,i)=>s+(os[i.id]||0)*i.cost,0))}</td>
+            <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:"var(--gold)",fontSize:15}}>{fmt(items.reduce((s,i)=>s+(i.openingQty||0)*i.cost,0))}</td>
           </tr></tfoot>
         </table>
       </div>
-      <div style={{marginTop:14,display:"flex",gap:10,alignItems:"center"}}>
-        <Btn variant="success" onClick={lockStock}>🔒 Lock Open Stock for {curMonth}</Btn>
-        {saved&&<span style={{fontSize:12.5,color:"#357A52",fontWeight:500}}>✓ Opening stock locked and saved permanently</span>}
+      <div style={{marginTop:14,display:"flex",gap:10,alignItems:"center",justifyContent:"space-between",flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          {!isLocked ? (
+            <Btn variant="success" onClick={lockStock}>🔒 Lock Open Stock for {curMonth}</Btn>
+          ) : (
+            <span style={{fontSize:13,color:"#357A52",fontWeight:600,background:"#EEF8F3",padding:"6px 12px",borderRadius:8,border:"1px solid #C2E0CF"}}>🔒 Opening Stock is locked for {curMonth}</span>
+          )}
+        </div>
+        {!isLocked && <Btn onClick={()=>setAddingItem(true)}>+ Add Item</Btn>}
       </div>
     </Card>
     <Card>
@@ -187,6 +318,20 @@ export function OpeningStockTab({inventory}){
         <div>5. At month end, go to Reports → Stock Statement to see your full monthly movement</div>
       </div>
     </Card>
+    
+    {addingItem&&<Modal title="Add Item directly to Opening Stock" onClose={()=>setAddingItem(false)}>
+      <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:12}}>Adding a new item here will also register it in your Master List.</div>
+      <Inp label="Item Name *" value={newItem.name} onChange={v=>setNewItem(p=>({...p,name:v}))} placeholder="e.g. Yeast"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>
+        <Sel label="Unit *" value={newItem.unit} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["kg","g","L","ml","pcs","pack","bottle","roll","set"].map(u=>({value:u,label:u}))}/>
+        <Inp label="Cost/Unit (₦) *" type="number" value={newItem.cost} onChange={v=>setNewItem(p=>({...p,cost:v}))} placeholder="e.g. 500"/>
+        <Inp label="Opening Stock Qty" type="number" value={newItem.openingQty} onChange={v=>setNewItem(p=>({...p,openingQty:v}))} placeholder="e.g. 5"/>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn variant="success" onClick={addNewItemToOS}>✓ Add Item</Btn>
+        <Btn variant="ghost" onClick={()=>setAddingItem(false)}>Cancel</Btn>
+      </div>
+    </Modal>}
   </div>
 }
 
@@ -321,7 +466,7 @@ export function PricingSetup({settings,setSetting}){
 //  ONBOARDING (first-time setup checklist)
 
 // ═══════════════════════════════════════════════════════════
-export function Settings({company,setCompany,settings,setSettings,users,setUsers,inventory,user}){
+export function Settings({company,setCompany,settings,setSettings,users,setUsers,inventory,setInventory,user}){
   const [tab,setTab]=useState("company")
   const [clearConfirm, setClearConfirm]=useState("")
   
@@ -429,34 +574,22 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
         </div>
       </Card>
       <Card style={{marginTop:14}}>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:6}}>🔑 AI Features — API Key</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:6}}>🔑 AI Features</div>
         <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:12,lineHeight:1.7}}>
-          LayerLedger uses AI to scan receipts, read bank statements, and generate smart reports. To enable these features, enter your Anthropic API key below. The key is stored only on this device and never shared.
-          <br/><strong style={{color:"var(--gold)"}}>Get your key at: console.anthropic.com → API Keys</strong>
+          LayerLedger uses AI to scan receipts, read bank statements, and generate smart reports. AI features are enabled and utilize the company's secure global API key.
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-          <div style={{flex:1}}>
-            <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Anthropic API Key</label>
-            <input
-              type="password"
-              defaultValue={loadLocal("ll_anthropic_key")||""}
-              onChange={async e=>await saveLocal("ll_anthropic_key",e.target.value.trim())}
-              placeholder="sk-ant-api03-..."
-              style={{...iSt,fontFamily:"monospace",fontSize:13}}
-            />
-          </div>
-          <Btn onClick={async()=>{
-            const key=loadLocal("ll_anthropic_key")||""
-            if(!key){alert("Please enter your API key first.");return}
-            try{
-              const r=await fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json","x-ll-key":key},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:10,messages:[{role:"user",content:"hi"}]})})
-              const d=await r.json()
-              if(d.error)alert("❌ Key invalid: "+d.error.message)
-              else alert("✅ API key is working correctly!")
-            }catch(e){alert("❌ Could not connect: "+e.message)}
-          }}>Test Key</Btn>
-        </div>
-        {loadLocal("ll_anthropic_key")&&<div style={{marginTop:8,fontSize:12,color:"#357A52"}}>✓ API key is saved on this device</div>}
+        <Btn onClick={async()=>{
+          try{
+            const text = await callClaude([{role:"user",content:"respond with exactly OK"}], "Respond with exactly OK")
+            if(text.trim()==="OK"){
+              alert("✅ AI Features are working correctly!")
+            } else {
+              alert("⚠️ Received response, but unexpected output: "+text)
+            }
+          }catch(e){
+            alert("❌ AI Features connection error: "+e.message)
+          }
+        }}>Test Connection</Btn>
       </Card>
       <Card style={{marginTop:14}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:6}}>Invoice Template</div>
@@ -489,7 +622,7 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
 
     {tab==="pricing"&&<PricingSetup settings={settings} setSetting={st}/>}
 
-    {tab==="stock"&&<OpeningStockTab inventory={inventory}/>}
+    {tab==="stock"&&<OpeningStockTab inventory={inventory} setInventory={setInventory}/>}
     {tab==="notifications"&&<NotificationSettings/>}
 
     {tab==="users"&&<div>

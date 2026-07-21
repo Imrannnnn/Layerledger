@@ -54,6 +54,7 @@ app.use('/api/decorations', require('./routes/decorationRoutes'));
 app.use('/api/purchases', require('./routes/purchaseRoutes'));
 app.use('/api/tokens', require('./routes/tokenRoutes'));
 app.use('/api/superadmin', require('./routes/superadminRoutes'));
+app.use('/api/claude', require('./routes/claudeRoutes'));
 
 // Global error handler
 app.use((err, req, res, _next) => {

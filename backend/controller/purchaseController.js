@@ -40,22 +40,75 @@ const getPurchaseById = asyncHandler(async (req, res) => {
  */
 const createPurchase = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { date, supplier, amount, receiptUrl, notes } = req.body;
+    const { date, supplier, amount, receiptUrl, notes, itemId, unitSize, qty, price, total, cpu, stockAdded } = req.body;
 
-    const parsedAmount = parseFloat(amount);
+    const parsedAmount = parseFloat(amount) || 0;
 
-    const purchase = await prisma.purchase.create({
-        data: {
-            id: req.body.id || undefined,
-            tenantId,
-            date: date ? new Date(date) : undefined,
-            supplier,
-            amount: parsedAmount,
-            receiptUrl,
-            notes
+    const result = await prisma.$transaction(async (tx) => {
+        const purchase = await tx.purchase.create({
+            data: {
+                id: req.body.id || undefined,
+                tenantId,
+                date: date ? new Date(date) : undefined,
+                supplier,
+                amount: parsedAmount,
+                receiptUrl,
+                notes,
+                itemId: itemId || null,
+                unitSize: unitSize ? parseFloat(unitSize) : null,
+                qty: qty ? parseFloat(qty) : null,
+                price: price ? parseFloat(price) : null,
+                total: total ? parseFloat(total) : null,
+                cpu: cpu ? parseFloat(cpu) : null,
+                stockAdded: stockAdded ? parseFloat(stockAdded) : null
+            }
+        });
+
+        if (itemId && stockAdded && cpu) {
+            const parsedStockAdded = parseFloat(stockAdded);
+            const parsedCpu = parseFloat(cpu);
+            const purchaseValue = parsedStockAdded * parsedCpu;
+
+            const invItem = await tx.inventoryItem.findFirst({
+                where: { id: itemId, tenantId }
+            });
+
+            if (invItem) {
+                const newQty = invItem.stock + parsedStockAdded;
+                const newValue = invItem.totalValueOnHand + purchaseValue;
+                const newAvgCost = newQty > 0 ? (newValue / newQty) : invItem.cost;
+
+                await tx.inventoryItem.update({
+                    where: { id: itemId },
+                    data: {
+                        stock: newQty,
+                        totalValueOnHand: newValue,
+                        cost: newAvgCost
+                    }
+                });
+
+                await tx.inventoryHistory.create({
+                    data: {
+                        tenantId,
+                        inventoryItemId: itemId,
+                        type: 'PURCHASE',
+                        qtyDelta: parsedStockAdded,
+                        valueDelta: purchaseValue,
+                        pricePerUnit: parsedCpu,
+                        qtyAfter: newQty,
+                        valueAfter: newValue,
+                        avgCostAfter: newAvgCost,
+                        referenceId: purchase.id,
+                        reason: `Purchase logged from ${supplier || 'Market Run'}`
+                    }
+                });
+            }
         }
-    });
-    res.status(201).json(purchase);
+
+        return purchase;
+    }, { timeout: 30000 });
+
+    res.status(201).json(result);
 });
 
 /**
@@ -98,15 +151,63 @@ const updatePurchase = asyncHandler(async (req, res) => {
  */
 const deletePurchase = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const deleted = await prisma.purchase.deleteMany({
-        where: { id: req.params.id, tenantId }
+
+    const result = await prisma.$transaction(async (tx) => {
+        const purchase = await tx.purchase.findFirst({
+            where: { id: req.params.id, tenantId }
+        });
+
+        if (!purchase) {
+            throw new Error('Purchase not found');
+        }
+
+        await tx.purchase.delete({
+            where: { id: req.params.id }
+        });
+
+        if (purchase.itemId && purchase.stockAdded && purchase.cpu) {
+            const invItem = await tx.inventoryItem.findFirst({
+                where: { id: purchase.itemId, tenantId }
+            });
+
+            if (invItem) {
+                const stockToReduce = purchase.stockAdded;
+                const valueToReduce = purchase.stockAdded * purchase.cpu;
+
+                const newQty = Math.max(0, invItem.stock - stockToReduce);
+                const newValue = Math.max(0, invItem.totalValueOnHand - valueToReduce);
+                const newAvgCost = newQty > 0 ? (newValue / newQty) : invItem.cost;
+
+                await tx.inventoryItem.update({
+                    where: { id: purchase.itemId },
+                    data: {
+                        stock: newQty,
+                        totalValueOnHand: newQty === 0 ? 0 : newValue,
+                        cost: newAvgCost
+                    }
+                });
+
+                await tx.inventoryHistory.create({
+                    data: {
+                        tenantId,
+                        inventoryItemId: purchase.itemId,
+                        type: 'ADJUSTMENT',
+                        qtyDelta: -stockToReduce,
+                        valueDelta: -valueToReduce,
+                        pricePerUnit: purchase.cpu,
+                        qtyAfter: newQty,
+                        valueAfter: newQty === 0 ? 0 : newValue,
+                        avgCostAfter: newAvgCost,
+                        reason: `DELETION: Cancelled Purchase ${purchase.id}`
+                    }
+                });
+            }
+        }
+
+        return { message: 'Purchase removed successfully' };
     });
-    
-    if (deleted.count === 0) {
-        res.status(404);
-        throw new Error('Purchase not found');
-    }
-    res.json({ message: 'Purchase removed successfully' });
+
+    res.json(result);
 });
 
 module.exports = {

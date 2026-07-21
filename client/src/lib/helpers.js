@@ -13,6 +13,7 @@
  * ----------------------------------------------------------------------------
  */
 import { FLAVOR_EXTRAS, DECORATION_ITEMS } from "../constants.js"
+import { getAuthHeaders } from "./data.js"
 
 export const fmt  = n => `₦${Math.round(n||0).toLocaleString("en")}`
 export const uid  = () => "_"+Math.random().toString(36).slice(2,9)
@@ -35,30 +36,34 @@ export const calcFullCost = (recipe, inv, flavors, decorationIds, accessoryPct) 
 }
 
 export async function callClaude(messages, system="") {
-  const apiKey = window.__anthropic_key || localStorage.getItem("ll_anthropic_key") || ""
-  if (!apiKey) {
-    throw new Error("No API key set. Go to Settings → AI Features and enter your Anthropic API key.")
-  }
-  const apiUrl = import.meta.env.VITE_CLAUDE_API_URL;
-  if (!apiUrl) {
-    throw new Error("Claude API URL (VITE_CLAUDE_API_URL) is not defined in the environment.");
-  }
-  const res = await fetch(apiUrl, {
+  const headers = getAuthHeaders() || {}
+  const apiUrl = import.meta.env.VITE_API_URL || ""
+  const res = await fetch(`${apiUrl}/api/claude`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      "x-ll-key": apiKey
+      ...headers,
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "claude-opus-4-5",
+      model: "claude-3-5-sonnet-20241022",
       max_tokens: 4000,
       system,
       messages
     })
   })
   const text = await res.text()
+  if (!res.ok) {
+    let errMsg = "API error"
+    try {
+      const errJson = JSON.parse(text)
+      errMsg = errJson.error?.message || errJson.message || errMsg
+    } catch (e) {
+      errMsg = text || errMsg
+    }
+    throw new Error(errMsg)
+  }
   if (!text || !text.trim()) {
-    throw new Error("No response from API. Check your deployment includes the functions folder.")
+    throw new Error("No response from API.")
   }
   let data
   try { data = JSON.parse(text) }

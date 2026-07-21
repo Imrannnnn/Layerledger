@@ -33,6 +33,31 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
     saveQuotes(updated)
   }
 
+  const updateQuotePaymentFields = (quoteId, fieldsObj) => {
+    setQuotes(prevQuotes => {
+      const updated = prevQuotes.map(q => {
+        if (q.id !== quoteId) return q
+        let updatedQ = { ...q, ...fieldsObj }
+        
+        // Calculate remaining amount if depositedAmount or paymentType changed
+        if ("depositedAmount" in fieldsObj || "paymentType" in fieldsObj) {
+          const amt = updatedQ.grandTotal || ((updatedQ.salePrice || updatedQ.quotePrice || 0) + (updatedQ.deliveryCharge || 0) + (updatedQ.vatAmount || 0))
+          if (updatedQ.paymentType === "full") {
+            updatedQ.depositedAmount = ""
+            updatedQ.remainingAmount = 0
+          } else {
+            const depVal = fieldsObj.depositedAmount !== undefined ? fieldsObj.depositedAmount : updatedQ.depositedAmount
+            const dep = parseFloat(depVal || 0)
+            updatedQ.remainingAmount = Math.max(0, parseFloat((amt - dep).toFixed(2)))
+          }
+        }
+        return updatedQ
+      })
+      saveQuotes(updated)
+      return updated
+    })
+  }
+
   const deleteQuote = (id) => {
     if (!confirm("Are you absolutely sure you want to delete this quote? This cannot be undone.")) return
     const updated = quotes.filter(q => q.id !== id)
@@ -162,7 +187,10 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
         layers: q.tiers?.length || 1,
         accessoryPct: 10,
         profitPct: q.margin || 40,
-        paymentType: (q.orderPurpose === "gift" || q.orderPurpose === "sample") ? q.orderPurpose : "full",
+        paymentType: (q.orderPurpose === "gift" || q.orderPurpose === "sample") ? q.orderPurpose : (q.paymentType || "full"),
+        paymentMethod: q.paymentMethod || "cash",
+        depositedAmount: (q.paymentType || "full") === "advance" ? parseFloat(q.depositedAmount || 0) : 0,
+        remainingAmount: (q.paymentType || "full") === "advance" ? parseFloat(q.remainingAmount || 0) : 0,
         orderPurpose: q.orderPurpose || "sale",
         discountPct: 0,
         notes: q.notes || "",
@@ -360,7 +388,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                     ) : (
                       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
                         <span style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>Update status:</span>
-                        {QUOTE_STATUSES.filter(s => s.v !== "confirmed").map(s => (
+                        {QUOTE_STATUSES.filter(s => s.v !== "confirmed" && s.v !== "approved").map(s => (
                           <button
                             key={s.v}
                             onClick={() => updateStatus(q.id, s.v)}
@@ -383,6 +411,124 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                       </div>
                     )}
 
+                    {/* Payment details block for unconfirmed quotes */}
+                    {!isConfirmed && (
+                      <div style={{
+                        background: "#FDFAF4",
+                        border: "1px solid #EDE5D6",
+                        borderRadius: 8,
+                        padding: 14,
+                        marginBottom: 14
+                      }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "var(--text)" }}>
+                          💳 Payment Details (Set before converting)
+                        </div>
+                        
+                        {/* Toggle for Full or Advance payment */}
+                        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                          <button
+                            onClick={() => {
+                              updateQuotePaymentFields(q.id, { paymentType: "full" })
+                            }}
+                            style={{
+                              flex: 1,
+                              padding: "6px 10px",
+                              borderRadius: 6,
+                              border: "1px solid var(--border)",
+                              background: (q.paymentType || "full") === "full" ? "#357A52" : "#fff",
+                              color: (q.paymentType || "full") === "full" ? "#fff" : "var(--text)",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              fontSize: 12
+                            }}
+                          >
+                            Full Payment
+                          </button>
+                          <button
+                            onClick={() => {
+                              const amt = q.grandTotal || ((q.salePrice || q.quotePrice || 0) + (q.deliveryCharge || 0) + (q.vatAmount || 0))
+                              updateQuotePaymentFields(q.id, { 
+                                paymentType: "advance",
+                                depositedAmount: "",
+                                remainingAmount: amt
+                              })
+                            }}
+                            style={{
+                              flex: 1,
+                              padding: "6px 10px",
+                              borderRadius: 6,
+                              border: "1px solid var(--border)",
+                              background: (q.paymentType || "full") === "advance" ? "#357A52" : "#fff",
+                              color: (q.paymentType || "full") === "advance" ? "#fff" : "var(--text)",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              fontSize: 12
+                            }}
+                          >
+                            Advance Payment
+                          </button>
+                        </div>
+
+                        {/* If Advance Payment, show Deposited Amount and Remaining Amount inputs */}
+                        {(q.paymentType || "full") === "advance" && (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                            <div>
+                              <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>
+                                Deposited Amount (₦)
+                              </label>
+                              <input
+                                type="number"
+                                value={q.depositedAmount !== undefined ? q.depositedAmount : ""}
+                                onChange={e => updateQuotePaymentFields(q.id, { depositedAmount: e.target.value })}
+                                placeholder="0"
+                                style={{ ...iSt, padding: "5px 8px", fontSize: 12.5 }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>
+                                Remaining Amount (₦)
+                              </label>
+                              <input
+                                type="number"
+                                value={q.remainingAmount !== undefined ? q.remainingAmount : ""}
+                                onChange={e => updateQuotePaymentFields(q.id, { remainingAmount: parseFloat(e.target.value) || 0 })}
+                                placeholder="0"
+                                style={{ ...iSt, padding: "5px 8px", fontSize: 12.5 }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Payment method selector for both */}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                          <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 500 }}>
+                            Payment Method ({(q.paymentType || "full") === "advance" ? "Deposited Amount" : "Amount Received"}):
+                          </span>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            {["cash", "transfer"].map(method => (
+                              <button
+                                key={method}
+                                onClick={() => updateQuotePaymentFields(q.id, { paymentMethod: method })}
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: 6,
+                                  border: "1px solid var(--border)",
+                                  background: (q.paymentMethod || "cash") === method ? "var(--gold)" : "#fff",
+                                  color: (q.paymentMethod || "cash") === method ? "#fff" : "var(--text)",
+                                  fontWeight: 600,
+                                  cursor: "pointer",
+                                  fontSize: 11.5,
+                                  textTransform: "capitalize"
+                                }}
+                              >
+                                {method}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Action buttons with Delete separated */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: 12, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -398,12 +544,22 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                         )}
                         <button
                           onClick={async () => {
+                            // Auto-approve the quote
+                            updateStatus(q.id, "approved")
+
                             // Build and show invoice
                             const co = loadCompany()
                             const trs = q.tiers || []
                             const invoiceNum = "INV-" + q.id.slice(-6).toUpperCase()
                             const tmpl = co.invoiceTemplate || "classic"
                             const gold = co.primaryColor || "#C8912A"
+
+                            const pType = q.paymentType || "full"
+                            const pMethod = q.paymentMethod || "cash"
+                            const depAmt = parseFloat(q.depositedAmount || 0)
+                            const remAmt = parseFloat(q.remainingAmount || 0)
+                            const grandTotalVal = q.grandTotal || ((q.salePrice || q.quotePrice || 0) + (q.deliveryCharge || 0) + (q.vatAmount || 0))
+
                             // Template-specific styles
                             const tmplStyles = {
                               classic: `body{font-family:Arial,sans-serif}.header{border-bottom:3px solid ${gold};padding-bottom:16px;margin-bottom:24px}.inv-badge{background:#F5F0E4;padding:8px 14px;border-radius:6px;display:inline-block}`,
@@ -482,6 +638,17 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               + "<div style='font-size:12px;color:#888;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px'>Total amount</div>"
                               + "<div style='font-size:32px;font-weight:700;color:" + gold + "'>&#8358;" + ((q.grandTotal || ((q.salePrice || q.quotePrice || 0) + (q.deliveryCharge || 0) + (q.vatAmount || 0))).toLocaleString()) + "</div>"
                               + "</div>"
+                              + (pType === "full" 
+                                ? "<div style='margin:16px 0;padding:14px 16px;background:#EEF8F3;border:1px solid #C2E0CF;border-radius:8px;font-size:13px'>"
+                                  + "<div class='row' style='border-bottom:none;padding:4px 0'><span><strong>Payment Status</strong></span><span style='color:#357A52;font-weight:700'>PAID IN FULL</span></div>"
+                                  + "<div class='row' style='border-bottom:none;padding:4px 0'><span>Amount Received</span><span>&#8358;" + grandTotalVal.toLocaleString() + " via " + pMethod.toUpperCase() + "</span></div>"
+                                  + "</div>"
+                                : "<div style='margin:16px 0;padding:14px 16px;background:#FFF9EE;border:1px solid #E8D5A3;border-radius:8px;font-size:13px'>"
+                                  + "<div class='row' style='border-bottom:none;padding:4px 0'><span><strong>Payment Status</strong></span><span style='color:#8C5E00;font-weight:700'>DEPOSIT PAID</span></div>"
+                                  + "<div class='row' style='border-bottom:none;padding:4px 0'><span>Deposited Amount</span><span>&#8358;" + depAmt.toLocaleString() + " via " + pMethod.toUpperCase() + "</span></div>"
+                                  + "<div class='row' style='border-bottom:none;padding:8px 0 4px 0;margin-top:6px;border-top:1px dashed #E8D5A3'><span><strong>Remaining Balance</strong></span><span style='color:#B03A2E;font-weight:700'>&#8358;" + remAmt.toLocaleString() + "</span></div>"
+                                  + "</div>"
+                              )
                               + (co.bankName ? "<div class='bank'><div style='font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:8px'>Payment details</div>"
                                 + "<div class='row'><span>Bank</span><span><strong>" + co.bankName + "</strong></span></div>"
                                 + "<div class='row'><span>Account number</span><span><strong>" + co.bankAccount + "</strong></span></div>"
@@ -509,16 +676,39 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               + "var BIZ='" + (co.name || 'Fayvouree Cakes').replace(/'/g, '') + "';"
                               + "async function makePDF(){var el=document.getElementById('invoice-body');var canvas=await html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true});var img=canvas.toDataURL('image/jpeg',0.92);var pdf=new jspdf.jsPDF('p','mm','a4');var pw=pdf.internal.pageSize.getWidth();var ph=pdf.internal.pageSize.getHeight();var imgH=canvas.height*pw/canvas.width;pdf.addImage(img,'JPEG',0,0,pw,imgH);var left=imgH-ph;while(left>0){pdf.addPage();pdf.addImage(img,'JPEG',0,left-imgH,pw,imgH);left-=ph;}return pdf;}"
                               + "document.getElementById('shareBtn').onclick=async function(){var btn=this;btn.textContent='Preparing...';btn.disabled=true;try{var pdf=await makePDF();var blob=pdf.output('blob');var file=new File([blob],INV_NUM+'.pdf',{type:'application/pdf'});var msg='Hello '+CLIENT+'! Your invoice '+INV_NUM+' for ₦'+AMT+' is attached. Thank you for choosing '+BIZ+'!';if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:INV_NUM,text:msg});btn.textContent='✓ Shared';}else{pdf.save(INV_NUM+'.pdf');var wa=PHONE?('https://wa.me/'+PHONE+'?text='+encodeURIComponent(msg)):('https://wa.me/?text='+encodeURIComponent(msg));window.open(wa,'_blank');document.getElementById('shareHelp').innerHTML='PDF downloaded and WhatsApp opened. Attach the downloaded PDF in the chat.';btn.textContent='📤 Share Invoice';btn.disabled=false;}}catch(e){if(e.name!=='AbortError'){document.getElementById('shareHelp').innerHTML='Could not auto-share. Tap Save as PDF then attach it in WhatsApp.';}btn.textContent='📤 Share Invoice';btn.disabled=false;}};"
-                              + "setTimeout(function(){window.print()},700);"
                               + "</scr" + "ipt>"
                               + "</body></html>"
                             const w = window.open("", "_blank")
                             w.document.write(html)
                             w.document.close()
                             // Auto-save invoice to Invoices page
-                            const savedInv = { id: invoiceNum, quoteId: q.id, clientName: q.clientName, clientPhone: q.clientPhone || "", date: q.date, deliveryDate: q.deliveryDate || "", amount: q.grandTotal || ((q.salePrice || q.quotePrice || 0) + (q.deliveryCharge || 0) + (q.vatAmount || 0)), cakeAmount: q.salePrice || q.quotePrice || 0, deliveryCharge: q.deliveryCharge || 0, vatAmount: q.vatAmount || 0, vatRate: q.vatRate || 0, productType: q.productType || "Cake", cakeSummary: q.cakeSummary || "", notes: q.notes || "", status: "unpaid", bankName: co.bankName || "", bankAccount: co.bankAccount || "", bankAccountName: co.bankAccountName || "", businessName: co.name || "Fayvouree Cakes" }
-                              const existing = loadLocal("ll_quote_invoices", [])
-                              if (!existing.find(i => i.id === invoiceNum)) { await saveLocal("ll_quote_invoices", [savedInv, ...existing]) }
+                            const savedInv = { 
+                              id: invoiceNum, 
+                              quoteId: q.id, 
+                              clientName: q.clientName, 
+                              clientPhone: q.clientPhone || "", 
+                              date: q.date, 
+                              deliveryDate: q.deliveryDate || "", 
+                              amount: q.grandTotal || ((q.salePrice || q.quotePrice || 0) + (q.deliveryCharge || 0) + (q.vatAmount || 0)), 
+                              cakeAmount: q.salePrice || q.quotePrice || 0, 
+                              deliveryCharge: q.deliveryCharge || 0, 
+                              vatAmount: q.vatAmount || 0, 
+                              vatRate: q.vatRate || 0, 
+                              productType: q.productType || "Cake", 
+                              cakeSummary: q.cakeSummary || "", 
+                              notes: q.notes || "", 
+                              status: pType === "full" ? "paid" : "partially_paid",
+                              paymentType: pType,
+                              paymentMethod: pMethod,
+                              depositedAmount: depAmt,
+                              remainingAmount: remAmt,
+                              bankName: co.bankName || "", 
+                              bankAccount: co.bankAccount || "", 
+                              bankAccountName: co.bankAccountName || "", 
+                              businessName: co.name || "Fayvouree Cakes" 
+                            }
+                            const existing = loadLocal("ll_quote_invoices", [])
+                            if (!existing.find(i => i.id === invoiceNum)) { await saveLocal("ll_quote_invoices", [savedInv, ...existing]) }
                           }}
                           style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: "#1D9E75", color: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}
                         >

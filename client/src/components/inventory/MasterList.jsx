@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert } from "../common/ui.jsx"
-import { fmt, uid, recipeCost, parseCSV } from "../../lib/helpers.js"
+import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage } from "../../lib/helpers.js"
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
 import { saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
 
@@ -773,6 +773,8 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
   const [pasteText,setPasteText]=useState("")
   const csvRef=useRef()
   const isOwner = user?.role==="owner"
+  const [showRecipeExcelImport, setShowRecipeExcelImport] = useState(false)
+  const [showRecipeScan, setShowRecipeScan] = useState(false)
 
   const showMsg = (m,c="gold") => { setMsg(m); setMsgColor(c); setTimeout(()=>setMsg(""),4000) }
 
@@ -896,6 +898,10 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
           <Btn small variant="danger" onClick={()=>removeIng(idx)}>×</Btn>
         </div>)}
         <Btn small variant="ghost" onClick={addIngToRecipe}>+ Add Ingredient</Btn>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <Btn small variant="outline" onClick={() => setShowRecipeExcelImport(true)}>📋 Import from Excel</Btn>
+          <Btn small variant="outline" onClick={() => setShowRecipeScan(true)}>📸 Scan Recipe (AI)</Btn>
+        </div>
         {recipeModal.ing.length>0&&<div style={{marginTop:10,padding:"8px 12px",background:"#F5F0E4",borderRadius:7,fontSize:13}}>
           {recipeModal.type==="pastry"
             ?<>Batch cost: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory))}</strong>
@@ -904,6 +910,38 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         </div>}
         <div style={{marginTop:12,display:"flex",gap:8}}><Btn variant="success" onClick={saveRecipe}>✓ Save Recipe</Btn><Btn variant="ghost" onClick={()=>setRecipeModal(null)}>Cancel</Btn></div>
       </Modal>}
+
+      {showRecipeExcelImport && (
+        <Modal title="Import Recipe Ingredients from Excel" onClose={() => setShowRecipeExcelImport(false)}>
+          <RecipeExcelImportModal 
+            inventory={inventory} 
+            onClose={() => setShowRecipeExcelImport(false)}
+            onImport={(importedIngs) => {
+              setRecipeModal(r => ({
+                ...r,
+                ing: [...(r.ing || []), ...importedIngs]
+              }))
+              setShowRecipeExcelImport(false)
+            }}
+          />
+        </Modal>
+      )}
+
+      {showRecipeScan && (
+        <Modal title="Scan Recipe (AI)" onClose={() => setShowRecipeScan(false)}>
+          <RecipeScanModal 
+            inventory={inventory} 
+            onClose={() => setShowRecipeScan(false)}
+            onImport={(scannedIngs) => {
+              setRecipeModal(r => ({
+                ...r,
+                ing: [...(r.ing || []), ...scannedIngs]
+              }))
+              setShowRecipeScan(false)
+            }}
+          />
+        </Modal>
+      )}
     </div>}
 
     {/* ── DECORATIONS ── */}
@@ -911,4 +949,370 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     {/* ── PACKAGING ── */}
     {tab==="packaging"&&<PackagingTab isOwner={isOwner}/>}
   </div>
+}
+
+export function RecipeExcelImportModal({ inventory, onClose, onImport }) {
+  const [pasteN, setPasteN] = useState("")
+  const [pasteQ, setPasteQ] = useState("")
+  const [importStep, setImportStep] = useState(1) // 1 = paste, 2 = preview
+  const [prevItems, setPrevItems] = useState([])
+  const [warnMsg, setWarnMsg] = useState("")
+
+  const L = v => v.trim().split(String.fromCharCode(10)).map(s => s.trim()).filter(Boolean)
+
+  const checkMatch = () => {
+    const ns = L(pasteN), qs = L(pasteQ)
+    if (ns.length > 0 && qs.length > 0 && ns.length !== qs.length) {
+      setWarnMsg(`Names: ${ns.length} rows — Quantities: ${qs.length} rows. Must match.`)
+    } else {
+      setWarnMsg("")
+    }
+  }
+
+  const doPreview = () => {
+    const ns = L(pasteN), qs = L(pasteQ)
+    if (!ns.length) return alert("Ingredient names are required")
+    if (ns.length !== qs.length && qs.length > 0) {
+      return alert(`Names (${ns.length}) and quantities (${qs.length}) must have the same number of rows`)
+    }
+    
+    const parsed = ns.map((name, i) => {
+      const qtyStr = qs[i] || "1"
+      const qty = parseFloat(qtyStr.replace(/[^0-9.]/g, "")) || 1
+      
+      // Match against inventory
+      const match = inventory.find(item => item.name.toLowerCase() === name.toLowerCase()) 
+        || inventory.find(item => item.name.toLowerCase().includes(name.toLowerCase()))
+        || inventory.find(item => name.toLowerCase().includes(item.name.toLowerCase()))
+      
+      return {
+        id: uid(),
+        pastedName: name,
+        iid: match ? match.id : "",
+        qty,
+        on: true
+      }
+    })
+    setPrevItems(parsed)
+    setImportStep(2)
+  }
+
+  const confirmImport = () => {
+    const approved = prevItems.filter(p => p.on && p.iid)
+    const formatted = approved.map(p => ({
+      iid: p.iid,
+      qty: parseFloat(p.qty) || 1
+    }))
+    onImport(formatted)
+  }
+
+  return (
+    <div>
+      {importStep === 1 && (
+        <div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
+            Copy column of Ingredient Names and another of Quantities from Excel and paste here.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8 }}>Ingredient Names *</label>
+              <textarea
+                value={pasteN}
+                onChange={e => { setPasteN(e.target.value); checkMatch() }}
+                placeholder="e.g. Flour&#10;Sugar&#10;Butter"
+                style={{ width: "100%", minHeight: 150, padding: 8, borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12.5, fontFamily: "monospace", color: "var(--text)" }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8 }}>Quantities *</label>
+              <textarea
+                value={pasteQ}
+                onChange={e => { setPasteQ(e.target.value); checkMatch() }}
+                placeholder="e.g. 0.5&#10;0.25&#10;0.3"
+                style={{ width: "100%", minHeight: 150, padding: 8, borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12.5, fontFamily: "monospace", color: "var(--text)" }}
+              />
+            </div>
+          </div>
+          {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10 }}>⚠ {warnMsg}</div>}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Btn onClick={doPreview} disabled={!pasteN.trim() || !!warnMsg}>Preview & Match →</Btn>
+            <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          </div>
+        </div>
+      )}
+
+      {importStep === 2 && (
+        <div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>
+            Verify matched ingredients. Select unmatched items from the dropdown if needed.
+          </div>
+          <div style={{ overflowY: "auto", maxHeight: 300, marginBottom: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ background: "#EDE5D6" }}>
+                  <th style={{ padding: "7px 10px" }}></th>
+                  <th style={{ padding: "7px 10px", textAlign: "left" }}>Pasted Name</th>
+                  <th style={{ padding: "7px 10px", textAlign: "left" }}>Linked Ingredient</th>
+                  <th style={{ padding: "7px 10px", textAlign: "right" }}>Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {prevItems.map((p, i) => {
+                  const matched = inventory.find(item => item.id === p.iid)
+                  return (
+                    <tr key={p.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA", opacity: p.on ? 1 : 0.45 }}>
+                      <td style={{ padding: "6px 10px" }}>
+                        <input
+                          type="checkbox"
+                          checked={p.on}
+                          onChange={() => setPrevItems(prev => prev.map(x => x.id === p.id ? { ...x, on: !x.on } : x))}
+                        />
+                      </td>
+                      <td style={{ padding: "6px 10px", fontWeight: 500 }}>{p.pastedName}</td>
+                      <td style={{ padding: "6px 10px" }}>
+                        <select
+                          value={p.iid}
+                          onChange={e => setPrevItems(prev => prev.map(x => x.id === p.id ? { ...x, iid: e.target.value } : x))}
+                          style={{ width: "100%", padding: "4px", borderRadius: 4, border: "1px solid var(--border)" }}
+                        >
+                          <option value="">— Unmatched (select to link) —</option>
+                          {inventory.map(item => (
+                            <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={{ padding: "6px 10px", textAlign: "right" }}>
+                        <input
+                          type="number"
+                          value={p.qty}
+                          onChange={e => setPrevItems(prev => prev.map(x => x.id === p.id ? { ...x, qty: e.target.value } : x))}
+                          style={{ width: 60, padding: 4, textAlign: "right" }}
+                        />
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p => p.on && p.iid)}>
+              ✓ Import Selected ({prevItems.filter(p => p.on && p.iid).length})
+            </Btn>
+            <Btn variant="ghost" onClick={() => setImportStep(1)}>← Edit</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function RecipeScanModal({ inventory, onClose, onImport }) {
+  const [photo, setPhoto] = useState(null)
+  const [photoB64, setPhotoB64] = useState(null)
+  const [pasteText, setPasteText] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [parsedItems, setParsedItems] = useState(null) // [{ name, qty, iid, on: true }]
+  const fileRef = useRef()
+
+  const handleFile = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setPhoto(URL.createObjectURL(file))
+    const r = new FileReader()
+    r.onload = (ev) => setPhotoB64(ev.target.result.split(",")[1])
+    r.readAsDataURL(file)
+    setParsedItems(null)
+    setError("")
+  }
+
+  const scan = async () => {
+    setLoading(true)
+    setError("")
+    try {
+      let content = []
+      
+      if (photoB64) {
+        const compressed = await compressImage(photoB64, 1200)
+        content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: compressed } })
+      }
+      
+      const invList = inventory.map(i => `${i.id}:${i.name}`).join(", ")
+      const promptText = `This is a baking recipe. Extract all ingredients and their quantities (scale to standard base units if possible).
+      
+      Inventory list to match against:
+      ${invList}
+      
+      For each ingredient, extract the quantity as a float number (if units are cups, spoons, etc., make best estimate or default to standard float).
+      
+      Return ONLY this exact JSON format, no other text:
+      {
+        "ingredients": [
+          {"name": "ingredient name", "qty": 0.5, "matched_id": "matched inventory item id if found"}
+        ]
+      }`
+
+      if (pasteText.trim()) {
+        content.push({ type: "text", text: `Here is the recipe text:\n${pasteText}\n\n${promptText}` })
+      } else {
+        content.push({ type: "text", text: promptText })
+      }
+
+      const raw = await callClaude([
+        {
+          role: "user",
+          content: content
+        }
+      ], "Parse recipe sheets and extract ingredients with quantities matching inventory list. Return valid JSON only.")
+
+      const cleanJson = raw.replace(/```json|```/g, "").trim()
+      const result = JSON.parse(cleanJson)
+      if (!result.ingredients || result.ingredients.length === 0) throw new Error("No ingredients detected.")
+      
+      setParsedItems(result.ingredients.map(r => {
+        // Double check matching
+        let iid = r.matched_id || ""
+        if (!iid) {
+          const match = inventory.find(item => item.name.toLowerCase() === r.name.toLowerCase()) 
+            || inventory.find(item => item.name.toLowerCase().includes(r.name.toLowerCase()))
+          if (match) iid = match.id
+        }
+        return {
+          id: uid(),
+          pastedName: r.name,
+          iid,
+          qty: parseFloat(r.qty) || 1,
+          on: true
+        }
+      }))
+    } catch (err) {
+      setError(`Scanner failed: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const confirmImport = () => {
+    const approved = parsedItems.filter(p => p.on && p.iid)
+    const formatted = approved.map(p => ({
+      iid: p.iid,
+      qty: parseFloat(p.qty) || 1
+    }))
+    onImport(formatted)
+  }
+
+  return (
+    <div>
+      {!parsedItems ? (
+        <div>
+          <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>
+            Provide recipe details using any method below:
+          </div>
+
+          {/* Paste Recipe Text */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8 }}>Option A: Paste Recipe Text</label>
+            <textarea
+              value={pasteText}
+              onChange={e => setPasteText(e.target.value)}
+              placeholder="e.g. 2 cups flour, 1/2 cup sugar, 250g butter..."
+              style={{ width: "100%", minHeight: 90, padding: 8, borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12.5, color: "var(--text)" }}
+            />
+          </div>
+
+          {/* Upload Recipe Photo */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8 }}>Option B: Scan Recipe Photo</label>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <button
+                onClick={() => {
+                  const inp = document.createElement("input")
+                  inp.type = "file"
+                  inp.accept = "image/*"
+                  inp.onchange = handleFile
+                  inp.click()
+                }}
+                style={{ padding: "10px 14px", borderRadius: 8, border: "2px dashed var(--border)", background: "#FAF7F0", cursor: "pointer", fontSize: 12.5, fontWeight: 500 }}
+              >
+                📸 Choose image / Open camera
+              </button>
+              {photo && (
+                <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 2, background: "#fff" }}>
+                  <img src={photo} alt="recipe preview" style={{ maxHeight: 60, borderRadius: 4 }} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {error && <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12.5, color: "#B03A2E", marginBottom: 12 }}>⚠ {error}</div>}
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+            <Btn onClick={scan} disabled={loading || (!pasteText.trim() && !photoB64)}>
+              {loading ? "🔍 AI is reading recipe..." : "✦ AI Scan & Extract"}
+            </Btn>
+            <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>
+            Check extracted ingredients. Select unmatched items from the dropdown if needed.
+          </div>
+          <div style={{ overflowY: "auto", maxHeight: 300, marginBottom: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ background: "#EDE5D6" }}>
+                  <th style={{ padding: "7px 10px" }}></th>
+                  <th style={{ padding: "7px 10px", textAlign: "left" }}>Extracted Name</th>
+                  <th style={{ padding: "7px 10px", textAlign: "left" }}>Linked Ingredient</th>
+                  <th style={{ padding: "7px 10px", textAlign: "right" }}>Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parsedItems.map((p, i) => (
+                  <tr key={p.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA", opacity: p.on ? 1 : 0.45 }}>
+                    <td style={{ padding: "6px 10px" }}>
+                      <input
+                        type="checkbox"
+                        checked={p.on}
+                        onChange={() => setParsedItems(prev => prev.map(x => x.id === p.id ? { ...x, on: !x.on } : x))}
+                      />
+                    </td>
+                    <td style={{ padding: "6px 10px", fontWeight: 500 }}>{p.pastedName}</td>
+                    <td style={{ padding: "6px 10px" }}>
+                      <select
+                        value={p.iid}
+                        onChange={e => setParsedItems(prev => prev.map(x => x.id === p.id ? { ...x, iid: e.target.value } : x))}
+                        style={{ width: "100%", padding: "4px", borderRadius: 4, border: "1px solid var(--border)" }}
+                      >
+                        <option value="">— Unmatched (select to link) —</option>
+                        {inventory.map(item => (
+                          <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td style={{ padding: "6px 10px", textAlign: "right" }}>
+                      <input
+                        type="number"
+                        value={p.qty}
+                        onChange={e => setParsedItems(prev => prev.map(x => x.id === p.id ? { ...x, qty: e.target.value } : x))}
+                        style={{ width: 60, padding: 4, textAlign: "right" }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Btn variant="success" onClick={confirmImport} disabled={!parsedItems.some(p => p.on && p.iid)}>
+              ✓ Add to Recipe ({parsedItems.filter(p => p.on && p.iid).length})
+            </Btn>
+            <Btn variant="ghost" onClick={() => setParsedItems(null)}>← Scan again</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }

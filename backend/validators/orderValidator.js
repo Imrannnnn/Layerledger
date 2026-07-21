@@ -19,17 +19,23 @@ const orderPaymentSchema = z.object({
     type: z.string().optional()
 });
 
+const orderUsageSchema = z.object({
+    itemId: z.string().min(1, 'Item ID is required'),
+    qty: z.number().nonnegative('Usage quantity must be a non-negative number')
+});
+
 const createOrderSchema = z.object({
     body: z.object({
         clientId: z.string().optional(),
         status: z.string().optional(),
-        dueDate: z.string().datetime().optional().or(z.date().optional()),
+        dueDate: z.string().datetime().optional().or(z.date().optional()).nullable(),
         items: z.array(orderItemSchema).optional(),
         totalPrice: z.number().nonnegative('Total price must be a non-negative number').optional().default(0),
         totalCost: z.number().nonnegative('Total cost must be a non-negative number').optional().default(0),
         payments: z.array(orderPaymentSchema).optional(),
         notes: z.string().optional(),
-        id: z.string().optional()
+        id: z.string().optional(),
+        usages: z.array(orderUsageSchema).optional()
     })
 });
 
@@ -42,7 +48,8 @@ const updateOrderSchema = z.object({
         totalPrice: z.number().nonnegative('Total price must be a non-negative number').optional(),
         totalCost: z.number().nonnegative('Total cost must be a non-negative number').optional(),
         payments: z.array(orderPaymentSchema).optional(),
-        notes: z.string().optional()
+        notes: z.string().optional(),
+        usages: z.array(orderUsageSchema).optional()
     })
 });
 

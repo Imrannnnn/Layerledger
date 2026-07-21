@@ -150,31 +150,34 @@ export const syncToBackend = async (forceAll = false) => {
     }
 
     // Sync to individual tables and await completions ONLY if data has changed or forced
-    const syncPromises = []
-
-    if (forceAll || data["ll_inv"] !== lastSyncedValues["ll_inv"]) {
-      syncPromises.push(syncInventoryItems(headers, JSON.parse(data["ll_inv"] || "[]"))
-        .then(() => { lastSyncedValues["ll_inv"] = data["ll_inv"] })
-        .catch(console.error))
-    }
+    // Phase 1: Sync recipes, purchases, expenses, orders, and invoices
+    const phase1Promises = []
 
     if (forceAll || data["ll_recipes"] !== lastSyncedValues["ll_recipes"]) {
-      syncPromises.push(syncRecipesList(headers, JSON.parse(data["ll_recipes"] || "[]"))
+      phase1Promises.push(syncRecipesList(headers, JSON.parse(data["ll_recipes"] || "[]"))
         .then(() => { lastSyncedValues["ll_recipes"] = data["ll_recipes"] })
         .catch(console.error))
     }
 
     if (forceAll || data["ll_exp"] !== lastSyncedValues["ll_exp"]) {
-      syncPromises.push(syncExpensesList(headers, JSON.parse(data["ll_exp"] || "[]"))
+      phase1Promises.push(syncExpensesList(headers, JSON.parse(data["ll_exp"] || "[]"))
         .then(() => { lastSyncedValues["ll_exp"] = data["ll_exp"] })
         .catch(console.error))
     }
 
+    if (forceAll || data["ll_purchases"] !== lastSyncedValues["ll_purchases"]) {
+      phase1Promises.push(syncPurchasesList(headers, JSON.parse(data["ll_purchases"] || "[]"))
+        .then(() => { lastSyncedValues["ll_purchases"] = data["ll_purchases"] })
+        .catch(console.error))
+    }
+
     if (forceAll || data["ll_prods"] !== lastSyncedValues["ll_prods"] || data["ll_quotes"] !== lastSyncedValues["ll_quotes"]) {
-      syncPromises.push(syncOrdersList(
+      phase1Promises.push(syncOrdersList(
         headers, 
         JSON.parse(data["ll_prods"] || "[]"), 
-        JSON.parse(data["ll_quotes"] || "[]")
+        JSON.parse(data["ll_quotes"] || "[]"),
+        JSON.parse(data["ll_inv"] || "[]"),
+        JSON.parse(data["ll_recipes"] || "[]")
       )
         .then(() => { 
           lastSyncedValues["ll_prods"] = data["ll_prods"]
@@ -184,18 +187,19 @@ export const syncToBackend = async (forceAll = false) => {
     }
 
     if (forceAll || data["ll_quote_invoices"] !== lastSyncedValues["ll_quote_invoices"]) {
-      syncPromises.push(syncInvoicesList(headers, JSON.parse(data["ll_quote_invoices"] || "[]"))
+      phase1Promises.push(syncInvoicesList(headers, JSON.parse(data["ll_quote_invoices"] || "[]"))
         .then(() => { lastSyncedValues["ll_quote_invoices"] = data["ll_quote_invoices"] })
         .catch(console.error))
     }
 
-    if (forceAll || data["ll_purchases"] !== lastSyncedValues["ll_purchases"]) {
-      syncPromises.push(syncPurchasesList(headers, JSON.parse(data["ll_purchases"] || "[]"))
-        .then(() => { lastSyncedValues["ll_purchases"] = data["ll_purchases"] })
-        .catch(console.error))
-    }
+    await Promise.all(phase1Promises)
 
-    await Promise.all(syncPromises)
+    // Phase 2: Sync inventory items (fetching server-computed stock and moving average costs)
+    if (forceAll || data["ll_inv"] !== lastSyncedValues["ll_inv"]) {
+      await syncInventoryItems(headers, JSON.parse(data["ll_inv"] || "[]"))
+        .then(() => { lastSyncedValues["ll_inv"] = localStorage.getItem("ll_inv") || data["ll_inv"] })
+        .catch(console.error)
+    }
 
   } catch (error) {
     console.error("Sync to backend error:", error)
@@ -214,6 +218,9 @@ const syncInventoryItems = async (headers, localInv) => {
   if (!res.ok) return
   const serverItems = await res.json()
 
+  let localChanged = false
+  const updatedLocalInv = [...localInv]
+
   // Delete
   for (const sItem of serverItems) {
     if (!localInv.find(i => i.id === sItem.id)) {
@@ -222,32 +229,65 @@ const syncInventoryItems = async (headers, localInv) => {
   }
 
   // Create/Update
-  for (const item of localInv) {
-    const sItem = serverItems.find(i => i.id === item.id)
-    const body = {
-      id: item.id,
-      name: item.name || "Item",
-      category: item.cat || "Other",
-      unit: item.unit || "unit",
-      cost: Number(item.cost) || 0,
-      stock: Number(item.stock || 0),
-      minStock: Number(item.minStock || 0)
-    }
+  for (let i = 0; i < updatedLocalInv.length; i++) {
+    const item = updatedLocalInv[i]
+    const sItem = serverItems.find(x => x.id === item.id)
     if (sItem) {
-      if (sItem.name !== body.name || sItem.category !== body.category || sItem.unit !== body.unit || sItem.cost !== body.cost || sItem.stock !== body.stock || sItem.minStock !== body.minStock) {
-        await fetch(`${apiUrl}/api/inventory/${item.id}`, {
+      const body = {
+        id: item.id,
+        name: item.name || "Item",
+        category: item.cat || "Other",
+        unit: item.unit || "unit",
+        minStock: Number(item.minStock || 0)
+      }
+      const stockChanged = item.stock !== sItem.stock;
+      const costChanged = item.cost !== sItem.cost;
+
+      if (sItem.name !== body.name || sItem.category !== body.category || sItem.unit !== body.unit || sItem.minStock !== body.minStock || stockChanged || costChanged) {
+        const updateRes = await fetch(`${apiUrl}/api/inventory/${item.id}`, {
           method: "PUT",
           headers,
-          body: JSON.stringify(body)
-        })
+          body: JSON.stringify({
+            ...body,
+            cost: Number(item.cost),
+            stock: Number(item.stock)
+          })
+        });
+        if (updateRes.ok) {
+          const updatedServerItem = await updateRes.json();
+          sItem.cost = updatedServerItem.cost;
+          sItem.stock = updatedServerItem.stock;
+        }
+      }
+
+      if (item.cost !== sItem.cost || item.stock !== sItem.stock) {
+        updatedLocalInv[i] = {
+          ...item,
+          cost: sItem.cost,
+          stock: sItem.stock
+        }
+        localChanged = true;
       }
     } else {
       await fetch(`${apiUrl}/api/inventory`, {
         method: "POST",
         headers,
-        body: JSON.stringify(body)
+        body: JSON.stringify({
+          id: item.id,
+          name: item.name || "Item",
+          category: item.cat || "Other",
+          unit: item.unit || "unit",
+          cost: Number(item.cost) || 0,
+          stock: Number(item.stock || 0),
+          minStock: Number(item.minStock || 0)
+        })
       })
     }
+  }
+
+  if (localChanged) {
+    cache["ll_inv"] = updatedLocalInv
+    localStorage.setItem("ll_inv", JSON.stringify(updatedLocalInv))
   }
 }
 
@@ -338,7 +378,139 @@ const syncExpensesList = async (headers, localExpenses) => {
   }
 }
 
-const syncOrdersList = async (headers, localProds, localQuotes) => {
+const calculateOrderUsages = (o, inventory, recipes) => {
+  const usages = [];
+  const mults = loadLocal("ll_multipliers", {
+    "4-round":1,"6-round":1,"8-round":1.5,"10-round":2.2,"12-round":3.2,"14-round":4.5,
+    "4-square":1.2,"6-square":1.3,"8-square":2,"10-square":3,"12-square":4.2,"14-square":6,
+    "4-sheet":1.5,"6-sheet":2,"8-sheet":3,"10-sheet":4.5,"12-sheet":6.5,"14-sheet":9
+  });
+
+  if (o.tiers && o.tiers.length > 0) {
+    o.tiers.forEach(tier => {
+      const size = String(tier.size).replace(/"/g, "").trim();
+      const shape = (tier.shape || "round").toLowerCase();
+      const key = `${size}-${shape}`;
+      const mult = mults[key] || 1;
+
+      tier.layers?.forEach(layer => {
+        if (!layer.flavour) return;
+        const recipe = recipes.find(r => r.name.toLowerCase().includes(layer.flavour.toLowerCase()));
+        if (!recipe) return;
+        recipe.ing?.forEach(ing => {
+          const needed = ing.qty * mult;
+          const existing = usages.find(u => u.itemId === ing.iid);
+          if (existing) {
+            existing.qty += needed;
+          } else {
+            usages.push({ itemId: ing.iid, qty: needed });
+          }
+        });
+      });
+
+      tier.coverings?.forEach(cov => {
+        if (!cov.type || !cov.grams) return;
+        const recipe = recipes.find(r => r.name.toLowerCase().includes(cov.type.toLowerCase()));
+        if (!recipe) return;
+        const batchGrams = Number(recipe.batchWeight) || recipe.ing?.reduce((s, ing) => {
+          if (ing.unit === "kg") return s + ing.qty * 1000;
+          if (ing.unit === "g" || ing.unit === "L" || ing.unit === "l") return s + ing.qty;
+          return s;
+        }, 0) || 1000;
+
+        const ratio = cov.grams / batchGrams;
+        recipe.ing?.forEach(ing => {
+          const needed = ing.qty * ratio;
+          const existing = usages.find(u => u.itemId === ing.iid);
+          if (existing) {
+            existing.qty += needed;
+          } else {
+            usages.push({ itemId: ing.iid, qty: needed });
+          }
+        });
+      });
+
+      tier.fillings?.forEach(fil => {
+        if (!fil.type || !fil.grams) return;
+        const recipe = recipes.find(r => r.name.toLowerCase().includes(fil.type.toLowerCase()));
+        if (!recipe) return;
+        const batchGrams = Number(recipe.batchWeight) || recipe.ing?.reduce((s, ing) => {
+          if (ing.unit === "kg") return s + ing.qty * 1000;
+          if (ing.unit === "g" || ing.unit === "L" || ing.unit === "l") return s + ing.qty;
+          return s;
+        }, 0) || 1000;
+
+        const ratio = fil.grams / batchGrams;
+        recipe.ing?.forEach(ing => {
+          const needed = ing.qty * ratio;
+          const existing = usages.find(u => u.itemId === ing.iid);
+          if (existing) {
+            existing.qty += needed;
+          } else {
+            usages.push({ itemId: ing.iid, qty: needed });
+          }
+        });
+      });
+    });
+  }
+
+  if (o.donutGroups && o.donutGroups.length > 0) {
+    o.donutGroups.forEach(g => {
+      if (!g.flavour || !g.qty) return;
+      const recipe = recipes.find(r => r.name.toLowerCase().includes(g.flavour.toLowerCase()));
+      if (!recipe) return;
+      const batchSize = recipe.batchSize || 12;
+      const ratio = g.qty / batchSize;
+      recipe.ing?.forEach(ing => {
+        const needed = ing.qty * ratio;
+        const existing = usages.find(u => u.itemId === ing.iid);
+        if (existing) {
+          existing.qty += needed;
+        } else {
+          usages.push({ itemId: ing.iid, qty: needed });
+        }
+      });
+    });
+  }
+
+  if (o.loaves && o.loaves.length > 0) {
+    o.loaves.forEach(l => {
+      if (!l.flavour) return;
+      const recipe = recipes.find(r => r.name.toLowerCase().includes(l.flavour.toLowerCase()));
+      if (!recipe) return;
+      recipe.ing?.forEach(ing => {
+        const needed = ing.qty;
+        const existing = usages.find(u => u.itemId === ing.iid);
+        if (existing) {
+          existing.qty += needed;
+        } else {
+          usages.push({ itemId: ing.iid, qty: needed });
+        }
+      });
+    });
+  }
+
+  if (o.tartQty > 0) {
+    const recipe = recipes.find(r => r.name.toLowerCase().includes("tart")) || recipes.find(r => r.name.toLowerCase().includes("pastry"));
+    if (recipe) {
+      const batchSize = recipe.batchSize || 12;
+      const ratio = o.tartQty / batchSize;
+      recipe.ing?.forEach(ing => {
+        const needed = ing.qty * ratio;
+        const existing = usages.find(u => u.itemId === ing.iid);
+        if (existing) {
+          existing.qty += needed;
+        } else {
+          usages.push({ itemId: ing.iid, qty: needed });
+        }
+      });
+    }
+  }
+
+  return usages;
+};
+
+const syncOrdersList = async (headers, localProds, localQuotes, localInv, localRecipes) => {
   const apiUrl = import.meta.env.VITE_API_URL
   const res = await fetch(`${apiUrl}/api/orders`, { headers })
   if (!res.ok) return
@@ -360,7 +532,6 @@ const syncOrdersList = async (headers, localProds, localQuotes) => {
   for (const o of combinedLocal) {
     const sOrder = serverOrders.find(so => so.id === o.id)
     
-    // Map items from tiers
     const items = (o.tiers || []).map(t => ({
       name: t.covering || "Cake tier",
       size: t.size ? String(t.size) : "6",
@@ -370,14 +541,23 @@ const syncOrdersList = async (headers, localProds, localQuotes) => {
       cost: o.cost ? Number(o.cost / (o.tiers?.length || 1)) : 0
     }))
 
+    const usages = calculateOrderUsages(o, localInv, localRecipes)
+
+    let parsedDue = null
+    try {
+      const d = o.deliveryDate || o.dueDate
+      if (d) parsedDue = new Date(d).toISOString()
+    } catch (e) { /* ignore */ }
+
     const body = {
       id: o.id,
       status: o.isProd ? (o.status || "pending") : "quote",
-      dueDate: o.deliveryDate || o.dueDate || null,
+      dueDate: parsedDue,
       totalPrice: Number(o.salePrice || 0),
       totalCost: Number(o.cost || 0),
       notes: o.notes || "",
-      items
+      items,
+      usages
     }
 
     if (sOrder) {
@@ -468,10 +648,17 @@ const syncPurchasesList = async (headers, localPurchases) => {
       date: parsedDate,
       supplier: pur.supplier || "Market Run",
       amount: Number(pur.total || 0),
-      notes: `${pur.item || "Ingredient"} — Qty: ${pur.qty || 1} (added: ${pur.stockAdded || 0})`
+      notes: `${pur.item || "Ingredient"} — Qty: ${pur.qty || 1} (added: ${pur.stockAdded || 0})`,
+      itemId: pur.itemId || null,
+      unitSize: Number(pur.unitSize || 0),
+      qty: Number(pur.qty || 0),
+      price: Number(pur.price || 0),
+      total: Number(pur.total || 0),
+      cpu: Number(pur.cpu || 0),
+      stockAdded: Number(pur.stockAdded || 0)
     }
     if (sPur) {
-      if (sPur.amount !== body.amount || sPur.supplier !== body.supplier || (sPur.notes || "") !== body.notes) {
+      if (sPur.amount !== body.amount || sPur.supplier !== body.supplier || (sPur.notes || "") !== body.notes || sPur.itemId !== body.itemId || sPur.stockAdded !== body.stockAdded) {
         await fetch(`${apiUrl}/api/purchases/${pur.id}`, {
           method: "PUT",
           headers,

@@ -76,6 +76,19 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
       +"<div style='font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px'>Total amount</div>"
       +"<div style='font-size:36px;font-weight:700;color:"+gold+"'>&#8358;"+(inv.amount||0).toLocaleString()+"</div>"
       +"</div>"
+      +(inv.paymentType === "full"
+        ? "<div style='margin:16px 0;padding:14px 16px;background:#EEF8F3;border:1px solid #C2E0CF;border-radius:8px;font-size:13px;text-align:left'>"
+          + "<div class='row' style='border-bottom:none;padding:4px 0'><span><strong>Payment Status</strong></span><span style='color:#357A52;font-weight:700'>PAID IN FULL</span></div>"
+          + "<div class='row' style='border-bottom:none;padding:4px 0'><span>Amount Received</span><span>&#8358;" + (inv.amount || 0).toLocaleString() + " via " + (inv.paymentMethod || "cash").toUpperCase() + "</span></div>"
+          + "</div>"
+        : inv.paymentType === "advance"
+        ? "<div style='margin:16px 0;padding:14px 16px;background:#FFF9EE;border:1px solid #E8D5A3;border-radius:8px;font-size:13px;text-align:left'>"
+          + "<div class='row' style='border-bottom:none;padding:4px 0'><span><strong>Payment Status</strong></span><span style='color:#8C5E00;font-weight:700'>DEPOSIT PAID</span></div>"
+          + "<div class='row' style='border-bottom:none;padding:4px 0'><span>Deposited Amount</span><span>&#8358;" + (parseFloat(inv.depositedAmount || 0)).toLocaleString() + " via " + (inv.paymentMethod || "cash").toUpperCase() + "</span></div>"
+          + "<div class='row' style='border-bottom:none;padding:8px 0 4px 0;margin-top:6px;border-top:1px dashed #E8D5A3'><span><strong>Remaining Balance</strong></span><span style='color:#B03A2E;font-weight:700'>&#8358;" + (parseFloat(inv.remainingAmount || 0)).toLocaleString() + "</span></div>"
+          + "</div>"
+        : ""
+      )
       +(company.bankName?"<div class='bank'><div style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#888;font-weight:600;margin-bottom:8px'>Payment details</div>"
         +"<div class='row'><span>Bank</span><span><strong>"+company.bankName+"</strong></span></div>"
         +"<div class='row'><span>Account number</span><span><strong>"+company.bankAccount+"</strong></span></div>"
@@ -100,7 +113,11 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
 
   const totalInvoices = invoices.length
   const totalInvoiced = invoices.reduce((s,i)=>s+(i.amount||0), 0)
-  const totalOutstanding = invoices.filter(i=>i.status!=="paid").reduce((s,i)=>s+(i.amount||0), 0)
+  const totalOutstanding = invoices.reduce((s, i) => {
+    if (i.status === "paid") return s
+    if (i.status === "partially_paid") return s + (parseFloat(i.remainingAmount) || 0)
+    return s + (i.amount || 0)
+  }, 0)
 
   return <div>
     <SHead title="Invoices" sub="All invoices generated from client quotes."/>
@@ -139,7 +156,7 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
                   <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600}}>{inv.clientName}</span>
                   <span style={{fontSize:11,color:"var(--muted)",background:"var(--bg)",padding:"2px 8px",borderRadius:20}}>{inv.id}</span>
-                  <Badge color={inv.status==="paid"?"green":"gold"}>{inv.status==="paid"?"Paid":"Unpaid"}</Badge>
+                  <Badge color={inv.status === "paid" ? "green" : inv.status === "partially_paid" ? "blue" : "gold"}>{inv.status === "paid" ? "Paid" : inv.status === "partially_paid" ? "Partially Paid" : "Unpaid"}</Badge>
                 </div>
                 <div style={{fontSize:12.5,color:"var(--muted)",display:"flex",gap:16,flexWrap:"wrap"}}>
                   <span>📅 Date: {inv.date}</span>

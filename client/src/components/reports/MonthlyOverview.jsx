@@ -105,13 +105,20 @@ export function MonthlyOverview({ inventory, productions, expenses, company }) {
     <div class="sec">Stock Movement</div>
     <table><tr><th>Item</th><th>Unit</th><th>Opening</th><th>+ Bought</th><th>− Used</th><th>Closing</th><th>Value</th></tr>
     ${inventory.map(item => {
-      const opening = getOSQty(item.id)
+      const f = osItems.find(x => x.id === item.id)
+      const opening = f ? f.openingQty : 0
+      const cost = f ? f.cost : item.cost
+      const unit = f ? f.unit : item.unit
       const bought = getBought(item.id)
       const closing = item.stock
       const used = Math.max(0, parseFloat((opening + bought - closing).toFixed(3)))
-      return `<tr><td>${item.name}</td><td>${item.unit}</td><td>${opening}</td><td style="color:#357A52">+${bought}</td><td style="color:#B03A2E">−${used}</td><td><strong>${closing}</strong></td><td>₦${Math.round(closing * item.cost).toLocaleString()}</td></tr>`
+      return `<tr><td>${item.name}</td><td>${unit}</td><td>${opening}</td><td style="color:#357A52">+${bought}</td><td style="color:#B03A2E">−${used}</td><td><strong>${closing}</strong></td><td>₦${Math.round(closing * cost).toLocaleString()}</td></tr>`
     }).join("")}
-    <tr class="total"><td colspan="6" style="text-align:right">Total closing stock value</td><td>₦${Math.round(inventory.reduce((s, i) => s + i.stock * i.cost, 0)).toLocaleString()}</td></tr></table>
+    <tr class="total"><td colspan="6" style="text-align:right">Total closing stock value</td><td>₦${Math.round(inventory.reduce((s, i) => {
+      const f = osItems.find(x => x.id === i.id)
+      const cost = f ? f.cost : i.cost
+      return s + i.stock * cost
+    }, 0)).toLocaleString()}</td></tr></table>
     <div class="sec">Overhead Expenses</div>
     <table><tr><th>Date</th><th>Description</th><th>Category</th><th style="text-align:right">Amount</th></tr>
     ${mExp.map(e => `<tr><td>${e.date || ""}</td><td>${e.description || ""}</td><td>${e.category || ""}</td><td style="text-align:right">₦${Math.round(e.amount || 0).toLocaleString()}</td></tr>`).join("")}

@@ -1,5 +1,3 @@
-const { ZodError } = require('zod');
-
 const validate = (schema) => (req, res, next) => {
     try {
         schema.parse({
@@ -9,8 +7,9 @@ const validate = (schema) => (req, res, next) => {
         });
         next();
     } catch (error) {
-        if (error instanceof ZodError) {
-            const errorMessages = error.errors.map(err => `${err.path.join('.')}: ${err.message}`).join(', ');
+        const issues = error.errors || error.issues;
+        if (issues && Array.isArray(issues)) {
+            const errorMessages = issues.map(err => `${err.path.join('.')}: ${err.message}`).join(', ');
             res.status(400);
             return next(new Error(`Validation error: ${errorMessages}`));
         }

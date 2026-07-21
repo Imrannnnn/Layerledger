@@ -25,8 +25,23 @@ export function Purchases({inventory,setInventory,expenses,setExpenses}){
 
   const log=async()=>{
     if(!f.item||!f.unitSize||!f.qty||!f.price)return alert("All fields are required")
-    // 1. Update cost/unit in inventory
-    const updInv=inventory.map(i=>i.id===f.item?{...i,cost:cpu,stock:parseFloat((i.stock+stockAdded).toFixed(3))}:i)
+    // 1. Update cost/unit in inventory using weighted average cost
+    const updInv = inventory.map(i => {
+      if (i.id === f.item) {
+        const currentStock = Number(i.stock || 0);
+        const currentCost = Number(i.cost || 0);
+        const currentValue = currentStock * currentCost;
+        const newStock = parseFloat((currentStock + stockAdded).toFixed(3));
+        const newValue = currentValue + total;
+        const newAvgCost = newStock > 0 ? parseFloat((newValue / newStock).toFixed(2)) : currentCost;
+        return {
+          ...i,
+          cost: newAvgCost,
+          stock: newStock
+        };
+      }
+      return i;
+    });
     setInventory(updInv);await saveInventory(updInv)
     // 2. Log as expense
     const exp={id:uid(),date:f.date,description:`Purchase: ${selItem?.name||f.item}`,amount:total,category:"Ingredients",paymentMethod:"transfer",source:"purchase",notes:`${f.qty}×${f.unitSize}${selItem?.unit||""} @ ₦${(+f.price).toLocaleString()} — cost/unit updated to ${fmt(cpu)}`}
