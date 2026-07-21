@@ -6,7 +6,8 @@
     "test": "jest",
     "lint": "eslint .",
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "postinstall": "prisma generate"
   },
   "keywords": [],
   "author": "",
