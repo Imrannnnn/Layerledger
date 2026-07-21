@@ -221,7 +221,7 @@ const adjustItem = asyncHandler(async (req, res) => {
         });
 
         return updated;
-    }, { timeout: 30000 });
+    }, { maxWait: 10000, timeout: 30000 });
 
     res.json(updatedItem);
 });

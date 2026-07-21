@@ -106,7 +106,7 @@ const createPurchase = asyncHandler(async (req, res) => {
         }
 
         return purchase;
-    }, { timeout: 30000 });
+    }, { maxWait: 10000, timeout: 30000 });
 
     res.status(201).json(result);
 });

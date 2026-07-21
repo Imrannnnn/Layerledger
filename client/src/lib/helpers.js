@@ -37,8 +37,8 @@ export const calcFullCost = (recipe, inv, flavors, decorationIds, accessoryPct) 
 
 export async function callClaude(messages, system="") {
   const headers = getAuthHeaders() || {}
-  const apiUrl = import.meta.env.VITE_API_URL || ""
-  const res = await fetch(`${apiUrl}/api/claude`, {
+  const endpoint = import.meta.env.VITE_CLAUDE_API_URL || `${import.meta.env.VITE_API_URL || ""}/api/claude`
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       ...headers,
