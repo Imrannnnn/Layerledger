@@ -25,6 +25,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    env:
+      DATABASE_URL: postgresql://test_user:test_pass@localhost:5432/test_db
+      JWT_SECRET: test_jwt_secret
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -43,8 +47,6 @@ jobs:
 
     - name: Setup Prisma Database Schema
       working-directory: backend
-      env:
-        DATABASE_URL: postgresql://test_user:test_pass@localhost:5432/test_db
       run: |
         npx prisma generate
         npx prisma db push
@@ -53,9 +55,6 @@ jobs:
       run: npm run lint
 
     - name: Run tests
-      env:
-        DATABASE_URL: postgresql://test_user:test_pass@localhost:5432/test_db
-        JWT_SECRET: test_jwt_secret
       run: npm run test
 
     - name: Build client
