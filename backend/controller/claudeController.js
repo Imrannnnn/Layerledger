@@ -35,7 +35,7 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
                     "anthropic-version": "2023-06-01",
                 },
                 body: JSON.stringify({
-                    model: model || "claude-3-5-sonnet-20241022",
+                    model: model || process.env.CLAUDE_MODEL || "claude-sonnet-5",
                     max_tokens: max_tokens || 4000,
                     system,
                     messages
@@ -62,7 +62,13 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
                 }
             }
 
-            const data = JSON.parse(responseText);
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch (jsonErr) {
+                res.status(502);
+                throw new Error(`Invalid JSON response from Anthropic API: ${responseText.substring(0, 200)}`);
+            }
             return res.json(data);
         } catch (err) {
             lastError = err;

@@ -11,6 +11,65 @@ import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Modal } from "../common/ui.jsx"
 import { fmt, uid, today, callClaude, compressImage } from "../../lib/helpers.js"
 import { saveInventory, saveExpenses, saveLocal, loadLocal } from "../../lib/data.js"
 
+// Helper to extract and repair common LLM JSON syntax flaws (trailing commas, unquoted keys, comments)
+function extractAndRepairJson(rawText) {
+  if (!rawText) return null
+  let str = rawText.trim()
+  str = str.replace(/```json|```/g, "").trim()
+
+  const jsonMatch = str.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    str = jsonMatch[0]
+  }
+
+  // Attempt 1: Direct JSON parse
+  try {
+    return JSON.parse(str)
+  } catch {
+    // Attempt 2: Strip comments and trailing commas
+    try {
+      let cleaned = str
+        .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
+        .replace(/,\s*([\]\}])/g, "$1")
+      return JSON.parse(cleaned)
+    } catch {
+      // Attempt 3: Quote unquoted keys
+      try {
+        let cleaned = str
+          .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
+          .replace(/,\s*([\]\}])/g, "$1")
+          .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+        return JSON.parse(cleaned)
+      } catch {
+        return null
+      }
+    }
+  }
+}
+
+function normalizeItem(r) {
+  if (!r) return { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
+  if (typeof r === "string") {
+    return { item_on_receipt: r, qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
+  }
+  const qty = Number(r.qty || r.quantity || 1) || 1
+  const price = Number(r.unit_price || r.price || r.cost || 0) || 0
+  const total = Number(r.line_total || r.total || (qty * price) || 0) || 0
+
+  return {
+    item_on_receipt: String(r.item_on_receipt || r.name || r.item || r.description || ""),
+    qty,
+    unit: String(r.unit || "kg"),
+    unit_size: Number(r.unit_size || r.size || 1) || 1,
+    unit_price: price,
+    line_total: total,
+    type: (r.type === "expense" || r.type === "Expense") ? "expense" : "purchase",
+    overrideId: String(r.matched_id || r.overrideId || ""),
+    approved: r.approved !== undefined ? Boolean(r.approved) : r.confidence !== "low",
+    confidence: String(r.confidence || "high")
+  }
+}
+
 export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses }) {
   const [photo, setPhoto] = useState(null)
   const [photoB64, setPhotoB64] = useState(null)
@@ -20,6 +79,7 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
   const [parsed, setParsed] = useState(null) // { supplier, receipt_date, items: [...] }
   const [totalAmount, setTotalAmount] = useState("")
   const [saving, setSaving] = useState(false)
+  const [rawParseError, setRawParseError] = useState("")
   const fileRef = useRef()
 
   // State for creating a new inventory item directly from the review step
@@ -70,7 +130,7 @@ Return ONLY this exact JSON, no other text:
 {
   "items": [
     {"item_on_receipt":"flour","qty":3,"unit":"kg","unit_size":50,"unit_price":57000,"line_total":171000,"type":"purchase","matched_id":"i1","matched_name":"Flour","confidence":"high"},
-    {"item_on_receipt":"delivery fee","qty":1,"unit":"","unit_size":1,"unit_price":2000,"line_total":2000,"type":"type":"expense","matched_id":"","matched_name":"Delivery","confidence":"high"}
+    {"item_on_receipt":"delivery fee","qty":1,"unit":"","unit_size":1,"unit_price":2000,"line_total":2000,"type":"expense","matched_id":"","matched_name":"Delivery","confidence":"high"}
   ],
   "receipt_total":173000,
   "receipt_date":"2026-04-01",
@@ -82,20 +142,38 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
         }
       ], "Parse Nigerian bakery receipts. Classify each item as purchase or expense. Return valid JSON only.")
 
-      const cleanJson = raw.replace(/```json|```/g, "").trim()
-      const result = JSON.parse(cleanJson)
-      if (!result.items || result.items.length === 0) throw new Error("No items found. Try a brighter, clearer photo.")
-      
-      setParsed({
-        ...result,
-        items: result.items.map(r => ({
-          ...r,
-          approved: r.confidence !== "low",
-          overrideId: r.matched_id || "",
-          type: r.type || "purchase"
-        }))
-      })
-      if (result.receipt_total) setTotalAmount(String(result.receipt_total))
+      const result = extractAndRepairJson(raw)
+      const rawItems = result && (
+        Array.isArray(result.items) ? result.items :
+          Array.isArray(result.purchases) ? result.purchases :
+            Array.isArray(result.data) ? result.data :
+              Array.isArray(result.receipt_items) ? result.receipt_items : null
+      )
+
+      const displayRawText = (raw && raw.trim()) ? raw : "(No raw text response returned by AI API)"
+
+      if (!result || !rawItems || rawItems.length === 0) {
+        setParsed({
+          supplier: result?.supplier || "",
+          receipt_date: result?.receipt_date || today(),
+          items: [
+            { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
+          ],
+          rawText: displayRawText,
+          isEditingRaw: true
+        })
+        setTotalAmount("")
+      } else {
+        setParsed({
+          supplier: result.supplier || "",
+          receipt_date: result.receipt_date || today(),
+          ...result,
+          items: rawItems.map(normalizeItem),
+          rawText: displayRawText,
+          isEditingRaw: true
+        })
+        if (result.receipt_total) setTotalAmount(String(result.receipt_total))
+      }
     } catch (err) {
       setError(`Could not read receipt: ${err.message}`)
     } finally {
@@ -110,13 +188,45 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       receipt_date: today(),
       items: [
         { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
-      ]
+      ],
+      rawText: "",
+      isEditingRaw: false
     })
     setTotalAmount("")
     setSaved(false)
     setPhoto(null)
     setPhotoB64(null)
     setError("")
+    setRawParseError("")
+  }
+
+  // Reparse raw text manually edited by user
+  const handleReparseRaw = () => {
+    setRawParseError("")
+    if (!parsed || !parsed.rawText) return
+
+    const result = extractAndRepairJson(parsed.rawText)
+    const rawItems = result && (
+      Array.isArray(result.items) ? result.items :
+        Array.isArray(result.purchases) ? result.purchases :
+          Array.isArray(result.data) ? result.data :
+            Array.isArray(result.receipt_items) ? result.receipt_items : null
+    )
+
+    if (!result || !rawItems || rawItems.length === 0) {
+      setRawParseError("Could not parse JSON or no items list found. Please check syntax (quotes, brackets).")
+      return
+    }
+
+    setParsed(prev => ({
+      ...prev,
+      ...result,
+      items: rawItems.map(normalizeItem),
+      isEditingRaw: true
+    }))
+    if (result.receipt_total) {
+      setTotalAmount(String(result.receipt_total))
+    }
   }
 
   // Edit list helper
@@ -126,7 +236,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       items: p.items.map((r, i) => {
         if (i !== idx) return r
         const updatedRow = { ...r, [field]: val }
-        
+
         // Auto-calculate line total if qty or price changes
         if (field === "qty" || field === "unit_price") {
           const qty = Number(field === "qty" ? val : r.qty) || 0
@@ -170,7 +280,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       // Update inventory: stock + cost/unit for purchases
       let updInv = [...inventory]
       const purchaseLog = []
-      
+
       purchases.forEach(r => {
         const invItem = updInv.find(i => i.id === r.overrideId)
         if (!invItem) return
@@ -210,15 +320,15 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       if (amt > 0) {
         const purchaseNames = purchases.map(r => r.matched_name || r.item_on_receipt)
         const expNames = expItems.map(r => r.item_on_receipt)
-        
+
         const purchaseCalc = purchases.reduce((s, r) => s + (+r.line_total || 0), 0)
         const expCalc = expItems.reduce((s, r) => s + (+r.line_total || 0), 0)
-        
+
         const purchaseAmt = totalCalc > 0 ? (purchaseCalc / totalCalc) * amt : (purchases.length > 0 && expItems.length === 0 ? amt : 0)
         const expAmt = totalCalc > 0 ? (expCalc / totalCalc) * amt : (expItems.length > 0 && purchases.length === 0 ? amt : 0)
-        
+
         let newExps = []
-        
+
         if (purchaseAmt > 0) {
           newExps.push({
             id: uid(),
@@ -231,7 +341,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
             notes: `Purchases: ${purchaseNames.join(", ")}`
           })
         }
-        
+
         if (expAmt > 0) {
           newExps.push({
             id: uid(),
@@ -244,7 +354,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
             notes: `Expenses: ${expNames.join(", ")}`
           })
         }
-        
+
         if (newExps.length > 0) {
           const updExp = [...newExps, ...expenses]
           setExpenses(updExp)
@@ -317,11 +427,11 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       <SHead title="Receipt Scanner & Purchases" sub="Scan paper receipts using AI or type items manually to update stock levels." />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 16, alignItems: "start" }}>
-        
+
         {/* Left Side: Upload or Choose Method */}
         <Card>
           <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 12 }}>📷 Stock Purchase Input</div>
-          
+
           {!photo && !parsed && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -394,9 +504,9 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
               <img src={photo} alt="receipt" style={{ maxHeight: 260, maxWidth: "100%", borderRadius: 8 }} />
             </div>
           )}
-          
+
           <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
-          
+
           {photo && !parsed && !saved && (
             <>
               <Btn full onClick={scan} disabled={loading}>{loading ? "🔍 AI is reading the receipt…" : "✦ Scan & Extract Items"}</Btn>
@@ -434,8 +544,49 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
           <Card>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 600 }}>Review & Match Items</div>
-              <Btn small variant="ghost" onClick={addBlankRow}>+ Add Row</Btn>
+              <div style={{ display: "flex", gap: 8 }}>
+                {!parsed.isEditingRaw ? (
+                  <Btn small variant="outline" onClick={() => setParsed({ ...parsed, isEditingRaw: true })}>✍️ Show Raw AI Response</Btn>
+                ) : (
+                  <Btn small variant="outline" onClick={() => setParsed({ ...parsed, isEditingRaw: false })}>🙈 Hide Raw Box</Btn>
+                )}
+                <Btn small variant="ghost" onClick={addBlankRow}>+ Add Row</Btn>
+              </div>
             </div>
+
+            {parsed.isEditingRaw && (
+              <div style={{ marginBottom: 14, padding: 12, background: "#FFF9EE", border: "1px solid #FEF0D0", borderRadius: 8 }}>
+                <div style={{ fontWeight: 600, fontSize: 12, color: "#7A5500", marginBottom: 6 }}>
+                  🤖 Raw AI Response JSON (Inspect or edit text below, then click Parse):
+                </div>
+                <textarea
+                  value={parsed.rawText || ""}
+                  onChange={e => setParsed({ ...parsed, rawText: e.target.value })}
+                  placeholder="Raw AI response will appear here..."
+                  style={{
+                    width: "100%",
+                    height: 150,
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    padding: 8,
+                    background: "white",
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    resize: "vertical",
+                    lineHeight: 1.4
+                  }}
+                />
+                {rawParseError && (
+                  <div style={{ color: "#B03A2E", fontSize: 11, marginTop: 6, fontWeight: 600 }}>
+                    ❌ Parsing Error: {rawParseError}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <Btn small variant="success" onClick={handleReparseRaw}>✓ Parse & Load JSON</Btn>
+                  <Btn small variant="outline" onClick={() => setParsed({ ...parsed, isEditingRaw: false })}>Hide Box</Btn>
+                </div>
+              </div>
+            )}
 
             {/* Receipt Metadata */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>

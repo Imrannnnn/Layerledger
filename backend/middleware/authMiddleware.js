@@ -16,6 +16,10 @@ const protect = async (req, res, next) => {
             // Verify token
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+            if (!decoded || !decoded.id || typeof decoded.id !== 'string') {
+                return res.status(401).json({ message: 'Not authorized, invalid token payload' });
+            }
+
             // Get user from the token (exclude password)
             req.user = await prisma.user.findUnique({
                 where: { id: decoded.id },

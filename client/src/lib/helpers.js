@@ -37,26 +37,42 @@ export const calcFullCost = (recipe, inv, flavors, decorationIds, accessoryPct) 
 
 export async function callClaude(messages, system="") {
   const headers = getAuthHeaders() || {}
-  const endpoint = import.meta.env.VITE_CLAUDE_API_URL || `${import.meta.env.VITE_API_URL || ""}/api/claude`
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      ...headers,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 4000,
-      system,
-      messages
+  const apiUrl = import.meta.env.VITE_API_URL || ""
+  const endpoint = `${apiUrl}/api/claude`
+  
+  let res;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-5",
+        max_tokens: 4000,
+        system,
+        messages
+      })
     })
-  })
+  } catch (netErr) {
+    throw new Error(`Network connection to AI proxy failed. (Error: ${netErr.message}). Please verify the backend is running and accessible at: ${endpoint}`)
+  }
+
   const text = await res.text()
   if (!res.ok) {
-    let errMsg = "API error"
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`Authentication failed (${res.status}). Your session token may be invalid or expired. Please log out and log back in.`)
+    }
+    if (res.status === 404) {
+      throw new Error(`AI proxy endpoint not found (404). Endpoint URL: ${endpoint}. Make sure the backend server is running and VITE_API_URL in the frontend environment is set correctly.`)
+    }
+    let errMsg = `API error (Status ${res.status})`
     try {
-      const errJson = JSON.parse(text)
-      errMsg = errJson.error?.message || errJson.message || errMsg
+      if (text && text.trim()) {
+        const errJson = JSON.parse(text)
+        errMsg = errJson.error?.message || errJson.message || errMsg
+      }
     } catch (e) {
       errMsg = text || errMsg
     }
@@ -66,12 +82,23 @@ export async function callClaude(messages, system="") {
     throw new Error("No response from API.")
   }
   let data
-  try { data = JSON.parse(text) }
-  catch (e) { throw new Error("Invalid API response: " + text.slice(0, 200)) }
+  try {
+    data = JSON.parse(text)
+  } catch (e) {
+    throw new Error("Invalid API response: " + text.slice(0, 200))
+  }
   if (data.error) {
     throw new Error("API error: " + (data.error.message || JSON.stringify(data.error)))
   }
-  return data.content?.[0]?.text || ""
+  
+  if (Array.isArray(data.content)) {
+    const textBlock = data.content.find(c => c.type === "text" && c.text)
+    if (textBlock && textBlock.text) {
+      return textBlock.text
+    }
+  }
+
+  return data.content?.[0]?.text || data.text || ""
 }
 
 // Compress image before sending to API

@@ -103,6 +103,10 @@ export const syncToBackend = async (forceAll = false) => {
     })
 
     const res = await fetch(`${apiUrl}/api/tenant`, { headers })
+    if (res.status === 401 || res.status === 403) {
+      console.warn("Backend sync paused: User session token is invalid or expired. Please log out and log in again.")
+      return
+    }
     if (res.ok) {
       const tenant = await res.json()
       const updatedSettings = {
