@@ -62,6 +62,10 @@ describe('Weighted Average Cost (WAVCO) Inventory Valuation Integration Tests', 
                 where: { id: tenantId }
             });
         }
+        await prisma.$disconnect();
+        if (prisma.$pool) {
+            await prisma.$pool.end();
+        }
     });
 
     test('Rule 3 — Opening Balance seeding & audit logging', async () => {

@@ -7,16 +7,17 @@ const { asyncHandler } = require('../middleware/custommiddleware');
  */
 const handleClaudeProxy = asyncHandler(async (req, res) => {
     const { messages, system, model, max_tokens } = req.body;
+
+    if (!messages || !Array.isArray(messages)) {
+        res.status(400);
+        throw new Error("Messages array is required.");
+    }
+
     const key = process.env.CLAUDE_API || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
 
     if (!key) {
         res.status(500);
         throw new Error("Claude API key (CLAUDE_API, CLAUDE_API_KEY, or ANTHROPIC_API_KEY) is not configured on the server.");
-    }
-
-    if (!messages || !Array.isArray(messages)) {
-        res.status(400);
-        throw new Error("Messages array is required.");
     }
 
     const maxRetries = 3;

@@ -7,7 +7,9 @@ let prisma;
 function createPrismaClient() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const adapter = new PrismaPg(pool);
-  return new PrismaClient({ adapter });
+  const client = new PrismaClient({ adapter });
+  client.$pool = pool;
+  return client;
 }
 
 if (process.env.NODE_ENV === 'production') {
