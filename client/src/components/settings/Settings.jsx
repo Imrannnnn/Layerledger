@@ -540,7 +540,7 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
   }
 
   const clearAllData = async () => {
-    if (clearConfirm !== (company.name || "LayerLedger")) return
+    if (clearConfirm !== (company.name || "BakeWealth")) return
     await clearAllDataOnServer()
     logout()
     window.location.reload()
@@ -576,7 +576,7 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
       <Card style={{marginTop:14}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:6}}>🔑 AI Features</div>
         <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:12,lineHeight:1.7}}>
-          LayerLedger uses AI to scan receipts, read bank statements, and generate smart reports. AI features are enabled and utilize the company's secure global API key.
+          BakeWealth uses AI to scan receipts, read bank statements, and generate smart reports. AI features are enabled and utilize the company's secure global API key.
         </div>
         <Btn onClick={async()=>{
           try{
@@ -679,9 +679,9 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
         </div>
         <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
           <div style={{flex:1}}>
-            <Inp label={`Type "${company.name || 'LayerLedger'}" to confirm`} value={clearConfirm} onChange={setClearConfirm}/>
+            <Inp label={`Type "${company.name || 'BakeWealth'}" to confirm`} value={clearConfirm} onChange={setClearConfirm}/>
           </div>
-          <Btn variant="danger" disabled={clearConfirm !== (company.name || 'LayerLedger')} onClick={clearAllData}>Clear All Data</Btn>
+          <Btn variant="danger" disabled={clearConfirm !== (company.name || 'BakeWealth')} onClick={clearAllData}>Clear All Data</Btn>
         </div>
       </Card>
     </div>}

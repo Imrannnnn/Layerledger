@@ -37,9 +37,17 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   const [warnMsg, setWarnMsg] = useState("")
   const [importMsg, setImportMsg] = useState("")
 
+  // Recipe Import Modal State (Step 3)
+  const [showRecipeImport, setShowRecipeImport] = useState(false)
+  const [recipeImportStep, setRecipeImportStep] = useState(1)
+  const [pasteRecipeNames, setPasteRecipeNames] = useState("")
+  const [prevRecipes, setPrevRecipes] = useState([])
+  const [recipeImportMsg, setRecipeImportMsg] = useState("")
+
   // Step 2: Manual Add State
   const [showManualAdd, setShowManualAdd] = useState(false)
-  const [manualItem, setManualItem] = useState({ name: "", unit: "kg", cost: "", openingQty: "" })
+  const [calcMode, setCalcMode] = useState("auto") // "auto" or "manual"
+  const [manualItem, setManualItem] = useState({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
 
   const co = (field, val) => {
     const u = { ...company, [field]: val }
@@ -115,12 +123,44 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
     setImportStep(3)
   }
 
+  const doRecipePreview = () => {
+    setRecipeImportMsg("")
+    const names = pasteRecipeNames.trim().split(String.fromCharCode(10)).map(s => s.trim()).filter(Boolean)
+    if (!names.length) {
+      return setRecipeImportMsg("Recipe names are required")
+    }
+    const newRecs = names.map(name => ({
+      id: uid(),
+      name,
+      notes: "Cake layer recipe",
+      ing: [{ iid: "", qty: "" }],
+      on: true
+    }))
+    setPrevRecipes(newRecs)
+    setRecipeImportStep(2)
+  }
+
+  const confirmRecipeImport = async () => {
+    const approved = prevRecipes.filter(r => r.on)
+    const updated = [...recipes, ...approved.filter(nr => !recipes.find(r => r.name.toLowerCase() === nr.name.toLowerCase()))]
+    setRecipes(updated)
+    await saveRecipes(updated)
+    setPasteRecipeNames("")
+    setRecipeImportStep(3)
+  }
+
   // Opening Stock Helpers (Step 2)
   const updateOS = async (id, val) => {
     const updated = { ...os, [id]: parseFloat(val) || 0 }
     setOs(updated)
     await saveLocal("ll_opening_stock", updated)
     setSavedOS(false)
+  }
+
+  const updateCost = async (id, val) => {
+    const updatedInv = inventory.map(item => item.id === id ? { ...item, cost: parseFloat(val) || 0 } : item)
+    setInventory(updatedInv)
+    await saveInventory(updatedInv)
   }
 
   const lockOpeningStock = async () => {
@@ -153,11 +193,27 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   }
 
   const handleManualAdd = async () => {
-    if (!manualItem.name.trim() || !manualItem.cost) {
-      alert("Item name and cost per unit are required")
-      return
+    let costNum = 0
+    if (calcMode === "auto") {
+      const paid = parseFloat(manualItem.totalPaid) || 0
+      const qty = parseFloat(manualItem.qtyBought) || 0
+      if (!manualItem.name.trim() || !manualItem.totalPaid || !manualItem.qtyBought) {
+        alert("Item name, total amount paid, and quantity bought are required")
+        return
+      }
+      if (qty <= 0) {
+        alert("Quantity bought must be greater than zero")
+        return
+      }
+      costNum = paid / qty
+    } else {
+      if (!manualItem.name.trim() || !manualItem.cost) {
+        alert("Item name and cost per unit are required")
+        return
+      }
+      costNum = parseFloat(manualItem.cost) || 0
     }
-    const costNum = parseFloat(manualItem.cost) || 0
+
     const qtyNum = parseFloat(manualItem.openingQty) || 0
     const newItem = {
       id: uid(),
@@ -178,7 +234,8 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
     setOs(updatedOS)
     await saveLocal("ll_opening_stock", updatedOS)
 
-    setManualItem({ name: "", unit: "kg", cost: "", openingQty: "" })
+    setManualItem({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
+    setCalcMode("auto")
     setShowManualAdd(false)
   }
 
@@ -279,9 +336,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
               <Btn disabled={!company.name?.trim()} onClick={() => setStep(2)}>Next: Set Up Opening Stock →</Btn>
             </div>
 
-            {/* EXCEL IMPORT MODAL */}
+            {/* IMPORT MODAL */}
             {showImport && (
-              <Modal title="Import Ingredients from Excel" onClose={() => setShowImport(false)}>
+              <Modal title="Import — Excel, PDF or a photo" onClose={() => setShowImport(false)}>
                 {importStep === 1 && (
                   <div>
                     <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
@@ -368,8 +425,8 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>Inventory Items</div>
               <div style={{ display: "flex", gap: 8 }}>
-                <Btn small variant="outline" onClick={() => { setImportStep(1); setShowImport(true) }}>📋 Import from Excel</Btn>
-                <Btn small variant="outline" onClick={() => setShowManualAdd(true)}>➕ Add Item</Btn>
+                <Btn small variant="outline" onClick={() => { setImportStep(1); setShowImport(true) }}>📥 Import — Excel, PDF or a photo</Btn>
+                <Btn small variant="outline" onClick={() => setShowManualAdd(true)}>✍️ Add manually</Btn>
               </div>
             </div>
 
@@ -406,7 +463,15 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                               style={{ ...iSt, width: 70, padding: "4px 8px", fontSize: 13, textAlign: "right" }}
                             />
                           </td>
-                          <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--muted)" }}>{fmt(item.cost)}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                            <input
+                              type="number"
+                              value={item.cost || ""}
+                              onChange={e => updateCost(item.id, e.target.value)}
+                              placeholder="0"
+                              style={{ ...iSt, width: 85, padding: "4px 8px", fontSize: 13, textAlign: "right" }}
+                            />
+                          </td>
                           <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>{fmt(value)}</td>
                         </tr>
                       )
@@ -435,11 +500,64 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                   options={["kg", "g", "L", "ml", "pcs", "pack"]} 
                   placeholder="Select unit"
                 />
-                <Inp label="Cost per Unit (₦) *" type="number" value={manualItem.cost} onChange={v => setManualItem(m => ({ ...m, cost: v }))} placeholder="e.g. 1500" />
+                
+                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                  <button
+                    onClick={() => setCalcMode("auto")}
+                    style={{
+                      flex: 1,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: calcMode === "auto" ? "2px solid var(--gold)" : "1px solid var(--border)",
+                      background: calcMode === "auto" ? "rgba(200,145,42,0.08)" : "transparent",
+                      color: calcMode === "auto" ? "var(--gold)" : "var(--text)",
+                      fontWeight: calcMode === "auto" ? "600" : "500",
+                      cursor: "pointer",
+                      fontSize: "12.5px"
+                    }}
+                  >
+                    I don't know the cost/unit
+                  </button>
+                  <button
+                    onClick={() => setCalcMode("manual")}
+                    style={{
+                      flex: 1,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: calcMode === "manual" ? "2px solid var(--gold)" : "1px solid var(--border)",
+                      background: calcMode === "manual" ? "rgba(200,145,42,0.08)" : "transparent",
+                      color: calcMode === "manual" ? "var(--gold)" : "var(--text)",
+                      fontWeight: calcMode === "manual" ? "600" : "500",
+                      cursor: "pointer",
+                      fontSize: "12.5px"
+                    }}
+                  >
+                    I know the cost/unit
+                  </button>
+                </div>
+
+                {calcMode === "auto" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                    <div style={{ gridColumn: "span 2" }}>
+                      <Inp label="Total Amount Paid (₦) *" type="number" value={manualItem.totalPaid} onChange={v => setManualItem(m => ({ ...m, totalPaid: v }))} placeholder="e.g. 5000" />
+                    </div>
+                    <div style={{ gridColumn: "span 2" }}>
+                      <Inp label="Quantity Bought *" type="number" value={manualItem.qtyBought} onChange={v => setManualItem(m => ({ ...m, qtyBought: v }))} placeholder="e.g. 2.5" />
+                    </div>
+                    {manualItem.totalPaid && manualItem.qtyBought && parseFloat(manualItem.qtyBought) > 0 && (
+                      <div style={{ gridColumn: "span 2", padding: "8px 12px", background: "var(--bg)", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "var(--gold)" }}>
+                        Calculated Cost per Unit: {fmt(parseFloat(manualItem.totalPaid) / parseFloat(manualItem.qtyBought))}/{manualItem.unit}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <Inp label="Cost per Unit (₦) *" type="number" value={manualItem.cost} onChange={v => setManualItem(m => ({ ...m, cost: v }))} placeholder="e.g. 1500" />
+                )}
+
                 <Inp label="Opening Qty (optional)" type="number" value={manualItem.openingQty} onChange={v => setManualItem(m => ({ ...m, openingQty: v }))} placeholder="e.g. 5" />
                 
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-                  <Btn variant="success" onClick={handleManualAdd} disabled={!manualItem.name.trim() || !manualItem.cost}>✓ Add Item</Btn>
+                  <Btn variant="success" onClick={handleManualAdd} disabled={!manualItem.name.trim() || (calcMode === "auto" ? (!manualItem.totalPaid || !manualItem.qtyBought) : !manualItem.cost)}>✓ Add Item</Btn>
                   <Btn variant="ghost" onClick={() => setShowManualAdd(false)}>Cancel</Btn>
                 </div>
               </Modal>
@@ -477,13 +595,81 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
               })}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <Btn variant="outline" onClick={() => openRecipe(null)}>+ Add Custom Recipe</Btn>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn small variant="outline" onClick={() => { setRecipeImportStep(1); setShowRecipeImport(true) }}>📥 Import — Excel, PDF or a photo</Btn>
+                <Btn small variant="outline" onClick={() => openRecipe(null)}>✍️ Add manually</Btn>
+              </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn variant="ghost" onClick={() => setStep(2)}>← Back</Btn>
                 <Btn onClick={() => setStep(4)}>Next: Profit Margin →</Btn>
               </div>
             </div>
+
+            {/* RECIPE IMPORT MODAL */}
+            {showRecipeImport && (
+              <Modal title="Import — Excel, PDF or a photo" onClose={() => setShowRecipeImport(false)}>
+                {recipeImportStep === 1 && (
+                  <div>
+                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
+                      Paste your recipe names (one per line) from Excel, PDF, or type them out.
+                    </div>
+                    {recipeImportMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10 }}>⚠ {recipeImportMsg}</div>}
+                    
+                    <textarea 
+                      value={pasteRecipeNames} 
+                      onChange={e => setPasteRecipeNames(e.target.value)} 
+                      placeholder={"Chocolate Sponge\nRed Velvet Layer\nVanilla Cupcake"} 
+                      style={{ width: "100%", minHeight: 150, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 13, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none", marginBottom: 12 }} 
+                    />
+                    
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <Btn onClick={doRecipePreview} disabled={!pasteRecipeNames.trim()}>Preview import →</Btn>
+                      <Btn variant="ghost" onClick={() => setShowRecipeImport(false)}>Cancel</Btn>
+                    </div>
+                  </div>
+                )}
+
+                {recipeImportStep === 2 && (
+                  <div>
+                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Toggle off anything you don't want to import.</div>
+                    <div style={{ overflowY: "auto", maxHeight: 220, marginBottom: 12 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ background: "#EDE5D6" }}>
+                            {["", "Recipe Name"].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {prevRecipes.map((r, i) => (
+                            <tr key={r.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA", opacity: r.on ? 1 : 0.35 }}>
+                              <td style={{ padding: "6px 10px", width: 50 }}>
+                                <div onClick={() => setPrevRecipes(prev => prev.map((x, j) => j === i ? { ...x, on: !x.on } : x))} style={{ width: 30, height: 16, borderRadius: 8, background: r.on ? "#357A52" : "var(--border)", cursor: "pointer", position: "relative" }}>
+                                  <div style={{ width: 12, height: 12, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: r.on ? 16 : 2, transition: "left 0.2s" }} />
+                                </div>
+                              </td>
+                              <td style={{ padding: "6px 10px", fontWeight: 500 }}>{r.name}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <Btn variant="success" onClick={confirmRecipeImport} disabled={!prevRecipes.some(r => r.on)}>✓ Import {prevRecipes.filter(r => r.on).length} Recipes</Btn>
+                      <Btn variant="ghost" onClick={() => setRecipeImportStep(1)}>← Edit</Btn>
+                    </div>
+                  </div>
+                )}
+
+                {recipeImportStep === 3 && (
+                  <div style={{ textAlign: "center", padding: "16px 0" }}>
+                    <div style={{ fontSize: 16, color: "#357A52", fontWeight: 600, marginBottom: 6 }}>✓ Import complete!</div>
+                    <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>Recipes added to your list. You can edit their ingredients manually from the main list.</div>
+                    <Btn onClick={() => { setRecipeImportStep(1); setShowRecipeImport(false) }}>Done</Btn>
+                  </div>
+                )}
+              </Modal>
+            )}
 
             {/* RECIPE MODAL */}
             {recipeModal && (
@@ -587,14 +773,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
           </div>
         )}
 
-        {/* Skip option */}
-        {step < 5 && (
-          <div style={{ textAlign: "center", marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-            <span onClick={onSkip} style={{ fontSize: 12.5, color: "var(--muted)", cursor: "pointer", textDecoration: "underline" }} onMouseEnter={e => e.currentTarget.style.color = gold} onMouseLeave={e => e.currentTarget.style.color = "var(--muted)"}>
-              Skip setup wizard (I'll do it later)
-            </span>
-          </div>
-        )}
+
       </div>
     </div>
   )

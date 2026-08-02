@@ -212,7 +212,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
 //  DECORATIONS TAB (standalone — own state, saved to localStorage)
 
 // ═══════════════════════════════════════════════════════════
-export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
+export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,setTab}){
   const [showImport,setShowImport]=useState(false)
   const [showAdd,setShowAdd]=useState(false)
   const [marketRun,setMarketRun]=useState(false)
@@ -231,7 +231,8 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
     "Dry Goods": false,
     "Dairy and Fats": false,
     "Flavours and Extracts": false,
-    "Decoration and Finishing": false,
+    "Decoration Extras": false,
+    "Board and Packaging": false,
     "Other": false
   })
 
@@ -242,7 +243,8 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
     if (c.includes("dry") || c.includes("chocolate") || c.includes("flour") || c.includes("sugar")) return "Dry Goods"
     if (c.includes("dairy") || c.includes("fat") || c.includes("oil") || c.includes("butter") || c.includes("margarine") || c.includes("egg")) return "Dairy and Fats"
     if (c.includes("flavor") || c.includes("extract") || c.includes("color") || c.includes("essence")) return "Flavours and Extracts"
-    if (c.includes("decor") || c.includes("finish") || c.includes("fruit") || c.includes("flower") || c.includes("topper") || c.includes("ribbon") || c.includes("packaging")) return "Decoration and Finishing"
+    if (c.includes("decor") || c.includes("finish") || c.includes("fruit") || c.includes("flower") || c.includes("topper") || c.includes("ribbon")) return "Decoration Extras"
+    if (c.includes("packaging") || c.includes("board") || c.includes("box") || c.includes("dowel") || c.includes("drum")) return "Board and Packaging"
     return "Other"
   }
 
@@ -332,12 +334,17 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
     "Dry Goods": [],
     "Dairy and Fats": [],
     "Flavours and Extracts": [],
-    "Decoration and Finishing": [],
+    "Decoration Extras": [],
+    "Board and Packaging": [],
     "Other": []
   }
   inventory.forEach(item => {
     const mapped = mapCategory(item.cat)
-    categories[mapped].push(item)
+    if (categories[mapped]) {
+      categories[mapped].push(item)
+    } else {
+      categories["Other"].push(item)
+    }
   })
 
   return <div>
@@ -487,7 +494,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Add New Item</div>
       <div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr 1fr 1fr 1fr",gap:10,marginBottom:10}}>
         <Inp label="Item Name *" value={newItem.name} onChange={v=>setNewItem(p=>({...p,name:v}))} placeholder="e.g. Flour"/>
-        <Sel label="Category" value={newItem.cat} onChange={v=>setNewItem(p=>({...p,cat:v}))} options={["Dry Goods", "Dairy and Fats", "Flavours and Extracts", "Decoration and Finishing", "Other"].map(c=>({value:c,label:c}))}/>
+        <Sel label="Category" value={newItem.cat} onChange={v=>setNewItem(p=>({...p,cat:v}))} options={["Dry Goods", "Dairy and Fats", "Flavours and Extracts", "Decoration Extras", "Board and Packaging", "Other"].map(c=>({value:c,label:c}))}/>
         <Sel label="Unit *" value={newItem.unit} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["kg","g","L","ml","pcs","pack","bottle","roll","set"].map(u=>({value:u,label:u}))}/>
         <Inp label="Cost/Unit (₦) *" type="number" value={newItem.cost} onChange={v=>setNewItem(p=>({...p,cost:v}))} placeholder="e.g. 1140"/>
         <Inp label="Min Alert" type="number" value={newItem.minStock} onChange={v=>setNewItem(p=>({...p,minStock:v}))} placeholder="e.g. 10"/>
@@ -519,7 +526,45 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
                 userSelect: "none"
               }}
             >
-              <span>📁 {catName} ({items.length} item{items.length !== 1 ? "s" : ""})</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span>📁 {catName} ({items.length} item{items.length !== 1 ? "s" : ""})</span>
+                {catName === "Decoration Extras" && (
+                  <span 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (setTab) setTab("decorations");
+                    }}
+                    style={{
+                      marginLeft: 12,
+                      fontSize: 11.5,
+                      color: "var(--gold)",
+                      textDecoration: "underline",
+                      cursor: "pointer",
+                      fontWeight: 500
+                    }}
+                  >
+                    Manage Decoration Extras ↗
+                  </span>
+                )}
+                {catName === "Board and Packaging" && (
+                  <span 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (setTab) setTab("packaging");
+                    }}
+                    style={{
+                      marginLeft: 12,
+                      fontSize: 11.5,
+                      color: "var(--gold)",
+                      textDecoration: "underline",
+                      cursor: "pointer",
+                      fontWeight: 500
+                    }}
+                  >
+                    Manage Boards & Packaging ↗
+                  </span>
+                )}
+              </div>
               <span style={{ fontSize: 12, color: "var(--muted)" }}>{isCollapsed ? "▼ Click to expand" : "▲ Click to collapse"}</span>
             </div>
 
@@ -586,10 +631,23 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView}){
 //  RECIPE CARD (standalone component — avoids hook-in-map bug)
 
 // ═══════════════════════════════════════════════════════════
-export function DecorationsTab({inventory, isOwner}){
+export function DecorationsTab({inventory, setInventory, isOwner}){
   const LS_KEY = "ll_decorations"
-  const load = () => { return loadLocal(LS_KEY, DECORATION_ITEMS) }
-  const save = (items) => { saveLocal(LS_KEY, items) }
+  const load = useCallback(() => {
+    const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
+    const decorInventoryItems = inventory.filter(item => item.cat === "Decoration Extras" || item.category === "Decoration Extras")
+    
+    return decorInventoryItems.map(invItem => {
+      const existing = stored.find(d => d.iid === invItem.id)
+      return {
+        id: existing ? existing.id : "d_" + invItem.id,
+        name: invItem.name,
+        label: invItem.name,
+        iid: invItem.id,
+        qty: existing ? existing.qty : 1
+      }
+    })
+  }, [inventory])
 
   const [items, setItems] = useState(load)
   const [editId, setEditId] = useState(null)
@@ -598,26 +656,65 @@ export function DecorationsTab({inventory, isOwner}){
   const [newItem, setNewItem] = useState({name:"", label:"", iid:"", qty:"", id:""})
   const [msg, setMsg] = useState("")
 
+  useEffect(() => {
+    setItems(load())
+  }, [inventory, load])
+
   const showMsg = (m) => { setMsg(m); setTimeout(()=>setMsg(""), 3000) }
+
+  const save = (updatedItems) => { saveLocal(LS_KEY, updatedItems) }
 
   const startEdit = (d) => { setEditId(d.id); setEditRow({...d}) }
 
   const saveEdit = () => {
-    const updated = items.map(d => d.id===editId ? {...editRow, qty:+editRow.qty} : d)
-    setItems(updated); save(updated); setEditId(null); showMsg("✓ Decoration updated")
+    const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
+    let updated = stored.map(d => d.id===editId ? {...d, ...editRow, qty:+editRow.qty} : d)
+    if (!stored.some(d => d.id === editId)) {
+      updated.push({ ...editRow, qty: +editRow.qty })
+    }
+    save(updated)
+    setItems(load())
+    setEditId(null)
+    showMsg("✓ Decoration updated")
   }
 
-  const deleteItem = (id) => {
+  const deleteItem = async (id) => {
     if(!confirm("Delete this decoration?")) return
-    const updated = items.filter(d => d.id!==id)
-    setItems(updated); save(updated); showMsg("Decoration deleted")
+    const toDelete = items.find(d => d.id === id)
+    if (toDelete) {
+      const updatedInv = inventory.map(i => {
+        if (i.id === toDelete.iid) {
+          return { ...i, cat: "Other" }
+        }
+        return i
+      })
+      setInventory(updatedInv)
+      await saveInventory(updatedInv)
+    }
+    const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
+    const updated = stored.filter(d => d.id!==id && d.iid !== toDelete?.iid)
+    save(updated)
+    setItems(load())
+    showMsg("Decoration deleted")
   }
 
-  const addItem = () => {
+  const addItem = async () => {
     if(!newItem.name || !newItem.iid || !newItem.qty) return showMsg("Name, inventory item and qty are required")
-    const item = { ...newItem, id: uid(), qty: +newItem.qty, label: newItem.name }
-    const updated = [...items, item]
-    setItems(updated); save(updated)
+    
+    const updatedInv = inventory.map(i => {
+      if (i.id === newItem.iid) {
+        return { ...i, cat: "Decoration Extras" }
+      }
+      return i
+    })
+    setInventory(updatedInv)
+    await saveInventory(updatedInv)
+
+    const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
+    const item = { id: "d_" + newItem.iid, name: newItem.name, label: newItem.name, iid: newItem.iid, qty: +newItem.qty }
+    const updated = [...stored.filter(x => x.iid !== newItem.iid), item]
+    save(updated)
+    setItems(load())
     setNewItem({name:"", label:"", iid:"", qty:"", id:""}); setAdding(false); showMsg("✓ Decoration added")
   }
 
@@ -633,12 +730,17 @@ export function DecorationsTab({inventory, isOwner}){
       <div style={{fontFamily:"'Playfair Display',serif", fontSize:14, fontWeight:600, marginBottom:12}}>New Decoration Extra</div>
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10}}>
         <Inp label="Decoration Name *" value={newItem.name} onChange={v=>setNewItem(p=>({...p,name:v}))} placeholder="e.g. Edible glitter"/>
-        <div style={{marginBottom:11}}>
+        <div style={{marginBottom:11, display:"flex", flexDirection:"column", minWidth: 200}}>
           <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Linked Inventory Item *</label>
-          <select value={newItem.iid} onChange={e=>setNewItem(p=>({...p,iid:e.target.value}))} style={{...iSt}}>
-            <option value="">— Select item —</option>
-            {inventory.map(i=><option key={i.id} value={i.id}>{i.name} ({i.unit}) — {fmt(i.cost)}/{i.unit}</option>)}
-          </select>
+          <SearchableSelect
+            value={newItem.iid}
+            onChange={val=>setNewItem(p=>({...p,iid:val}))}
+            options={inventory.filter(i => i.cat !== "Board and Packaging" && i.category !== "Board and Packaging").map(i=>({
+              value: i.id,
+              label: `${i.name} (${i.unit}) — ${fmt(i.cost)}/${i.unit}`
+            }))}
+            placeholder="Type to search item..."
+          />
         </div>
         <Inp label="Standard Qty Used *" type="number" value={newItem.qty} onChange={v=>setNewItem(p=>({...p,qty:v}))} placeholder="e.g. 0.15"/>
       </div>
@@ -654,11 +756,16 @@ export function DecorationsTab({inventory, isOwner}){
           return <tr key={d.id} style={{background:i%2===0?"var(--panel)":"#F8F3EA"}}>
             {editing ? <>
               <td style={{padding:"6px 8px"}}><input value={editRow.name||editRow.label||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value,label:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12}}/></td>
-              <td style={{padding:"6px 8px"}}>
-                <select value={editRow.iid||""} onChange={e=>setEditRow(r=>({...r,iid:e.target.value}))} style={{...iSt,fontSize:12,padding:"4px 6px"}}>
-                  <option value="">— Select —</option>
-                  {inventory.map(i=><option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-                </select>
+              <td style={{padding:"6px 8px", minWidth: 200}}>
+                <SearchableSelect
+                  value={editRow.iid||""}
+                  onChange={val=>setEditRow(r=>({...r,iid:val}))}
+                  options={inventory.filter(i => i.cat !== "Board and Packaging" && i.category !== "Board and Packaging").map(i=>({
+                    value: i.id,
+                    label: `${i.name} (${i.unit}) — ${fmt(i.cost)}/${i.unit}`
+                  }))}
+                  placeholder="Type to search item..."
+                />
               </td>
               <td style={{padding:"6px 8px"}}><input type="number" value={editRow.qty||""} onChange={e=>setEditRow(r=>({...r,qty:e.target.value}))} style={{...iSt,width:70,padding:"4px 6px",fontSize:12}}/></td>
               <td style={{padding:"6px 8px",fontSize:13}}>{editRow.iid&&inventory.find(x=>x.id===editRow.iid)?fmt(inventory.find(x=>x.id===editRow.iid).cost*(+editRow.qty||0)):"—"}</td>
@@ -684,34 +791,41 @@ export function DecorationsTab({inventory, isOwner}){
 //  PACKAGING TAB — boards, boxes, drums linked to Order Calculator
 
 // ═══════════════════════════════════════════════════════════
-export function PackagingTab({isOwner}){
-  const LS_KEY="ll_packaging"
-  const load=()=>{return loadLocal(LS_KEY,[
-    {id:"p1",name:"Cake Board 6\"",price:300,unit:"per piece"},{id:"p2",name:"Cake Board 8\"",price:450,unit:"per piece"},
-    {id:"p3",name:"Cake Board 10\"",price:600,unit:"per piece"},{id:"p4",name:"Cake Board 12\"",price:800,unit:"per piece"},
-    {id:"p5",name:"Cake Board 14\"",price:1000,unit:"per piece"},{id:"p6",name:"Cake Drum 8\"",price:700,unit:"per piece"},
-    {id:"p7",name:"Cake Drum 10\"",price:900,unit:"per piece"},{id:"p8",name:"Cake Drum 12\"",price:1200,unit:"per piece"},
-    {id:"p9",name:"Cake Box 6\"",price:400,unit:"per piece"},{id:"p10",name:"Cake Box 8\"",price:600,unit:"per piece"},
-    {id:"p11",name:"Cake Box 10\"",price:800,unit:"per piece"},{id:"p12",name:"Cake Box 12\"",price:1000,unit:"per piece"},
-    {id:"p13",name:"Dowels (pack)",price:500,unit:"per pack"},{id:"p14",name:"Delivery box",price:1500,unit:"per piece"},
-  ])}
-  const save=(items)=>{saveLocal(LS_KEY,items)}
-  const [items,setItems]=useState(load)
+export function PackagingTab({inventory,setInventory,isOwner}){
+  const items = useMemo(() => {
+    return inventory.filter(item => item.cat === "Board and Packaging" || item.category === "Board and Packaging")
+  }, [inventory])
+
   const [adding,setAdding]=useState(false)
-  const [newItem,setNewItem]=useState({name:"",price:"",unit:"per piece"})
+  const [newItem,setNewItem]=useState({name:"",price:"",unit:"pcs"})
   const [editId,setEditId]=useState(null)
   const [editRow,setEditRow]=useState({})
 
-  const addItem=()=>{
+  const addItem=async()=>{
     if(!newItem.name.trim()||!newItem.price)return
-    const updated=[...items,{id:"p"+Date.now(),name:newItem.name.trim(),price:+newItem.price,unit:newItem.unit||"per piece"}]
-    setItems(updated);save(updated);setAdding(false);setNewItem({name:"",price:"",unit:"per piece"})
+    const item={
+      id:"i_"+Date.now(),
+      name:newItem.name.trim(),
+      cat:"Board and Packaging",
+      unit:newItem.unit||"pcs",
+      cost:+newItem.price,
+      stock:0,
+      minStock:5
+    }
+    const updated=[...inventory,item]
+    setInventory(updated);await saveInventory(updated)
+    setAdding(false);setNewItem({name:"",price:"",unit:"pcs"})
   }
-  const saveEdit=(id)=>{
-    const updated=items.map(i=>i.id===id?{...i,...editRow,price:+editRow.price}:i)
-    setItems(updated);save(updated);setEditId(null)
+  const saveEdit=async(id)=>{
+    const updated=inventory.map(i=>i.id===id?{...i,name:editRow.name.trim(),cost:+editRow.price,unit:editRow.unit||"pcs"}:i)
+    setInventory(updated);await saveInventory(updated)
+    setEditId(null)
   }
-  const deleteItem=(id)=>{const updated=items.filter(i=>i.id!==id);setItems(updated);save(updated)}
+  const deleteItem=async(id)=>{
+    if(!confirm("Remove this packaging item?"))return
+    const updated=inventory.filter(i=>i.id!==id)
+    setInventory(updated);await saveInventory(updated)
+  }
 
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -725,7 +839,7 @@ export function PackagingTab({isOwner}){
         <div>
           <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Unit</label>
           <select value={newItem.unit} onChange={e=>setNewItem(n=>({...n,unit:e.target.value}))} style={{...iSt}}>
-            {["per piece","per pack","per order"].map(u=><option key={u} value={u}>{u}</option>)}
+            {["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}
           </select>
         </div>
         <div style={{display:"flex",gap:6}}>
@@ -744,14 +858,14 @@ export function PackagingTab({isOwner}){
             ?<>
               <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
               <td style={{padding:"6px 8px"}}><input type="number" value={editRow.price||""} onChange={e=>setEditRow(r=>({...r,price:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
-              <td style={{padding:"6px 8px"}}><select value={editRow.unit||"per piece"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,fontSize:12}}>{["per piece","per pack","per order"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
+              <td style={{padding:"6px 8px"}}><select value={editRow.unit||"pcs"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,fontSize:12}}>{["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
               <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={()=>saveEdit(item.id)}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)}>✗</Btn></div></td>
             </>
             :<>
               <td style={{padding:"8px 10px",fontSize:13,fontWeight:500}}>{item.name}</td>
-              <td style={{padding:"8px 10px",fontSize:13,textAlign:"right",color:"var(--gold)",fontWeight:600}}>{fmt(item.price)}</td>
+              <td style={{padding:"8px 10px",fontSize:13,textAlign:"right",color:"var(--gold)",fontWeight:600}}>{fmt(item.cost)}</td>
               <td style={{padding:"8px 10px",fontSize:12,color:"var(--muted)"}}>{item.unit}</td>
-              <td style={{padding:"6px 8px"}}>{isOwner&&<div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><Btn small variant="ghost" onClick={()=>{setEditId(item.id);setEditRow(item)}}>Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(item.id)}>×</Btn></div>}</td>
+              <td style={{padding:"6px 8px"}}>{isOwner&&<div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><Btn small variant="ghost" onClick={()=>{setEditId(item.id);setEditRow({name:item.name,price:item.cost,unit:item.unit})}}>Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(item.id)}>×</Btn></div>}</td>
             </>}
         </tr>)}
       </tbody>
@@ -759,6 +873,98 @@ export function PackagingTab({isOwner}){
   </div>
 }
 
+export function SearchableSelect({ value, onChange, options, placeholder }) {
+  const [search, setSearch] = useState("")
+  const [isOpen, setIsOpen] = useState(false)
+  const ref = useRef()
+
+  const selectedOption = useMemo(() => options.find(o => o.value === value), [options, value])
+
+  useEffect(() => {
+    setSearch(selectedOption ? selectedOption.label : "")
+  }, [value, selectedOption])
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setIsOpen(false)
+        setSearch(selectedOption ? selectedOption.label : "")
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [selectedOption])
+
+  const filtered = useMemo(() => {
+    return options.filter(o => 
+      o.label.toLowerCase().includes((search || "").toLowerCase())
+    )
+  }, [options, search])
+
+  return (
+    <div ref={ref} style={{ position: "relative", flex: 2 }}>
+      <input
+        type="text"
+        value={search}
+        placeholder={placeholder}
+        onFocus={() => setIsOpen(true)}
+        onChange={(e) => {
+          setSearch(e.target.value)
+          setIsOpen(true)
+        }}
+        style={{
+          ...iSt,
+          width: "100%",
+          padding: "7px 10px",
+          fontSize: "12.5px"
+        }}
+      />
+      {isOpen && (
+        <div style={{
+          position: "absolute",
+          top: "100%",
+          left: 0,
+          right: 0,
+          background: "var(--panel)",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          maxHeight: 180,
+          overflowY: "auto",
+          zIndex: 1000,
+          marginTop: 4,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--muted)" }}>No matches found</div>
+          ) : (
+            filtered.map(o => (
+              <div
+                key={o.value}
+                onClick={() => {
+                  onChange(o.value)
+                  setSearch(o.label)
+                  setIsOpen(false)
+                }}
+                style={{
+                  padding: "8px 12px",
+                  fontSize: 12.5,
+                  cursor: "pointer",
+                  background: o.value === value ? "rgba(200,145,42,0.1)" : "transparent",
+                  color: o.value === value ? "var(--gold)" : "var(--text)",
+                  borderBottom: "1px solid var(--border)"
+                }}
+                onMouseEnter={(e) => e.target.style.background = "rgba(200,145,42,0.05)"}
+                onMouseLeave={(e) => e.target.style.background = o.value === value ? "rgba(200,145,42,0.1)" : "transparent"}
+              >
+                {o.label}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function MasterList({inventory,setInventory,recipes,setRecipes,user,setView}){
   const [tab,setTab]=useState("inventory")
@@ -850,7 +1056,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     <Tabs tabs={[{v:"inventory",l:"Inventory"},{v:"recipes",l:"Base Recipes"},{v:"decorations",l:"Decoration Extras"},{v:"packaging",l:"Boards & Packaging"}]} active={tab} onChange={setTab}/>
 
     {/* ── INVENTORY ── */}
-    {tab==="inventory"&&<InventoryTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} showMsg={showMsg} setView={setView}/>}
+    {tab==="inventory"&&<InventoryTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} showMsg={showMsg} setView={setView} setTab={setTab}/>}
 
     {/* ── RECIPES ── */}
     {tab==="recipes"&&<div>
@@ -892,11 +1098,24 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>
           {recipeModal.type==="pastry"?"Ingredients (per batch)":recipeModal.type==="covering"?"Ingredients (per batch)":"Ingredients (per 1 layer)"}
         </div>
-        {recipeModal.ing.map((ing,idx)=><div key={idx} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
-          <select value={ing.iid} onChange={e=>updateIng(idx,"iid",e.target.value)} style={{...iSt,flex:2,fontSize:12}}><option value="">— Select ingredient —</option>{inventory.map(i=><option key={i.id} value={i.id}>{i.name} ({i.unit}) — {fmt(i.cost)}/{i.unit}</option>)}</select>
-          <input type="number" placeholder="Qty" value={ing.qty} onChange={e=>updateIng(idx,"qty",e.target.value)} style={{...iSt,width:70,fontSize:12}}/>
-          <Btn small variant="danger" onClick={()=>removeIng(idx)}>×</Btn>
-        </div>)}
+        {recipeModal.ing.map((ing,idx)=>{
+          const options = inventory
+            .filter(i => i.cat !== "Board and Packaging" && i.category !== "Board and Packaging")
+            .map(i => ({
+              value: i.id,
+              label: `${i.name} (${i.unit}) — ${fmt(i.cost)}/${i.unit}`
+            }))
+          return <div key={idx} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+            <SearchableSelect
+              value={ing.iid}
+              onChange={val => updateIng(idx,"iid",val)}
+              options={options}
+              placeholder="Type to search ingredient..."
+            />
+            <input type="number" placeholder="Qty" value={ing.qty} onChange={e=>updateIng(idx,"qty",e.target.value)} style={{...iSt,width:70,fontSize:12}}/>
+            <Btn small variant="danger" onClick={()=>removeIng(idx)}>×</Btn>
+          </div>
+        })}
         <Btn small variant="ghost" onClick={addIngToRecipe}>+ Add Ingredient</Btn>
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <Btn small variant="outline" onClick={() => setShowRecipeExcelImport(true)}>📋 Import from Excel</Btn>
@@ -945,9 +1164,9 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     </div>}
 
     {/* ── DECORATIONS ── */}
-    {tab==="decorations"&&<DecorationsTab inventory={inventory} isOwner={isOwner}/>}
+    {tab==="decorations"&&<DecorationsTab inventory={inventory} setInventory={setInventory} isOwner={isOwner}/>}
     {/* ── PACKAGING ── */}
-    {tab==="packaging"&&<PackagingTab isOwner={isOwner}/>}
+    {tab==="packaging"&&<PackagingTab inventory={inventory} setInventory={setInventory} isOwner={isOwner}/>}
   </div>
 }
 
@@ -1076,7 +1295,7 @@ export function RecipeExcelImportModal({ inventory, onClose, onImport }) {
                           style={{ width: "100%", padding: "4px", borderRadius: 4, border: "1px solid var(--border)" }}
                         >
                           <option value="">— Unmatched (select to link) —</option>
-                          {inventory.map(item => (
+                          {inventory.filter(item => item.cat !== "Board and Packaging" && item.category !== "Board and Packaging").map(item => (
                             <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
                           ))}
                         </select>
@@ -1287,7 +1506,7 @@ export function RecipeScanModal({ inventory, onClose, onImport }) {
                         style={{ width: "100%", padding: "4px", borderRadius: 4, border: "1px solid var(--border)" }}
                       >
                         <option value="">— Unmatched (select to link) —</option>
-                        {inventory.map(item => (
+                        {inventory.filter(item => item.cat !== "Board and Packaging" && item.category !== "Board and Packaging").map(item => (
                           <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
                         ))}
                       </select>

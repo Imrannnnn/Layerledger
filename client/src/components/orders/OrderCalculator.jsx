@@ -8,27 +8,40 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead } from "../common/ui.jsx"
-import { fmt, uid } from "../../lib/helpers.js"
+import { fmt, uid, today } from "../../lib/helpers.js"
 import { DECORATION_ITEMS, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
 import { loadCompany, loadLocal, saveLocal, loadQuotes, saveQuotes } from "../../lib/data.js"
 
 
 export function OrderCalculator({inventory,recipes,settings,setView,company}){
   const getMults=()=>loadLocal("ll_multipliers", DEFAULT_MULTS)
-  const getDecs=()=>loadLocal("ll_decorations", DECORATION_ITEMS)
-
   const mults=getMults()
-  const decorations=getDecs()
-  const getPackaging=()=>loadLocal("ll_packaging", [
-    {id:"p1",name:"Cake Board 6\"",price:300},{id:"p2",name:"Cake Board 8\"",price:450},
-    {id:"p3",name:"Cake Board 10\"",price:600},{id:"p4",name:"Cake Board 12\"",price:800},
-    {id:"p5",name:"Cake Board 14\"",price:1000},{id:"p6",name:"Cake Drum 8\"",price:700},
-    {id:"p7",name:"Cake Drum 10\"",price:900},{id:"p8",name:"Cake Drum 12\"",price:1200},
-    {id:"p9",name:"Cake Box 6\"",price:400},{id:"p10",name:"Cake Box 8\"",price:600},
-    {id:"p11",name:"Cake Box 10\"",price:800},{id:"p12",name:"Cake Box 12\"",price:1000},
-    {id:"p13",name:"Dowels (pack)",price:500},{id:"p14",name:"Delivery box",price:1500},
-  ])
-  const packagingItems=getPackaging()
+
+  const decorations = useMemo(() => {
+    const stored = loadLocal("ll_decorations", DECORATION_ITEMS)
+    const decorInventoryItems = inventory.filter(item => item.cat === "Decoration Extras" || item.category === "Decoration Extras")
+    
+    return decorInventoryItems.map(invItem => {
+      const existing = stored.find(d => d.iid === invItem.id)
+      return {
+        id: existing ? existing.id : "d_" + invItem.id,
+        name: invItem.name,
+        label: invItem.name,
+        iid: invItem.id,
+        qty: existing ? existing.qty : 1
+      }
+    })
+  }, [inventory])
+
+  const packagingItems = useMemo(() => {
+    const pkgInventoryItems = inventory.filter(item => item.cat === "Board and Packaging" || item.category === "Board and Packaging")
+    return pkgInventoryItems.map(item => ({
+      id: item.id,
+      name: item.name,
+      price: item.cost,
+      unit: item.unit
+    }))
+  }, [inventory])
 
   // Accessory types with sizes and prices — in real app these come from settings
   const ACC_TYPES=[
@@ -337,7 +350,14 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
         <Inp label="Phone (WhatsApp)" value={clientPhone} onChange={v=>{setClientPhone(v);autoSave({clientPhone:v})}} placeholder="+234..."/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-        <Inp label="Delivery / collection date *" type="date" value={deliveryDate} onChange={v=>{setDeliveryDate(v);autoSave({deliveryDate:v})}}/>
+        <Inp label="Delivery / collection date *" type="date" value={deliveryDate} min={today()} onChange={v=>{
+          if (v && v < today()) {
+            alert("Delivery date cannot be in the past.")
+            return
+          }
+          setDeliveryDate(v);
+          autoSave({deliveryDate:v})
+        }}/>
         <Sel label="Event" value={eventType} onChange={v=>{setEventType(v);autoSave({eventType:v})}} options={[{value:"",label:"— Select event —"},...EVENT_TYPES.map(e=>({value:e,label:e}))]}/>
       </div>
       <Inp label="Notes / special requests" value={clientNotes} onChange={v=>{setClientNotes(v);autoSave({clientNotes:v})}} placeholder="Colour theme, flavour preferences, delivery instructions..."/>

@@ -271,7 +271,13 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Order Date" type="date" value={orderDate} onChange={setOrderDate}/>
-          <Inp label="Delivery Date *" type="date" value={delivDate} onChange={setDelivDate}/>
+          <Inp label="Delivery Date *" type="date" value={delivDate} min={today()} onChange={v=>{
+            if (v && v < today()) {
+              alert("Delivery date cannot be in the past.")
+              return
+            }
+            setDelivDate(v)
+          }}/>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Sale Price (₦)" type="number" value={salePrice} onChange={setSalePrice} placeholder={newTotalCost>0?`Suggested: ${fmt(customSuggestedPrice)}`:"0"}/>

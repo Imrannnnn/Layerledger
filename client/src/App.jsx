@@ -109,7 +109,7 @@ export default function App(){
   })
   const [view,setView]=useState("dashboard")
   const [viewHistory,setViewHistory]=useState(["dashboard"])
-  const goTo=(v)=>{setViewHistory(h=>[...h.slice(-9),v]);setView(v)}
+  const goTo=(v)=>{setViewHistory(h=>{if(h[h.length-1]===v)return h;return[...h.slice(-9),v]});setView(v)}
   const goBack=()=>{setViewHistory(h=>{if(h.length<=1)return h;const prev=h[h.length-2];setView(prev);return h.slice(0,-1)});}
   const [onboarded,setOnboarded]=useState(()=>!!loadLocal("ll_onboarded", false))
   const [inventory,setInventory]=useState(DEFAULT_INV)
@@ -167,7 +167,7 @@ export default function App(){
 
   const setViewWithSync = (v) => {
     syncToBackend()
-    setView(v)
+    goTo(v)
   }
 
   const gold=company.primaryColor||"var(--gold)"
@@ -245,7 +245,7 @@ export default function App(){
   const sidebarContent = <>
     <div style={{padding:"18px 16px 14px",borderBottom:"1px solid rgba(200,145,42,0.2)",display:"flex",alignItems:"center",gap:10}}>
       {company.logo&&<img src={company.logo} alt="logo" style={{width:30,height:30,borderRadius:6,objectFit:"cover",flexShrink:0}}/>}
-      <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:gold,fontWeight:700,lineHeight:1.2}}>{company.name||"LayerLedger"}</div><div style={{fontSize:9,color:"#7B5A3A",textTransform:"uppercase",letterSpacing:2,marginTop:1}}>Bakery Books</div></div>
+      <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:gold,fontWeight:700,lineHeight:1.2}}>{company.name||"BakeWealth"}</div><div style={{fontSize:9,color:"#7B5A3A",textTransform:"uppercase",letterSpacing:2,marginTop:1}}>Bakery Books</div></div>
     </div>
     <div style={{flex:1,paddingTop:8,overflowY:"auto"}}>
       {nav.map(n=>n.divider
@@ -254,7 +254,6 @@ export default function App(){
       )}
     </div>
     <div style={{padding:"10px 16px",borderTop:"1px solid rgba(200,145,42,0.1)"}}>
-      {viewHistory.length>1&&<div onClick={goBack} style={{cursor:"pointer",color:gold,marginBottom:6,display:"flex",alignItems:"center",gap:4,fontSize:12,fontWeight:500}}>← Back</div>}
       <div style={{fontSize:11.5,color:"#6B4A2A",fontWeight:500}}>{currentUser?.name}</div>
       <div style={{fontSize:10.5,color:"#3D2010",marginTop:1,display:"flex",justifyContent:"space-between"}}>
         <span style={{cursor:"pointer",color:gold}} onClick={async ()=>{
@@ -314,7 +313,7 @@ export default function App(){
               <button onClick={()=>setSidebarOpen(!sidebarOpen)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:gold,fontSize:22,lineHeight:1}}>☰</button>
             )}
             {company.logo&&<img src={company.logo} alt="logo" style={{width:28,height:28,borderRadius:6,objectFit:"cover"}}/>}
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:gold,fontWeight:700}}>{company.name||"LayerLedger"}</div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:gold,fontWeight:700}}>{company.name||"BakeWealth"}</div>
             {!isMobile && <div style={{fontSize:12,color:"#8B6B4A",marginLeft:10,background:"rgba(200,145,42,0.1)",padding:"2px 8px",borderRadius:4}}>{nav.find(n=>n.id===view)?.label}</div>}
           </div>
           
@@ -363,8 +362,42 @@ export default function App(){
               {view==="settings"   &&<Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory} setInventory={setInventory} user={currentUser}/>}
             </Suspense>
           }
-        </div>
       </div>
+      {viewHistory.length > 1 && (
+        <button
+          onClick={goBack}
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            zIndex: 9999,
+            background: "var(--gold)",
+            color: "#fff",
+            border: "none",
+            borderRadius: "50px",
+            padding: "12px 22px",
+            fontSize: "14px",
+            fontWeight: "600",
+            cursor: "pointer",
+            boxShadow: "0 4px 16px rgba(200, 145, 42, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            transition: "transform 0.15s ease, background 0.15s ease",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.transform = "scale(1.05)";
+            e.currentTarget.style.background = "#b8832a";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.transform = "scale(1)";
+            e.currentTarget.style.background = "var(--gold)";
+          }}
+        >
+          ← Back
+        </button>
+      )}
     </div>
+  </div>
   </>
 }

@@ -690,7 +690,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
               label="Category *"
               value={newFields.cat}
               onChange={v => setNewFields({ ...newFields, cat: v })}
-              options={["Dry Goods", "Dairy and Fats", "Flavours and Extracts", "Decoration and Finishing", "Other"].map(c => ({ value: c, label: c }))}
+              options={["Dry Goods", "Dairy and Fats", "Flavours and Extracts", "Decoration Extras", "Board and Packaging", "Other"].map(c => ({ value: c, label: c }))}
             />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <Inp label="Unit (e.g. kg, L, pcs) *" value={newFields.unit} onChange={v => setNewFields({ ...newFields, unit: v })} />

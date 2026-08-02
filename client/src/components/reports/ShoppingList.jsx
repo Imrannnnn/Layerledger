@@ -18,7 +18,8 @@ export function ShoppingList({ inventory, setInventory, company }) {
     if (c.includes("dry") || c.includes("chocolate") || c.includes("flour") || c.includes("sugar")) return "Dry Goods"
     if (c.includes("dairy") || c.includes("fat") || c.includes("oil") || c.includes("butter") || c.includes("margarine") || c.includes("egg")) return "Dairy and Fats"
     if (c.includes("flavor") || c.includes("extract") || c.includes("color") || c.includes("essence")) return "Flavours and Extracts"
-    if (c.includes("decor") || c.includes("finish") || c.includes("fruit") || c.includes("flower") || c.includes("topper") || c.includes("ribbon") || c.includes("packaging")) return "Decoration and Finishing"
+    if (c.includes("decor") || c.includes("finish") || c.includes("fruit") || c.includes("flower") || c.includes("topper") || c.includes("ribbon")) return "Decoration Extras"
+    if (c.includes("packaging") || c.includes("board") || c.includes("box") || c.includes("dowel") || c.includes("drum")) return "Board and Packaging"
     return "Other"
   }
 
@@ -121,7 +122,7 @@ export function ShoppingList({ inventory, setInventory, company }) {
           </tr>
         </tbody>
       </table>
-      <p style="font-size: 10px; color: #888; margin-top: 40px;">Printed from LayerLedger · ${new Date().toLocaleDateString()}</p>
+      <p style="font-size: 10px; color: #888; margin-top: 40px;">Printed from BakeWealth · ${new Date().toLocaleDateString()}</p>
       <script>window.print()<\/script>
     </body></html>`)
     w.document.close()

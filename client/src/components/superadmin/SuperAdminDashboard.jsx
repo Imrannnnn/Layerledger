@@ -151,12 +151,12 @@ export function SuperAdminDashboard() {
         <Card style={{ width: "100%", maxWidth: 400, padding: 32, boxShadow: "0 8px 30px rgba(41,22,8,0.08)" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             <div style={{ fontSize: 42, marginBottom: 8 }}>👑</div>
-            <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, fontWeight: 700, color: "var(--text)", margin: 0 }}>LayerLedger</h1>
+            <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, fontWeight: 700, color: "var(--text)", margin: 0 }}>BakeWealth</h1>
             <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4 }}>Platform Super Admin Dashboard</p>
           </div>
 
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <Inp label="Admin Email" type="email" value={email} onChange={setEmail} placeholder="admin@layerledger.com" />
+            <Inp label="Admin Email" type="email" value={email} onChange={setEmail} placeholder="admin@bakewealth.com" />
             <Inp label="Secure Password" type="password" value={password} onChange={setPassword} placeholder="••••••••" />
             
             {error && <div style={{ fontSize: 12.5, color: "#B03A2E", background: "#FDEBE9", padding: "8px 12px", borderRadius: 8 }}>⚠ {error}</div>}

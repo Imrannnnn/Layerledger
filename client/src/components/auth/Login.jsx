@@ -102,7 +102,7 @@ export function Login({ onLogin }) {
       
       <Card style={{ width: "100%", maxWidth: 390, padding: 32, textAlign: "left" }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 32, color: "var(--gold)", fontWeight: 700, marginBottom: 4 }}>LayerLedger</div>
+          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 32, color: "var(--gold)", fontWeight: 700, marginBottom: 4 }}>BakeWealth</div>
           <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 2.5 }}>Bakery Bookkeeping</div>
         </div>
 
