@@ -710,8 +710,17 @@ export const syncFromBackend = async () => {
         Object.keys(lastSyncedValues).forEach(k => {
           delete lastSyncedValues[k]
         })
+
+        // Explicitly clear temporary calculator states on login so they don't persist across sessions
+        const keysToIgnoreOnLogin = ["ll_calc_state", "ll_calc_edit", "ll_calc_prefill", "ll_quote_prefill"]
+        keysToIgnoreOnLogin.forEach(k => {
+          try {
+            localStorage.removeItem(k)
+          } catch (e) {}
+        })
+
         Object.entries(state).forEach(([k, v]) => {
-          if (v !== null) {
+          if (v !== null && !keysToIgnoreOnLogin.includes(k)) {
             try {
               cache[k] = typeof v === "string" ? JSON.parse(v) : v
             } catch {
@@ -739,8 +748,19 @@ export const syncFromBackend = async () => {
   return false
 }
 
+export const clearTempCalculatorState = () => {
+  const keys = ["ll_calc_state", "ll_calc_edit", "ll_calc_prefill", "ll_quote_prefill"]
+  keys.forEach(k => {
+    delete cache[k]
+    try {
+      localStorage.removeItem(k)
+    } catch (e) {}
+  })
+}
+
 export const logout = () => {
   hasLoadedFromBackend = false
+  clearTempCalculatorState()
   Object.keys(cache).forEach(k => {
     delete cache[k]
   })

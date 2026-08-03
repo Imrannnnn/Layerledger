@@ -30,7 +30,7 @@ import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 
 import { loadInventory, saveInventory, loadProductions, saveProduction, updateProdStatus,
   loadTransactions, saveTxns, loadExpenses, saveExpenses, loadSetting, saveSetting,
   loadCompany, saveCompany, loadInvoices, saveInvoice, loadUsers, saveUsers,
-  loadRecipes, saveRecipes, syncToBackend, syncFromBackend, loadTenantInfo, logout, loadLocal, saveLocal } from "./lib/data.js"
+  loadRecipes, saveRecipes, syncToBackend, syncFromBackend, loadTenantInfo, logout, loadLocal, saveLocal, clearTempCalculatorState } from "./lib/data.js"
 
 // ─── Seed data & helpers ────────────────────────────────────────────────────
 import { DEFAULT_INV, DEFAULT_RECIPES } from "./constants.js"
@@ -257,6 +257,7 @@ export default function App(){
       <div style={{fontSize:11.5,color:"#6B4A2A",fontWeight:500}}>{currentUser?.name}</div>
       <div style={{fontSize:10.5,color:"#3D2010",marginTop:1,display:"flex",justifyContent:"space-between"}}>
         <span style={{cursor:"pointer",color:gold}} onClick={async ()=>{
+          clearTempCalculatorState();
           await syncToBackend();
           logout();
           setCurrentUser(null);

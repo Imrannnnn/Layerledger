@@ -222,7 +222,8 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
   const [pasteN,setPasteN]=useState("")
   const [pasteU,setPasteU]=useState("")
   const [pasteC,setPasteC]=useState("")
-  const [newItem,setNewItem]=useState({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods"})
+  const [calcMode,setCalcMode]=useState("manual") // "manual" or "auto"
+  const [newItem,setNewItem]=useState({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""})
   const [editId,setEditId]=useState(null)
   const [editRow,setEditRow]=useState({})
   const [warnMsg,setWarnMsg]=useState("")
@@ -289,11 +290,21 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
   }
 
   const addSingle=async()=>{
-    if(!newItem.name||!newItem.cost)return showMsg("Name and cost per unit are required","red")
-    const item={id:uid(),name:newItem.name,unit:newItem.unit||"kg",cost:+newItem.cost,stock:0,minStock:+newItem.minStock||5,cat:newItem.cat||"Dry Goods"}
+    let cost = newItem.cost
+    if (calcMode === "auto") {
+      const price = parseFloat(newItem.totalPaid)
+      const qty = parseFloat(newItem.qtyBought)
+      if (!newItem.totalPaid || !newItem.qtyBought || isNaN(price) || isNaN(qty) || qty <= 0) {
+        return showMsg("Total amount paid and quantity bought must be valid positive numbers", "red")
+      }
+      cost = price / qty
+    }
+    if(!newItem.name||!cost)return showMsg("Name and cost per unit are required","red")
+    const item={id:uid(),name:newItem.name,unit:newItem.unit||"kg",cost:+cost,stock:0,minStock:+newItem.minStock||5,cat:newItem.cat||"Dry Goods"}
     const updated=[...inventory,item]
     setInventory(updated);await saveInventory(updated)
-    setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods"});setShowAdd(false)
+    setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""});setShowAdd(false)
+    setCalcMode("manual")
     showMsg("✓ Item added. Set opening stock in Settings → Opening Stock.","green")
   }
 
@@ -492,14 +503,68 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     {/* ADD SINGLE ITEM */}
     {showAdd&&isOwner&&<Card style={{marginBottom:14,background:"#FFF9EE",borderColor:"var(--gold)"}}>
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Add New Item</div>
-      <div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr 1fr 1fr 1fr",gap:10,marginBottom:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1.5fr 1.2fr 1fr 1.2fr",gap:10,marginBottom:10}}>
         <Inp label="Item Name *" value={newItem.name} onChange={v=>setNewItem(p=>({...p,name:v}))} placeholder="e.g. Flour"/>
         <Sel label="Category" value={newItem.cat} onChange={v=>setNewItem(p=>({...p,cat:v}))} options={["Dry Goods", "Dairy and Fats", "Flavours and Extracts", "Decoration Extras", "Board and Packaging", "Other"].map(c=>({value:c,label:c}))}/>
         <Sel label="Unit *" value={newItem.unit} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["kg","g","L","ml","pcs","pack","bottle","roll","set"].map(u=>({value:u,label:u}))}/>
-        <Inp label="Cost/Unit (₦) *" type="number" value={newItem.cost} onChange={v=>setNewItem(p=>({...p,cost:v}))} placeholder="e.g. 1140"/>
         <Inp label="Min Alert" type="number" value={newItem.minStock} onChange={v=>setNewItem(p=>({...p,minStock:v}))} placeholder="e.g. 10"/>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn onClick={addSingle}>Save</Btn><Btn variant="ghost" onClick={()=>setShowAdd(false)}>Cancel</Btn></div>
+
+      <div style={{marginBottom:12}}>
+        <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Cost Per Unit Setting</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => setCalcMode("manual")}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: calcMode === "manual" ? "2px solid var(--gold)" : "1px solid var(--border)",
+              background: calcMode === "manual" ? "rgba(200,145,42,0.08)" : "transparent",
+              color: calcMode === "manual" ? "var(--gold)" : "var(--text)",
+              fontWeight: calcMode === "manual" ? "600" : "500",
+              cursor: "pointer",
+              fontSize: "12px"
+            }}
+          >
+            I know cost per unit
+          </button>
+          <button
+            type="button"
+            onClick={() => setCalcMode("auto")}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: calcMode === "auto" ? "2px solid var(--gold)" : "1px solid var(--border)",
+              background: calcMode === "auto" ? "rgba(200,145,42,0.08)" : "transparent",
+              color: calcMode === "auto" ? "var(--gold)" : "var(--text)",
+              fontWeight: calcMode === "auto" ? "600" : "500",
+              cursor: "pointer",
+              fontSize: "12px"
+            }}
+          >
+            I don't know cost per unit
+          </button>
+        </div>
+      </div>
+
+      {calcMode === "auto" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <Inp label="Total Amount Paid (₦) *" type="number" value={newItem.totalPaid || ""} onChange={v => setNewItem(p => ({ ...p, totalPaid: v }))} placeholder="e.g. 5000" />
+          <Inp label="Quantity Bought *" type="number" value={newItem.qtyBought || ""} onChange={v => setNewItem(p => ({ ...p, qtyBought: v }))} placeholder="e.g. 2.5" />
+          {newItem.totalPaid && newItem.qtyBought && parseFloat(newItem.qtyBought) > 0 && (
+            <div style={{ gridColumn: "span 2", padding: "8px 12px", background: "var(--panel)", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "var(--gold)", border: "1px solid var(--border)" }}>
+              Calculated Cost per Unit: {fmt(parseFloat(newItem.totalPaid) / parseFloat(newItem.qtyBought))}/{newItem.unit}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ maxWidth: 200, marginBottom: 12 }}>
+          <Inp label="Cost/Unit (₦) *" type="number" value={newItem.cost} onChange={v => setNewItem(p => ({ ...p, cost: v }))} placeholder="e.g. 1140" />
+        </div>
+      )}
+
+      <div style={{display:"flex",gap:8}}><Btn onClick={addSingle}>Save</Btn><Btn variant="ghost" onClick={()=>{setShowAdd(false); setCalcMode("manual"); setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""})}}>Cancel</Btn></div>
     </Card>}
 
     {/* COLLAPSIBLE CATEGORIES */}

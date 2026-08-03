@@ -84,7 +84,8 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
 
   // State for creating a new inventory item directly from the review step
   const [addingNewItemForIdx, setAddingNewItemForIdx] = useState(null)
-  const [newFields, setNewFields] = useState({ name: "", cat: "Dry Goods", unit: "kg", cost: "", stock: "", minStock: "5" })
+  const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
+  const [newFields, setNewFields] = useState({ name: "", cat: "Dry Goods", unit: "kg", cost: "", stock: "", minStock: "5", totalPaid: "", qtyBought: "" })
 
   const handleFile = (e) => {
     const file = e.target.files[0]
@@ -387,14 +388,29 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       unit: row.unit || "kg",
       cost: String(costPerUnit),
       stock: String(stockQty),
-      minStock: "5"
+      minStock: "5",
+      totalPaid: String(row.line_total || ""),
+      qtyBought: String(row.qty || "")
     })
+    setCalcMode("manual")
     setAddingNewItemForIdx(idx)
   }
 
   // Save new item directly to inventory and auto-select in row
   const saveNewItemFromReceipt = async () => {
-    if (!newFields.name.trim() || !newFields.cost) {
+    let cost = newFields.cost
+    if (calcMode === "auto") {
+      const price = parseFloat(newFields.totalPaid)
+      const qty = parseFloat(newFields.qtyBought)
+      if (!newFields.totalPaid || !newFields.qtyBought || isNaN(price) || isNaN(qty) || qty <= 0) {
+        alert("Total amount paid and quantity bought must be valid positive numbers.")
+        return
+      }
+      cost = price / qty
+    } else {
+      cost = Number(cost)
+    }
+    if (!newFields.name.trim() || !cost) {
       alert("Name and cost per unit are required")
       return
     }
@@ -405,7 +421,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       name: newFields.name.trim(),
       cat: newFields.cat,
       unit: newFields.unit || "kg",
-      cost: Number(newFields.cost),
+      cost: cost,
       stock: Number(newFields.stock || 0),
       minStock: Number(newFields.minStock || 5)
     }
@@ -419,6 +435,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       ...prev,
       items: prev.items.map((r, i) => i === addingNewItemForIdx ? { ...r, overrideId: itemId, approved: true } : r)
     }))
+    setCalcMode("manual")
     setAddingNewItemForIdx(null)
   }
 
@@ -683,7 +700,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
 
       {/* Add New Item Modal */}
       {addingNewItemForIdx !== null && (
-        <Modal title="Add New Ingredient to Inventory" onClose={() => setAddingNewItemForIdx(null)}>
+        <Modal title="Add New Ingredient to Inventory" onClose={() => { setAddingNewItemForIdx(null); setCalcMode("manual"); }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Inp label="Ingredient Name *" value={newFields.name} onChange={v => setNewFields({ ...newFields, name: v })} />
             <Sel
@@ -692,17 +709,69 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
               onChange={v => setNewFields({ ...newFields, cat: v })}
               options={["Dry Goods", "Dairy and Fats", "Flavours and Extracts", "Decoration Extras", "Board and Packaging", "Other"].map(c => ({ value: c, label: c }))}
             />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <Inp label="Unit (e.g. kg, L, pcs) *" value={newFields.unit} onChange={v => setNewFields({ ...newFields, unit: v })} />
-              <Inp label="Cost per Unit (₦) *" type="number" value={newFields.cost} onChange={v => setNewFields({ ...newFields, cost: v })} />
+            <Inp label="Unit (e.g. kg, L, pcs) *" value={newFields.unit} onChange={v => setNewFields({ ...newFields, unit: v })} />
+
+            <div>
+              <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Cost Per Unit Setting</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setCalcMode("manual")}
+                  style={{
+                    flex: 1,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: calcMode === "manual" ? "2px solid var(--gold)" : "1px solid var(--border)",
+                    background: calcMode === "manual" ? "rgba(200,145,42,0.08)" : "transparent",
+                    color: calcMode === "manual" ? "var(--gold)" : "var(--text)",
+                    fontWeight: calcMode === "manual" ? "600" : "500",
+                    cursor: "pointer",
+                    fontSize: "12px"
+                  }}
+                >
+                  I know cost per unit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCalcMode("auto")}
+                  style={{
+                    flex: 1,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: calcMode === "auto" ? "2px solid var(--gold)" : "1px solid var(--border)",
+                    background: calcMode === "auto" ? "rgba(200,145,42,0.08)" : "transparent",
+                    color: calcMode === "auto" ? "var(--gold)" : "var(--text)",
+                    fontWeight: calcMode === "auto" ? "600" : "500",
+                    cursor: "pointer",
+                    fontSize: "12px"
+                  }}
+                >
+                  I don't know cost per unit
+                </button>
+              </div>
             </div>
+
+            {calcMode === "auto" ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Inp label="Total Amount Paid (₦) *" type="number" value={newFields.totalPaid || ""} onChange={v => setNewFields(p => ({ ...p, totalPaid: v }))} placeholder="e.g. 5000" />
+                <Inp label="Quantity Bought *" type="number" value={newFields.qtyBought || ""} onChange={v => setNewFields(p => ({ ...p, qtyBought: v }))} placeholder="e.g. 2.5" />
+                {newFields.totalPaid && newFields.qtyBought && parseFloat(newFields.qtyBought) > 0 && (
+                  <div style={{ gridColumn: "span 2", padding: "8px 12px", background: "var(--panel)", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "var(--gold)", border: "1px solid var(--border)" }}>
+                    Calculated Cost per Unit: {fmt(parseFloat(newFields.totalPaid) / parseFloat(newFields.qtyBought))}/{newFields.unit}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Inp label="Cost per Unit (₦) *" type="number" value={newFields.cost} onChange={v => setNewFields({ ...newFields, cost: v })} />
+            )}
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <Inp label="Starting Inventory Qty" type="number" value={newFields.stock} onChange={v => setNewFields({ ...newFields, stock: v })} />
               <Inp label="Min Stock Level Alert" type="number" value={newFields.minStock} onChange={v => setNewFields({ ...newFields, minStock: v })} />
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
               <Btn variant="success" onClick={saveNewItemFromReceipt}>✓ Add Ingredient</Btn>
-              <Btn variant="ghost" onClick={() => setAddingNewItemForIdx(null)}>Cancel</Btn>
+              <Btn variant="ghost" onClick={() => { setAddingNewItemForIdx(null); setCalcMode("manual"); }}>Cancel</Btn>
             </div>
           </div>
         </Modal>

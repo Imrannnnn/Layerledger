@@ -147,7 +147,8 @@ export function OpeningStockTab({inventory, setInventory}){
   const [items, setItems] = useState(loadOS)
   const [saved, setSaved] = useState(() => !!loadLocal("ll_os_" + currentMonthStr, null))
   const [addingItem, setAddingItem] = useState(false)
-  const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: 0 })
+  const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
+  const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
 
   // Check if today is the last day of the month
   const isLastDayOfMonth = () => {
@@ -199,12 +200,23 @@ export function OpeningStockTab({inventory, setInventory}){
   }
 
   const addNewItemToOS = async () => {
-    if (!newItem.name.trim() || !newItem.cost) {
+    let cost = newItem.cost
+    if (calcMode === "auto") {
+      const price = parseFloat(newItem.totalPaid)
+      const qty = parseFloat(newItem.qtyBought)
+      if (!newItem.totalPaid || !newItem.qtyBought || isNaN(price) || isNaN(qty) || qty <= 0) {
+        alert("Total amount paid and quantity bought must be valid positive numbers.")
+        return
+      }
+      cost = price / qty
+    } else {
+      cost = parseFloat(cost) || 0
+    }
+    if (!newItem.name.trim() || !cost) {
       alert("Name and cost are required.")
       return
     }
     const id = "_" + Math.random().toString(36).slice(2, 9)
-    const cost = parseFloat(newItem.cost) || 0
     const openingQty = parseFloat(newItem.openingQty) || 0
     
     const osItem = {
@@ -234,7 +246,8 @@ export function OpeningStockTab({inventory, setInventory}){
       setInventory(updatedInventory)
     }
     await saveInventory(updatedInventory)
-    setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0 })
+    setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
+    setCalcMode("manual")
     setAddingItem(false)
   }
 
@@ -319,17 +332,73 @@ export function OpeningStockTab({inventory, setInventory}){
       </div>
     </Card>
     
-    {addingItem&&<Modal title="Add Item directly to Opening Stock" onClose={()=>setAddingItem(false)}>
+    {addingItem&&<Modal title="Add Item directly to Opening Stock" onClose={()=>{setAddingItem(false); setCalcMode("manual"); setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })}}>
       <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:12}}>Adding a new item here will also register it in your Master List.</div>
       <Inp label="Item Name *" value={newItem.name} onChange={v=>setNewItem(p=>({...p,name:v}))} placeholder="e.g. Yeast"/>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
         <Sel label="Unit *" value={newItem.unit} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["kg","g","L","ml","pcs","pack","bottle","roll","set"].map(u=>({value:u,label:u}))}/>
-        <Inp label="Cost/Unit (₦) *" type="number" value={newItem.cost} onChange={v=>setNewItem(p=>({...p,cost:v}))} placeholder="e.g. 500"/>
         <Inp label="Opening Stock Qty" type="number" value={newItem.openingQty} onChange={v=>setNewItem(p=>({...p,openingQty:v}))} placeholder="e.g. 5"/>
       </div>
+
+      <div style={{marginBottom:12}}>
+        <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Cost Per Unit Setting</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => setCalcMode("manual")}
+            style={{
+              flex: 1,
+              padding: "8px 10px",
+              borderRadius: 8,
+              border: calcMode === "manual" ? "2px solid var(--gold)" : "1px solid var(--border)",
+              background: calcMode === "manual" ? "rgba(200,145,42,0.08)" : "transparent",
+              color: calcMode === "manual" ? "var(--gold)" : "var(--text)",
+              fontWeight: calcMode === "manual" ? "600" : "500",
+              cursor: "pointer",
+              fontSize: "12px"
+            }}
+          >
+            I know cost per unit
+          </button>
+          <button
+            type="button"
+            onClick={() => setCalcMode("auto")}
+            style={{
+              flex: 1,
+              padding: "8px 10px",
+              borderRadius: 8,
+              border: calcMode === "auto" ? "2px solid var(--gold)" : "1px solid var(--border)",
+              background: calcMode === "auto" ? "rgba(200,145,42,0.08)" : "transparent",
+              color: calcMode === "auto" ? "var(--gold)" : "var(--text)",
+              fontWeight: calcMode === "auto" ? "600" : "500",
+              cursor: "pointer",
+              fontSize: "12px"
+            }}
+          >
+            I don't know cost per unit
+          </button>
+        </div>
+      </div>
+
+      {calcMode === "auto" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <Inp label="Total Amount Paid (₦) *" type="number" value={newItem.totalPaid || ""} onChange={v => setNewItem(p => ({ ...p, totalPaid: v }))} placeholder="e.g. 5000" />
+          <Inp label="Quantity Bought *" type="number" value={newItem.qtyBought || ""} onChange={v => setNewItem(p => ({ ...p, qtyBought: v }))} placeholder="e.g. 2.5" />
+          {newItem.totalPaid && newItem.qtyBought && parseFloat(newItem.qtyBought) > 0 && (
+            <div style={{ gridColumn: "span 2", padding: "8px 12px", background: "var(--panel)", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "var(--gold)", border: "1px solid var(--border)" }}>
+              Calculated Cost per Unit: {fmt(parseFloat(newItem.totalPaid) / parseFloat(newItem.qtyBought))}/{newItem.unit}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ marginBottom: 12 }}>
+          <Inp label="Cost/Unit (₦) *" type="number" value={newItem.cost} onChange={v => setNewItem(p => ({ ...p, cost: v }))} placeholder="e.g. 500" />
+        </div>
+      )}
+
       <div style={{display:"flex",gap:8}}>
         <Btn variant="success" onClick={addNewItemToOS}>✓ Add Item</Btn>
-        <Btn variant="ghost" onClick={()=>setAddingItem(false)}>Cancel</Btn>
+        <Btn variant="ghost" onClick={()=>{setAddingItem(false); setCalcMode("manual"); setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })}}>Cancel</Btn>
       </div>
     </Modal>}
   </div>
