@@ -36,3 +36,96 @@ export function Steps({steps,cur}){return<div style={{display:"flex",alignItems:
 export function Spinner(){return<div style={{display:"flex",justifyContent:"center",alignItems:"center",padding:32}}><div style={{width:26,height:26,border:"3px solid var(--border)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div>}
 export function Modal({title,children,onClose}){return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}><div style={{background:"var(--panel)",borderRadius:14,padding:24,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:600,color:"var(--text)"}}>{title}</div><button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"var(--muted)"}}>×</button></div>{children}</div></div>}
 export function Alert({msg,color="gold",onClose}){if(!msg)return null;const c={gold:["#FFF9EE","var(--gold)","var(--gold)"],red:["#FDEBE9","#912622","#B03A2E"],green:["#E5F4EC","#2D7A50","#357A52"]}[color]||["#FFF9EE","var(--gold)","var(--gold)"];return<div style={{padding:"10px 14px",background:c[0],color:c[1],borderRadius:8,marginBottom:12,fontSize:13,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{msg}</span>{onClose&&<button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:c[2],fontWeight:700,marginLeft:8}}>×</button>}</div>}
+
+export function SearchableSelect({ value, onChange, options, placeholder, style = {} }) {
+  const [search, setSearch] = useState("")
+  const [isOpen, setIsOpen] = useState(false)
+  const ref = useRef()
+
+  const selectedOption = useMemo(() => options.find(o => o.value === value), [options, value])
+
+  useEffect(() => {
+    setSearch(selectedOption ? selectedOption.label : "")
+  }, [value, selectedOption])
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setIsOpen(false)
+        setSearch(selectedOption ? selectedOption.label : "")
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [selectedOption])
+
+  const filtered = useMemo(() => {
+    return options.filter(o => 
+      o.label.toLowerCase().includes((search || "").toLowerCase())
+    )
+  }, [options, search])
+
+  return (
+    <div ref={ref} style={{ position: "relative", flex: 2, ...style }}>
+      <input
+        type="text"
+        value={search}
+        placeholder={placeholder}
+        onFocus={() => setIsOpen(true)}
+        onChange={(e) => {
+          setSearch(e.target.value)
+          setIsOpen(true)
+        }}
+        style={{
+          ...iSt,
+          width: "100%",
+          padding: "7px 10px",
+          fontSize: "12.5px"
+        }}
+      />
+      {isOpen && (
+        <div style={{
+          position: "absolute",
+          top: "100%",
+          left: 0,
+          right: 0,
+          background: "var(--panel)",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          maxHeight: 200,
+          overflowY: "auto",
+          zIndex: 1000,
+          marginTop: 4,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)"
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--muted)" }}>No matches found</div>
+          ) : (
+            filtered.map(o => (
+              <div
+                key={o.value}
+                onClick={() => {
+                  onChange(o.value)
+                  setSearch(o.label)
+                  setIsOpen(false)
+                }}
+                style={{
+                  padding: "8px 12px",
+                  fontSize: 12.5,
+                  cursor: "pointer",
+                  background: o.value === value ? "rgba(200,145,42,0.1)" : "transparent",
+                  color: o.value === value ? "var(--gold)" : "var(--text)",
+                  borderBottom: "1px solid var(--border)"
+                }}
+                onMouseEnter={(e) => e.target.style.background = "rgba(200,145,42,0.05)"}
+                onMouseLeave={(e) => e.target.style.background = o.value === value ? "rgba(200,145,42,0.1)" : "transparent"}
+              >
+                {o.label}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

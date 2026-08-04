@@ -7,10 +7,20 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert } from "../common/ui.jsx"
+import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect } from "../common/ui.jsx"
 import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage } from "../../lib/helpers.js"
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
 import { saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
+
+export const mapCategory = (cat, name = "") => {
+  const c = ((cat || "") + " " + (name || "")).toLowerCase()
+  if (c.includes("decor") || c.includes("finish") || c.includes("flower") || c.includes("topper") || c.includes("ribbon")) return "Decoration Extras"
+  if (c.includes("packaging") || c.includes("board") || c.includes("box") || c.includes("dowel") || c.includes("drum")) return "Board and Packaging"
+  if (c.includes("dry") || c.includes("chocolate") || c.includes("flour") || c.includes("sugar")) return "Dry Goods"
+  if (c.includes("dairy") || c.includes("fat") || c.includes("oil") || c.includes("butter") || c.includes("margarine") || c.includes("egg")) return "Dairy and Fats"
+  if (c.includes("flavor") || c.includes("extract") || c.includes("color") || c.includes("essence")) return "Flavours and Extracts"
+  return "Other"
+}
 
 
 export function RestockCell({id,unit,onRestock}){
@@ -700,7 +710,11 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
   const LS_KEY = "ll_decorations"
   const load = useCallback(() => {
     const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
-    const decorInventoryItems = inventory.filter(item => item.cat === "Decoration Extras" || item.category === "Decoration Extras")
+    const decorInventoryItems = inventory.filter(item => 
+      item.cat === "Decoration Extras" || 
+      item.category === "Decoration Extras" || 
+      mapCategory(item.cat, item.name) === "Decoration Extras"
+    )
     
     return decorInventoryItems.map(invItem => {
       const existing = stored.find(d => d.iid === invItem.id)
@@ -858,11 +872,15 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
 // ═══════════════════════════════════════════════════════════
 export function PackagingTab({inventory,setInventory,isOwner}){
   const items = useMemo(() => {
-    return inventory.filter(item => item.cat === "Board and Packaging" || item.category === "Board and Packaging")
+    return inventory.filter(item => 
+      item.cat === "Board and Packaging" || 
+      item.category === "Board and Packaging" || 
+      mapCategory(item.cat, item.name) === "Board and Packaging"
+    )
   }, [inventory])
 
   const [adding,setAdding]=useState(false)
-  const [newItem,setNewItem]=useState({name:"",price:"",unit:"pcs"})
+  const [newItem,setNewItem]=useState({name:"",price:"",unit:"pcs",minStock:"5"})
   const [editId,setEditId]=useState(null)
   const [editRow,setEditRow]=useState({})
 
@@ -875,14 +893,14 @@ export function PackagingTab({inventory,setInventory,isOwner}){
       unit:newItem.unit||"pcs",
       cost:+newItem.price,
       stock:0,
-      minStock:5
+      minStock:+newItem.minStock||5
     }
     const updated=[...inventory,item]
     setInventory(updated);await saveInventory(updated)
-    setAdding(false);setNewItem({name:"",price:"",unit:"pcs"})
+    setAdding(false);setNewItem({name:"",price:"",unit:"pcs",minStock:"5"})
   }
   const saveEdit=async(id)=>{
-    const updated=inventory.map(i=>i.id===id?{...i,name:editRow.name.trim(),cost:+editRow.price,unit:editRow.unit||"pcs"}:i)
+    const updated=inventory.map(i=>i.id===id?{...i,name:editRow.name.trim(),cost:+editRow.price,unit:editRow.unit||"pcs",stock:+editRow.stock||0,minStock:+editRow.minStock||5}:i)
     setInventory(updated);await saveInventory(updated)
     setEditId(null)
   }
@@ -892,13 +910,19 @@ export function PackagingTab({inventory,setInventory,isOwner}){
     setInventory(updated);await saveInventory(updated)
   }
 
+  const badge=(item)=>{
+    if(item.stock===0)return<span style={{background:"#FDEBE9",color:"#912622",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Out of Stock</span>
+    if(item.stock<=(item.minStock||5))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Low stock ⚠</span>
+    return<span style={{background:"#E5F4EC",color:"#2D7A50",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>In Stock</span>
+  }
+
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-      <div style={{fontSize:13,color:"var(--muted)"}}>Boards, boxes and packaging items used in the Order Calculator. Prices update automatically when you edit them here.</div>
+      <div style={{fontSize:13,color:"var(--muted)"}}>Boards, boxes and packaging items ({items.length} items). Prices update automatically in Order Calculator when edited here.</div>
       {isOwner&&<Btn small onClick={()=>setAdding(true)}>+ Add item</Btn>}
     </div>
     {adding&&<Card style={{marginBottom:12,borderLeft:"4px solid var(--gold)"}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:8,alignItems:"end"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr 1fr 1fr auto",gap:8,alignItems:"end"}}>
         <Inp label="Item name" value={newItem.name} onChange={v=>setNewItem(n=>({...n,name:v}))} placeholder="e.g. Cake Board 8&quot;"/>
         <Inp label="Price (₦)" type="number" value={newItem.price} onChange={v=>setNewItem(n=>({...n,price:v}))} placeholder="e.g. 450"/>
         <div>
@@ -907,129 +931,48 @@ export function PackagingTab({inventory,setInventory,isOwner}){
             {["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}
           </select>
         </div>
+        <Inp label="Min Alert" type="number" value={newItem.minStock} onChange={v=>setNewItem(n=>({...n,minStock:v}))} placeholder="5"/>
         <div style={{display:"flex",gap:6}}>
           <Btn small variant="success" onClick={addItem}>✓ Save</Btn>
           <Btn small variant="ghost" onClick={()=>setAdding(false)}>Cancel</Btn>
         </div>
       </div>
     </Card>}
-    <table style={{width:"100%",borderCollapse:"collapse"}}>
-      <thead><tr style={{background:"var(--bg)"}}>
-        {["Item","Price","Unit",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:h==="Price"?"right":"left",fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.8,fontWeight:500,borderBottom:"1px solid var(--border)"}}>{h}</th>)}
-      </tr></thead>
+    <table style={{width:"100%",borderCollapse:"collapse",background:"var(--panel)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
+      <TH cols={["Item","Price/Cost","Unit","Stock Qty","Status",...(isOwner?["Actions"]:[])]}/>
       <tbody>
-        {items.map((item,i)=><tr key={item.id} style={{background:i%2===0?"transparent":"var(--bg)"}}>
-          {editId===item.id
-            ?<>
-              <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
-              <td style={{padding:"6px 8px"}}><input type="number" value={editRow.price||""} onChange={e=>setEditRow(r=>({...r,price:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
-              <td style={{padding:"6px 8px"}}><select value={editRow.unit||"pcs"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,fontSize:12}}>{["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
-              <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={()=>saveEdit(item.id)}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)}>✗</Btn></div></td>
-            </>
-            :<>
-              <td style={{padding:"8px 10px",fontSize:13,fontWeight:500}}>{item.name}</td>
-              <td style={{padding:"8px 10px",fontSize:13,textAlign:"right",color:"var(--gold)",fontWeight:600}}>{fmt(item.cost)}</td>
-              <td style={{padding:"8px 10px",fontSize:12,color:"var(--muted)"}}>{item.unit}</td>
-              <td style={{padding:"6px 8px"}}>{isOwner&&<div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><Btn small variant="ghost" onClick={()=>{setEditId(item.id);setEditRow({name:item.name,price:item.cost,unit:item.unit})}}>Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(item.id)}>×</Btn></div>}</td>
-            </>}
-        </tr>)}
+        {items.length === 0 ? (
+          <tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No board and packaging items found. Click + Add item above to create one.</td></tr>
+        ) : (
+          items.map((item,i)=>{
+            const isLow = item.stock <= (item.minStock || 5)
+            return <tr key={item.id} style={{background:isLow?"#FFF9EE":i%2===0?"var(--panel)":"#F8F3EA"}}>
+              {editId===item.id
+                ?<>
+                  <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
+                  <td style={{padding:"6px 8px"}}><input type="number" value={editRow.price||""} onChange={e=>setEditRow(r=>({...r,price:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
+                  <td style={{padding:"6px 8px"}}><select value={editRow.unit||"pcs"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,fontSize:12}}>{["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
+                  <td style={{padding:"6px 8px"}}><input type="number" value={editRow.stock||0} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,fontSize:12,width:70}}/></td>
+                  <td style={{padding:"6px 8px"}}></td>
+                  <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={()=>saveEdit(item.id)}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)}>✗</Btn></div></td>
+                </>
+                :<>
+                  <td style={{padding:"9px 10px",fontSize:13,fontWeight:500}}>{item.name}</td>
+                  <td style={{padding:"9px 10px",fontSize:13,color:"var(--gold)",fontWeight:600}}>{fmt(item.cost)}</td>
+                  <td style={{padding:"9px 10px",fontSize:12,color:"var(--muted)"}}>{item.unit}</td>
+                  <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{item.stock||0} {item.unit}</td>
+                  <td style={{padding:"9px 10px"}}>{badge(item)}</td>
+                  {isOwner&&<td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><Btn small variant="ghost" onClick={()=>{setEditId(item.id);setEditRow({name:item.name,price:item.cost,unit:item.unit,stock:item.stock||0,minStock:item.minStock||5})}}>Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(item.id)}>×</Btn></div></td>}
+                </>}
+            </tr>
+          })
+        )}
       </tbody>
     </table>
   </div>
 }
 
-export function SearchableSelect({ value, onChange, options, placeholder }) {
-  const [search, setSearch] = useState("")
-  const [isOpen, setIsOpen] = useState(false)
-  const ref = useRef()
 
-  const selectedOption = useMemo(() => options.find(o => o.value === value), [options, value])
-
-  useEffect(() => {
-    setSearch(selectedOption ? selectedOption.label : "")
-  }, [value, selectedOption])
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) {
-        setIsOpen(false)
-        setSearch(selectedOption ? selectedOption.label : "")
-      }
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [selectedOption])
-
-  const filtered = useMemo(() => {
-    return options.filter(o => 
-      o.label.toLowerCase().includes((search || "").toLowerCase())
-    )
-  }, [options, search])
-
-  return (
-    <div ref={ref} style={{ position: "relative", flex: 2 }}>
-      <input
-        type="text"
-        value={search}
-        placeholder={placeholder}
-        onFocus={() => setIsOpen(true)}
-        onChange={(e) => {
-          setSearch(e.target.value)
-          setIsOpen(true)
-        }}
-        style={{
-          ...iSt,
-          width: "100%",
-          padding: "7px 10px",
-          fontSize: "12.5px"
-        }}
-      />
-      {isOpen && (
-        <div style={{
-          position: "absolute",
-          top: "100%",
-          left: 0,
-          right: 0,
-          background: "var(--panel)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          maxHeight: 180,
-          overflowY: "auto",
-          zIndex: 1000,
-          marginTop: 4,
-          boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
-        }}>
-          {filtered.length === 0 ? (
-            <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--muted)" }}>No matches found</div>
-          ) : (
-            filtered.map(o => (
-              <div
-                key={o.value}
-                onClick={() => {
-                  onChange(o.value)
-                  setSearch(o.label)
-                  setIsOpen(false)
-                }}
-                style={{
-                  padding: "8px 12px",
-                  fontSize: 12.5,
-                  cursor: "pointer",
-                  background: o.value === value ? "rgba(200,145,42,0.1)" : "transparent",
-                  color: o.value === value ? "var(--gold)" : "var(--text)",
-                  borderBottom: "1px solid var(--border)"
-                }}
-                onMouseEnter={(e) => e.target.style.background = "rgba(200,145,42,0.05)"}
-                onMouseLeave={(e) => e.target.style.background = o.value === value ? "rgba(200,145,42,0.1)" : "transparent"}
-              >
-                {o.label}
-              </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
 
 export function MasterList({inventory,setInventory,recipes,setRecipes,user,setView}){
   const [tab,setTab]=useState("inventory")

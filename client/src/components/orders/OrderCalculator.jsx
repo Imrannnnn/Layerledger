@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { Btn, iSt, Inp, Sel, Card, SHead } from "../common/ui.jsx"
+import { Btn, iSt, Inp, Sel, Card, SHead, SearchableSelect } from "../common/ui.jsx"
 import { fmt, uid, today } from "../../lib/helpers.js"
 import { DECORATION_ITEMS, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
 import { loadCompany, loadLocal, saveLocal, loadQuotes, saveQuotes } from "../../lib/data.js"
@@ -19,7 +19,12 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
 
   const decorations = useMemo(() => {
     const stored = loadLocal("ll_decorations", DECORATION_ITEMS)
-    const decorInventoryItems = inventory.filter(item => item.cat === "Decoration Extras" || item.category === "Decoration Extras")
+    const decorInventoryItems = inventory.filter(item => {
+      const c = (item.cat || item.category || "").toLowerCase()
+      const n = (item.name || "").toLowerCase()
+      return c.includes("decor") || c.includes("topper") || c.includes("ribbon") || c.includes("flower") ||
+             n.includes("decor") || n.includes("topper") || n.includes("ribbon") || n.includes("flower")
+    })
     
     return decorInventoryItems.map(invItem => {
       const existing = stored.find(d => d.iid === invItem.id)
@@ -34,7 +39,12 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   }, [inventory])
 
   const packagingItems = useMemo(() => {
-    const pkgInventoryItems = inventory.filter(item => item.cat === "Board and Packaging" || item.category === "Board and Packaging")
+    const pkgInventoryItems = inventory.filter(item => {
+      const c = (item.cat || item.category || "").toLowerCase()
+      const n = (item.name || "").toLowerCase()
+      return c.includes("board") || c.includes("packaging") || c.includes("box") || c.includes("dowel") || c.includes("drum") ||
+             n.includes("board") || n.includes("packaging") || n.includes("box") || n.includes("dowel") || n.includes("drum")
+    })
     return pkgInventoryItems.map(item => ({
       id: item.id,
       name: item.name,
@@ -450,13 +460,20 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
               </div>
             })}
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
-              <select onChange={e=>{if(e.target.value)changeDec(e.target.value,1);e.target.value=""}} style={{...iSt,flex:1}} defaultValue="">
-                <option value="">+ Add decoration extra</option>
-                {decorations.filter(d=>!decQty[d.id]).map(d=>{
-                  const it=inventory.find(x=>x.id===d.iid)
-                  return <option key={d.id} value={d.id}>{d.label||d.name}{it?` — ${fmt(it.cost*d.qty)} per set`:""}</option>
+              <SearchableSelect
+                value=""
+                onChange={val => {
+                  if (val) changeDec(val, 1)
+                }}
+                options={decorations.filter(d => !decQty[d.id]).map(d => {
+                  const it = inventory.find(x => x.id === d.iid)
+                  return {
+                    value: d.id,
+                    label: `${d.label || d.name}${it ? ` — ${fmt(it.cost * d.qty)} per set` : ""}`
+                  }
                 })}
-              </select>
+                placeholder="+ Add decoration extra (type to search)..."
+              />
             </div>
           </div>
           {/* Custom Topper */}
@@ -573,10 +590,15 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
             const pkg=packagingItems.find(p=>p.id===row.itemId)
             const currentPrice = pkg?pkg.price:(row.price||0)
             return <div key={row.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,alignItems:"center",marginBottom:8}}>
-            <select value={row.itemId||""} onChange={e=>updateAcc(row.id,e.target.value)} style={{...iSt}}>
-              <option value="">— Select item —</option>
-              {packagingItems.map(p=><option key={p.id} value={p.id}>{p.name} — {fmt(p.price)}</option>)}
-            </select>
+            <SearchableSelect
+              value={row.itemId||""}
+              onChange={val => updateAcc(row.id, val)}
+              options={packagingItems.map(p => ({
+                value: p.id,
+                label: `${p.name} — ${fmt(p.price)}`
+              }))}
+              placeholder="— Select item (type to search) —"
+            />
             <span style={{fontSize:12,color:"var(--gold)",fontWeight:500,whiteSpace:"nowrap",minWidth:52,textAlign:"right"}}>{currentPrice?fmt(currentPrice):""}</span>
             <button onClick={()=>removeAcc(row.id)} style={{width:28,height:28,padding:0,borderRadius:6,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",fontSize:14,color:"var(--muted)"}}>×</button>
           </div>
