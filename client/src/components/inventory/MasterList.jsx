@@ -8,19 +8,9 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect } from "../common/ui.jsx"
-import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage } from "../../lib/helpers.js"
+import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory } from "../../lib/helpers.js"
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
 import { saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
-
-export const mapCategory = (cat, name = "") => {
-  const c = ((cat || "") + " " + (name || "")).toLowerCase()
-  if (c.includes("decor") || c.includes("finish") || c.includes("flower") || c.includes("topper") || c.includes("ribbon")) return "Decoration Extras"
-  if (c.includes("packaging") || c.includes("board") || c.includes("box") || c.includes("dowel") || c.includes("drum")) return "Board and Packaging"
-  if (c.includes("dry") || c.includes("chocolate") || c.includes("flour") || c.includes("sugar")) return "Dry Goods"
-  if (c.includes("dairy") || c.includes("fat") || c.includes("oil") || c.includes("butter") || c.includes("margarine") || c.includes("egg")) return "Dairy and Fats"
-  if (c.includes("flavor") || c.includes("extract") || c.includes("color") || c.includes("essence")) return "Flavours and Extracts"
-  return "Other"
-}
 
 
 export function RestockCell({id,unit,onRestock}){
@@ -249,16 +239,6 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
 
   const toggleCat = (cat) => setCollapsedCats(prev => ({ ...prev, [cat]: !prev[cat] }))
 
-  const mapCategory = (cat) => {
-    const c = (cat || "").toLowerCase()
-    if (c.includes("dry") || c.includes("chocolate") || c.includes("flour") || c.includes("sugar")) return "Dry Goods"
-    if (c.includes("dairy") || c.includes("fat") || c.includes("oil") || c.includes("butter") || c.includes("margarine") || c.includes("egg")) return "Dairy and Fats"
-    if (c.includes("flavor") || c.includes("extract") || c.includes("color") || c.includes("essence")) return "Flavours and Extracts"
-    if (c.includes("decor") || c.includes("finish") || c.includes("fruit") || c.includes("flower") || c.includes("topper") || c.includes("ribbon")) return "Decoration Extras"
-    if (c.includes("packaging") || c.includes("board") || c.includes("box") || c.includes("dowel") || c.includes("drum")) return "Board and Packaging"
-    return "Other"
-  }
-
   const L=v=>v.trim().split(String.fromCharCode(10)).map(s=>s.replace(/,/g,"").trim()).filter(Boolean)
 
   const lowStock=inventory.filter(i=>i.stock<=(i.minStock||5))
@@ -359,8 +339,14 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     "Board and Packaging": [],
     "Other": []
   }
+  const storedDecorations = loadLocal("ll_decorations", DECORATION_ITEMS)
+  const decorIids = new Set(storedDecorations.map(d => d.iid))
+
   inventory.forEach(item => {
-    const mapped = mapCategory(item.cat)
+    let mapped = mapCategory(item.cat, item.name)
+    if (decorIids.has(item.id)) {
+      mapped = "Decoration Extras"
+    }
     if (categories[mapped]) {
       categories[mapped].push(item)
     } else {
@@ -708,51 +694,78 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
 // ═══════════════════════════════════════════════════════════
 export function DecorationsTab({inventory, setInventory, isOwner}){
   const LS_KEY = "ll_decorations"
-  const load = useCallback(() => {
+  const [decorVersion, setDecorVersion] = useState(0)
+
+  const items = useMemo(() => {
     const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
-    const decorInventoryItems = inventory.filter(item => 
-      item.cat === "Decoration Extras" || 
-      item.category === "Decoration Extras" || 
-      mapCategory(item.cat, item.name) === "Decoration Extras"
-    )
-    
-    return decorInventoryItems.map(invItem => {
-      const existing = stored.find(d => d.iid === invItem.id)
-      return {
-        id: existing ? existing.id : "d_" + invItem.id,
-        name: invItem.name,
-        label: invItem.name,
-        iid: invItem.id,
-        qty: existing ? existing.qty : 1
+    const itemsMap = new Map()
+
+    stored.forEach(d => {
+      const invItem = inventory.find(x => x.id === d.iid)
+      itemsMap.set(d.id, {
+        id: d.id,
+        name: d.name || invItem?.name || "Decoration Extra",
+        label: d.label || d.name || invItem?.name || "Decoration Extra",
+        iid: d.iid,
+        qty: d.qty !== undefined ? d.qty : 1
+      })
+    })
+
+    inventory.forEach(invItem => {
+      const isDecor = invItem.cat === "Decoration Extras" || 
+                      invItem.category === "Decoration Extras" || 
+                      mapCategory(invItem.cat, invItem.name) === "Decoration Extras"
+      if (isDecor) {
+        const id = "d_" + invItem.id
+        if (!itemsMap.has(id) && ![...itemsMap.values()].some(x => x.iid === invItem.id)) {
+          itemsMap.set(id, {
+            id,
+            name: invItem.name,
+            label: invItem.name,
+            iid: invItem.id,
+            qty: 1
+          })
+        }
       }
     })
-  }, [inventory])
 
-  const [items, setItems] = useState(load)
+    return Array.from(itemsMap.values())
+  }, [inventory, decorVersion])
+
   const [editId, setEditId] = useState(null)
   const [editRow, setEditRow] = useState({})
   const [adding, setAdding] = useState(false)
-  const [newItem, setNewItem] = useState({name:"", label:"", iid:"", qty:"", id:""})
+  const [newItem, setNewItem] = useState({name:"", label:"", iid:"", qty:"1", cost:"", unit:"pcs"})
   const [msg, setMsg] = useState("")
-
-  useEffect(() => {
-    setItems(load())
-  }, [inventory, load])
 
   const showMsg = (m) => { setMsg(m); setTimeout(()=>setMsg(""), 3000) }
 
-  const save = (updatedItems) => { saveLocal(LS_KEY, updatedItems) }
-
   const startEdit = (d) => { setEditId(d.id); setEditRow({...d}) }
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
-    let updated = stored.map(d => d.id===editId ? {...d, ...editRow, qty:+editRow.qty} : d)
-    if (!stored.some(d => d.id === editId)) {
-      updated.push({ ...editRow, qty: +editRow.qty })
+    const targetName = (editRow.name || editRow.label || "").trim()
+    const targetQty = +editRow.qty || 1
+    
+    let currentInv = [...inventory]
+    if (editRow.iid) {
+      currentInv = currentInv.map(i => {
+        if (i.id === editRow.iid) {
+          return { ...i, name: targetName, cat: "Decoration Extras" }
+        }
+        return i
+      })
     }
-    save(updated)
-    setItems(load())
+
+    let updatedDecorations = stored.map(d => d.id === editId ? { ...d, ...editRow, name: targetName, label: targetName, qty: targetQty } : d)
+    if (!stored.some(d => d.id === editId)) {
+      updatedDecorations.push({ ...editRow, id: editId, name: targetName, label: targetName, qty: targetQty })
+    }
+
+    saveLocal(LS_KEY, updatedDecorations)
+    setInventory(currentInv)
+    await saveInventory(currentInv)
+    setDecorVersion(v => v + 1)
     setEditId(null)
     showMsg("✓ Decoration updated")
   }
@@ -760,41 +773,65 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
   const deleteItem = async (id) => {
     if(!confirm("Delete this decoration?")) return
     const toDelete = items.find(d => d.id === id)
+    let currentInv = [...inventory]
     if (toDelete) {
-      const updatedInv = inventory.map(i => {
+      currentInv = currentInv.map(i => {
         if (i.id === toDelete.iid) {
           return { ...i, cat: "Other" }
         }
         return i
       })
-      setInventory(updatedInv)
-      await saveInventory(updatedInv)
     }
     const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
-    const updated = stored.filter(d => d.id!==id && d.iid !== toDelete?.iid)
-    save(updated)
-    setItems(load())
+    const updatedDecorations = stored.filter(d => d.id!==id && d.iid !== toDelete?.iid)
+
+    saveLocal(LS_KEY, updatedDecorations)
+    setInventory(currentInv)
+    await saveInventory(currentInv)
+    setDecorVersion(v => v + 1)
     showMsg("Decoration deleted")
   }
 
   const addItem = async () => {
-    if(!newItem.name || !newItem.iid || !newItem.qty) return showMsg("Name, inventory item and qty are required")
+    if(!newItem.name.trim() || !newItem.qty) return showMsg("Decoration name and std qty are required")
     
-    const updatedInv = inventory.map(i => {
-      if (i.id === newItem.iid) {
-        return { ...i, cat: "Decoration Extras" }
+    let targetIid = newItem.iid
+    let currentInv = [...inventory]
+
+    if (!targetIid) {
+      const newId = uid()
+      const newInvItem = {
+        id: newId,
+        name: newItem.name.trim(),
+        cat: "Decoration Extras",
+        unit: newItem.unit || "pcs",
+        cost: Number(newItem.cost) || 0,
+        stock: 0,
+        minStock: 5
       }
-      return i
-    })
-    setInventory(updatedInv)
-    await saveInventory(updatedInv)
+      currentInv = [...currentInv, newInvItem]
+      targetIid = newId
+    } else {
+      currentInv = currentInv.map(i => {
+        if (i.id === targetIid) {
+          return { ...i, name: newItem.name.trim(), cat: "Decoration Extras" }
+        }
+        return i
+      })
+    }
 
     const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
-    const item = { id: "d_" + newItem.iid, name: newItem.name, label: newItem.name, iid: newItem.iid, qty: +newItem.qty }
-    const updated = [...stored.filter(x => x.iid !== newItem.iid), item]
-    save(updated)
-    setItems(load())
-    setNewItem({name:"", label:"", iid:"", qty:"", id:""}); setAdding(false); showMsg("✓ Decoration added")
+    const item = { id: "d_" + targetIid, name: newItem.name.trim(), label: newItem.name.trim(), iid: targetIid, qty: +newItem.qty }
+    const updatedDecorations = [...stored.filter(x => x.iid !== targetIid && x.id !== item.id), item]
+
+    saveLocal(LS_KEY, updatedDecorations)
+    setInventory(currentInv)
+    await saveInventory(currentInv)
+    setDecorVersion(v => v + 1)
+
+    setNewItem({name:"", label:"", iid:"", qty:"1", cost:"", unit:"pcs"})
+    setAdding(false)
+    showMsg("✓ Decoration added")
   }
 
   return <div>
@@ -807,10 +844,10 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
 
     {adding&&isOwner&&<Card style={{marginBottom:14, background:"#FFF9EE", borderColor:"var(--gold)"}}>
       <div style={{fontFamily:"'Playfair Display',serif", fontSize:14, fontWeight:600, marginBottom:12}}>New Decoration Extra</div>
-      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10}}>
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:10}}>
         <Inp label="Decoration Name *" value={newItem.name} onChange={v=>setNewItem(p=>({...p,name:v}))} placeholder="e.g. Edible glitter"/>
-        <div style={{marginBottom:11, display:"flex", flexDirection:"column", minWidth: 200}}>
-          <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Linked Inventory Item *</label>
+        <div style={{marginBottom:11, display:"flex", flexDirection:"column", minWidth: 220}}>
+          <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Linked Inventory Item</label>
           <SearchableSelect
             value={newItem.iid}
             onChange={val=>setNewItem(p=>({...p,iid:val}))}
@@ -821,6 +858,10 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
             placeholder="Type to search item..."
           />
         </div>
+        {!newItem.iid && <>
+          <Inp label="Cost / Unit (₦)" type="number" value={newItem.cost || ""} onChange={v=>setNewItem(p=>({...p,cost:v}))} placeholder="e.g. 2500"/>
+          <Sel label="Unit" value={newItem.unit || "pcs"} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["pcs","pack","kg","g","L","ml","bottle","set"].map(u=>({value:u,label:u}))}/>
+        </>}
         <Inp label="Standard Qty Used *" type="number" value={newItem.qty} onChange={v=>setNewItem(p=>({...p,qty:v}))} placeholder="e.g. 0.15"/>
       </div>
       <div style={{display:"flex", gap:8}}><Btn onClick={addItem}>Save</Btn><Btn variant="ghost" onClick={()=>setAdding(false)}>Cancel</Btn></div>

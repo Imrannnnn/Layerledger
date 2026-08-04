@@ -19,23 +19,39 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
 
   const decorations = useMemo(() => {
     const stored = loadLocal("ll_decorations", DECORATION_ITEMS)
-    const decorInventoryItems = inventory.filter(item => {
-      const c = (item.cat || item.category || "").toLowerCase()
-      const n = (item.name || "").toLowerCase()
-      return c.includes("decor") || c.includes("topper") || c.includes("ribbon") || c.includes("flower") ||
-             n.includes("decor") || n.includes("topper") || n.includes("ribbon") || n.includes("flower")
+    const itemsMap = new Map()
+
+    stored.forEach(d => {
+      const invItem = inventory.find(x => x.id === d.iid)
+      itemsMap.set(d.id, {
+        id: d.id,
+        name: d.name || invItem?.name || "Decoration Extra",
+        label: d.label || d.name || invItem?.name || "Decoration Extra",
+        iid: d.iid,
+        qty: d.qty !== undefined ? d.qty : 1
+      })
     })
-    
-    return decorInventoryItems.map(invItem => {
-      const existing = stored.find(d => d.iid === invItem.id)
-      return {
-        id: existing ? existing.id : "d_" + invItem.id,
-        name: invItem.name,
-        label: invItem.name,
-        iid: invItem.id,
-        qty: existing ? existing.qty : 1
+
+    inventory.forEach(invItem => {
+      const c = (invItem.cat || invItem.category || "").toLowerCase()
+      const n = (invItem.name || "").toLowerCase()
+      const isDecor = c.includes("decor") || c.includes("topper") || c.includes("ribbon") || c.includes("flower") ||
+                      n.includes("decor") || n.includes("topper") || n.includes("ribbon") || n.includes("flower")
+      if (isDecor) {
+        const id = "d_" + invItem.id
+        if (!itemsMap.has(id) && ![...itemsMap.values()].some(x => x.iid === invItem.id)) {
+          itemsMap.set(id, {
+            id,
+            name: invItem.name,
+            label: invItem.name,
+            iid: invItem.id,
+            qty: 1
+          })
+        }
       }
     })
+
+    return Array.from(itemsMap.values())
   }, [inventory])
 
   const packagingItems = useMemo(() => {

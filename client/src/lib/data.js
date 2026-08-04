@@ -716,7 +716,9 @@ export const syncFromBackend = async () => {
         keysToIgnoreOnLogin.forEach(k => {
           try {
             localStorage.removeItem(k)
-          } catch (e) {}
+          } catch (e) {
+            /* ignore error */
+          }
         })
 
         Object.entries(state).forEach(([k, v]) => {
@@ -754,7 +756,9 @@ export const clearTempCalculatorState = () => {
     delete cache[k]
     try {
       localStorage.removeItem(k)
-    } catch (e) {}
+    } catch (e) {
+      /* ignore error */
+    }
   })
 }
 

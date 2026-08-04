@@ -10,10 +10,30 @@
  *   - callClaude()   send a request to the AI proxy (receipt scanning, etc.)
  *   - compressImage() shrink a photo before sending it to the AI
  *   - parseCSV()     flexible CSV parser for bulk inventory import
+ *   - mapCategory()   categorizes inventory item by category/name
  * ----------------------------------------------------------------------------
  */
 import { FLAVOR_EXTRAS, DECORATION_ITEMS } from "../constants.js"
-import { getAuthHeaders } from "./data.js"
+import { getAuthHeaders, loadLocal } from "./data.js"
+
+export const mapCategory = (cat, name = "") => {
+  const rawCat = (cat || "").trim()
+  if (rawCat === "Decoration Extras" || rawCat === "Decoration" || rawCat === "Decorations") return "Decoration Extras"
+  if (rawCat === "Board and Packaging" || rawCat === "Packaging") return "Board and Packaging"
+  if (rawCat === "Dry Goods") return "Dry Goods"
+  if (rawCat === "Dairy and Fats") return "Dairy and Fats"
+  if (rawCat === "Flavours and Extracts") return "Flavours and Extracts"
+  if (rawCat === "Other") return "Other"
+
+  const c = ((cat || "") + " " + (name || "")).toLowerCase()
+  if (c.includes("decor") || c.includes("finish") || c.includes("flower") || c.includes("topper") || c.includes("ribbon")) return "Decoration Extras"
+  if (c.includes("packaging") || c.includes("board") || c.includes("box") || c.includes("dowel") || c.includes("drum")) return "Board and Packaging"
+  if (c.includes("dry") || c.includes("chocolate") || c.includes("flour") || c.includes("sugar")) return "Dry Goods"
+  if (c.includes("dairy") || c.includes("fat") || c.includes("oil") || c.includes("butter") || c.includes("margarine") || c.includes("egg")) return "Dairy and Fats"
+  if (c.includes("flavor") || c.includes("extract") || c.includes("color") || c.includes("essence")) return "Flavours and Extracts"
+  return "Other"
+}
+
 
 export const fmt  = n => `₦${Math.round(n||0).toLocaleString("en")}`
 export const uid  = () => "_"+Math.random().toString(36).slice(2,9)
@@ -28,8 +48,9 @@ export const calcFullCost = (recipe, inv, flavors, decorationIds, accessoryPct) 
   const fl = (flavors||"").toLowerCase().split(/[,+&]/).map(f=>f.trim()).filter(Boolean)
   fl.forEach(f => (FLAVOR_EXTRAS[f]||[]).forEach(e=>{ const it=inv.find(x=>x.id===e.iid); if(it) cost+=it.cost*e.qty }))
   // decoration extras
+  const storedDecorations = loadLocal("ll_decorations", DECORATION_ITEMS)
   ;(decorationIds||[]).forEach(did => {
-    const decor = DECORATION_ITEMS.find(d=>d.id===did)
+    const decor = storedDecorations.find(d=>d.id===did) || DECORATION_ITEMS.find(d=>d.id===did)
     if (decor) { const it=inv.find(x=>x.id===decor.iid); if(it) cost+=it.cost*decor.qty }
   })
   return cost * (1 + (accessoryPct||10)/100)

@@ -113,12 +113,14 @@ export function ProductionEntry({inventory,setInventory,recipes,productions,setP
 
   const handleFile=e=>{const file=e.target.files[0];if(!file)return;setPhoto(URL.createObjectURL(file));const r=new FileReader();r.onload=ev=>setPhotoB64(ev.target.result.split(",")[1]);r.readAsDataURL(file)}
 
+  const allDecorations = useMemo(() => loadLocal("ll_decorations", DECORATION_ITEMS), [inventory])
+
   const analyzePhoto = async () => {
     if(!photoB64)return;setAiLoading(true);setAiMsg("")
     try{
       const compressed = await compressImage(photoB64)
       const invList=inventory.map(i=>`${i.name}(${i.unit})`).join(",")
-      const decorList=DECORATION_ITEMS.map(d=>`${d.id}:${d.name}`).join(",")
+      const decorList=allDecorations.map(d=>`${d.id}:${d.name}`).join(",")
       const raw = await callClaude([{role:"user",content:[
         {type:"image",source:{type:"base64",media_type:"image/jpeg",data:compressed}},
         {type:"text",text:`You are analyzing a custom cake photo for a Nigerian bakery's bookkeeping system. 
@@ -133,8 +135,8 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
   "decorationsUsed": ["list of decoration IDs from: ${decorList}"],
   "accessoriesDescription": "describe all decorations, toppings, extras visible",
   "photoNotes": "one sentence summary for the record"
-}`
-      }]}],"You analyze cake photos for bookkeeping. Return valid JSON only, no markdown.")
+}`}
+      ]}],"You analyze cake photos for bookkeeping. Return valid JSON only, no markdown.")
       const r=JSON.parse(raw.replace(/```json|```/g,"").trim())
       setAiObs(r)
       // Auto-fill fields
@@ -143,7 +145,7 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
         const s=r.estimatedSize.replace(/\s*(inch|in)\s*/i,'"').replace(/(\d+)"/,'$1"')
         if(SIZES.includes(s))setSize(s); else if(SIZES.includes(r.estimatedSize))setSize(r.estimatedSize)
       }
-      if(r.decorationsUsed?.length>0)setDecorIds(r.decorationsUsed.filter(id=>DECORATION_ITEMS.find(d=>d.id===id)))
+      if(r.decorationsUsed?.length>0)setDecorIds(r.decorationsUsed.filter(id=>allDecorations.find(d=>d.id===id)))
       if(r.flavorClues&&!flavors){
         const fc=r.flavorClues.toLowerCase()
         if(fc.includes("chocolate")||fc.includes("dark"))setFlavors("Chocolate")
@@ -169,7 +171,7 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
       const deductions=[...matchedRecipe.ing.map(i=>({...i,qty:+(i.qty)*layerCount}))]
       const fl=(flavors||"").toLowerCase().split(/[,+&]/).map(f=>f.trim()).filter(Boolean)
       fl.forEach(f=>(FLAVOR_EXTRAS[f]||[]).forEach(e=>{const ex=deductions.find(d=>d.iid===e.iid);if(ex)ex.qty=parseFloat((ex.qty+e.qty).toFixed(3));else deductions.push({iid:e.iid,qty:e.qty})}))
-      decorIds.forEach(did=>{const decor=DECORATION_ITEMS.find(d=>d.id===did);if(decor){const ex=deductions.find(d=>d.iid===decor.iid);if(ex)ex.qty=parseFloat((ex.qty+decor.qty).toFixed(3));else deductions.push({iid:decor.iid,qty:decor.qty})}})
+      decorIds.forEach(did=>{const decor=allDecorations.find(d=>d.id===did);if(decor){const ex=deductions.find(d=>d.iid===decor.iid);if(ex)ex.qty=parseFloat((ex.qty+decor.qty).toFixed(3));else deductions.push({iid:decor.iid,qty:decor.qty})}})
       const updInv=inventory.map(item=>{const ing=deductions.find(i=>i.iid===item.id);return ing?{...item,stock:Math.max(0,parseFloat((item.stock-ing.qty).toFixed(3)))}:item})
       setInventory(updInv);await saveInventory(updInv)
     }
