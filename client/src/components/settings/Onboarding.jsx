@@ -327,10 +327,11 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
               </div>
             </div>
 
-            <Inp label="Business Name *" value={company.name} onChange={v => co("name", v)} placeholder="e.g. Fayvouree Luxe Cakes Studio" />
+            <Inp label="Business Name *" value={company.name} onChange={v => co("name", v)} placeholder="e.g. Sweet Treats Bakery" />
             <Inp label="Address" value={company.address} onChange={v => co("address", v)} placeholder="e.g. Abuja, Nigeria" />
             <Inp label="Phone Number" value={company.phone} onChange={v => co("phone", v)} placeholder="e.g. +234 80 1234 5678" />
-            <Inp label="Email Address" value={company.email} onChange={v => co("email", v)} placeholder="e.g. contact@fayvoureecakes.com" />
+            <Inp label="Email Address" value={company.email} onChange={v => co("email", v)} placeholder="e.g. contact@mybakery.com" />
+
 
             <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
               <Btn disabled={!company.name?.trim()} onClick={() => setStep(2)}>Next: Set Up Opening Stock →</Btn>

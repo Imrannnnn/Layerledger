@@ -96,13 +96,15 @@ describe('client helpers', () => {
     });
 
     it('should handle decoration extras (falling back to default accessoryPct of 10 if 0 is passed)', () => {
-      // decorationIds: ['d1'] (maps to i21 with qty 0.15 in DECORATION_ITEMS)
+      // decorationIds: ['d3'] (maps to i31 with qty 3 in DECORATION_ITEMS)
       // Base: 100
-      // D1 extra: 0.15 * 500 = 75
-      // Total before accessory: 175
-      // Passing 0 triggers fallback to 10% accessory: 175 * 1.1 = 192.5
-      expect(calcFullCost(mockRecipe, mockInv, '', ['d1'], 0)).toBeCloseTo(192.5);
+      // D3 extra: 3 * 200 = 600
+      // Total before accessory: 700
+      // Passing 0 triggers fallback to 10% accessory: 700 * 1.1 = 770
+      expect(calcFullCost(mockRecipe, mockInv, '', ['d3'], 0)).toBeCloseTo(770);
     });
+
+
 
     it('should return 0 if recipe is null', () => {
       expect(calcFullCost(null, mockInv, '', [], 10)).toBe(0);

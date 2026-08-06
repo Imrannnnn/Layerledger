@@ -6,22 +6,12 @@
  */
 import React, { useState } from "react"
 import { Btn, Card, Badge, SHead } from "../common/ui.jsx"
-import { fmt } from "../../lib/helpers.js"
+import { fmt, mapCategory } from "../../lib/helpers.js"
 import { saveInventory } from "../../lib/data.js"
 
 export function ShoppingList({ inventory, setInventory, company }) {
   const [done, setDone] = useState(false)
 
-  // Map category helper (aligns with MasterList grouping)
-  const mapCategory = (cat) => {
-    const c = (cat || "").toLowerCase()
-    if (c.includes("dry") || c.includes("chocolate") || c.includes("flour") || c.includes("sugar")) return "Dry Goods"
-    if (c.includes("dairy") || c.includes("fat") || c.includes("oil") || c.includes("butter") || c.includes("margarine") || c.includes("egg")) return "Dairy and Fats"
-    if (c.includes("flavor") || c.includes("extract") || c.includes("color") || c.includes("essence")) return "Flavours and Extracts"
-    if (c.includes("decor") || c.includes("finish") || c.includes("fruit") || c.includes("flower") || c.includes("topper") || c.includes("ribbon")) return "Decoration Extras"
-    if (c.includes("packaging") || c.includes("board") || c.includes("box") || c.includes("dowel") || c.includes("drum")) return "Board and Packaging"
-    return "Other"
-  }
 
   // An ingredient appears on this list when its current stock level falls below its minimum stock level.
   const low = inventory.filter(i => i.stock <= (i.minStock || 5))

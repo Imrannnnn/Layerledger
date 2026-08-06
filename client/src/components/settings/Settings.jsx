@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert, Modal } from "../common/ui.jsx"
 import { fmt, uid, callClaude } from "../../lib/helpers.js"
-import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
+import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, PRICING_SIZES } from "../../constants.js"
 import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, clearAllDataOnServer, logout, loadLocal, saveInventory } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
 
@@ -412,16 +412,12 @@ export const SHAPES=["round","square","sheet"]
 export function PricingSetup({settings,setSetting}){
   const [ptab,setPtab]=useState("mults")
   const [mults,setMults]=useState(()=>loadLocal("ll_multipliers",DEFAULT_MULTS))
-  const [accessories,setAccessories]=useState(()=>loadLocal("ll_accessories",DEFAULT_ACCESSORIES))
-  const [newAcc,setNewAcc]=useState({name:"",cost:"",per:"order"})
   const [saved,setSaved]=useState("")
 
   const saveMults=async()=>{await saveLocal("ll_multipliers",mults);setSaved("mults");setTimeout(()=>setSaved(""),2000)}
-  const saveAccessories=async()=>{await saveLocal("ll_accessories",accessories);setSaved("accs");setTimeout(()=>setSaved(""),2000)}
 
   const tabs=[
     {v:"mults",l:"Size multipliers"},
-    {v:"accessories",l:"Accessories"},
     {v:"margins",l:"Profit margins"}
   ]
 
@@ -459,36 +455,8 @@ export function PricingSetup({settings,setSetting}){
       </div>
     </div>}
 
-    {/* ACCESSORIES */}
-    {ptab==="accessories"&&<div>
-      <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:14,lineHeight:1.7}}>Set costs for cake boards, boxes and accessories. These are added per order in the order calculator. "Per tier" items multiply by number of tiers.</div>
-      <Card style={{padding:0,overflowX:"auto",marginBottom:12}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-          <TH cols={["Item","Cost (₦)","Per","Actions"]}/>
-          <tbody>{accessories.map((a,i)=><TR2 key={a.id} i={i} row={[
-            <span style={{fontWeight:500}}>{a.name}</span>,
-            <input type="number" value={a.cost} onChange={e=>setAccessories(ac=>ac.map((x,j)=>j===i?{...x,cost:+e.target.value}:x))} style={{...iSt,width:90,padding:"4px 8px",fontSize:12}}/>,
-            <span style={{fontSize:11.5,background:"#F5F0E4",padding:"2px 9px",borderRadius:20,color:"var(--muted)"}}>{a.per==="tier"?"per tier":"per order"}</span>,
-            <Btn small variant="danger" onClick={()=>setAccessories(ac=>ac.filter((_,j)=>j!==i))}>×</Btn>
-          ]}/>)}</tbody>
-        </table>
-      </Card>
-      <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:8,marginBottom:12,alignItems:"end"}}>
-        <Inp label="Item name" value={newAcc.name} onChange={v=>setNewAcc(p=>({...p,name:v}))} placeholder="e.g. Cake dowels"/>
-        <Inp label="Cost (₦)" type="number" value={newAcc.cost} onChange={v=>setNewAcc(p=>({...p,cost:v}))} placeholder="500"/>
-        <div><label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Per</label>
-          <select value={newAcc.per} onChange={e=>setNewAcc(p=>({...p,per:e.target.value}))} style={{...iSt}}>
-            <option value="order">Per order</option><option value="tier">Per tier</option>
-          </select></div>
-        <Btn onClick={()=>{if(newAcc.name.trim()){setAccessories(a=>[...a,{id:uid(),name:newAcc.name.trim(),cost:+newAcc.cost||0,per:newAcc.per}]);setNewAcc({name:"",cost:"",per:"order"})}}}>+ Add</Btn>
-      </div>
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        <Btn onClick={saveAccessories}>Save accessories</Btn>
-        {saved==="accs"&&<span style={{fontSize:12.5,color:"#357A52"}}>✓ Saved</span>}
-      </div>
-    </div>}
-
     {/* PROFIT MARGINS */}
+
     {ptab==="margins"&&<div style={{maxWidth:480}}>
       <Card style={{marginBottom:14}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Default Profit Margin</div>
@@ -513,13 +481,15 @@ export function PricingSetup({settings,setSetting}){
             <br />
             2. Accessories ({settings.accessoryPct||10}%): ₦{Math.round(10000*((settings.accessoryPct||10)/100)).toLocaleString()}
             <br />
-            3. Total Cost: ₦{Math.round(10000*(1 + (settings.overheadPct||27)/100 + (settings.accessoryPct||10)/100)).toLocaleString()}
+            3. Miscellaneous ({settings.miscPct!==undefined?settings.miscPct:5}%): ₦{Math.round(10000*((settings.miscPct!==undefined?settings.miscPct:5)/100)).toLocaleString()}
             <br />
-            4. Applying {settings.profitPct||50}% profit margin → suggested price <strong style={{color:"var(--gold)"}}>{fmt(Math.round((10000*(1 + (settings.overheadPct||27)/100 + (settings.accessoryPct||10)/100))/Math.max(0.05, 1 - (settings.profitPct||50)/100)))}</strong>
+            4. Total Cost: ₦{Math.round(10000*(1 + (settings.overheadPct||27)/100 + (settings.accessoryPct||10)/100 + (settings.miscPct!==undefined?settings.miscPct:5)/100)).toLocaleString()}
+            <br />
+            5. Applying {settings.profitPct||50}% profit margin → suggested price <strong style={{color:"var(--gold)"}}>{fmt(Math.round((10000*(1 + (settings.overheadPct||27)/100 + (settings.accessoryPct||10)/100 + (settings.miscPct!==undefined?settings.miscPct:5)/100))/Math.max(0.05, 1 - (settings.profitPct||50)/100)))}</strong>
           </div>
         </div>
       </Card>
-      <Card>
+      <Card style={{marginBottom:14}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Accessories Allowance</div>
         <p style={{fontSize:12.5,color:"var(--muted)",marginTop:0,lineHeight:1.7}}>Small items like cling film, greaseproof paper and gas are too fiddly to measure for every single cake. This adds a small percentage on top of your ingredients to cover them, so nothing gets forgotten.</p>
         <div style={{display:"flex",alignItems:"center",gap:14,margin:"12px 0"}}>
@@ -527,7 +497,16 @@ export function PricingSetup({settings,setSetting}){
           <div style={{fontSize:22,fontWeight:700,color:"var(--gold)",minWidth:46}}>{settings.accessoryPct||10}%</div>
         </div>
       </Card>
+      <Card>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Miscellaneous Allowance</div>
+        <p style={{fontSize:12.5,color:"var(--muted)",marginTop:0,lineHeight:1.7}}>Covers unforeseen minor expenses, wastage, or small incidentals during production. Defaults to 5%.</p>
+        <div style={{display:"flex",alignItems:"center",gap:14,margin:"12px 0"}}>
+          <input type="range" min={0} max={30} value={settings.miscPct!==undefined?settings.miscPct:5} onChange={e=>setSetting("miscPct",+e.target.value)} style={{flex:1,accentColor:"var(--gold)"}}/>
+          <div style={{fontSize:22,fontWeight:700,color:"var(--gold)",minWidth:46}}>{settings.miscPct!==undefined?settings.miscPct:5}%</div>
+        </div>
+      </Card>
     </div>}
+
   </div>
 }
 
@@ -678,15 +657,16 @@ export function Settings({company,setCompany,settings,setSettings,users,setUsers
       </Card>
       <Card style={{marginTop:14}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:6}}>Invoice Footer Note</div>
-        <textarea value={company.invoiceFooter||""} onChange={e=>co("invoiceFooter",e.target.value)} placeholder="e.g. Thank you for choosing Fayvouree Cakes!" style={{...iSt,minHeight:70,resize:"vertical"}}/>
+        <textarea value={company.invoiceFooter||""} onChange={e=>co("invoiceFooter",e.target.value)} placeholder="e.g. Thank you for choosing our bakery!" style={{...iSt,minHeight:70,resize:"vertical"}}/>
       </Card>
       <Card style={{marginTop:14}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:6}}>Bank / Payment Details</div>
         <p style={{fontSize:12.5,color:"var(--muted)",marginTop:0,marginBottom:12}}>Appears on all invoices. Set once here.</p>
         <Inp label="Bank name" value={company.bankName||''} onChange={v=>co("bankName",v)} placeholder="e.g. GTBank"/>
         <Inp label="Account number" value={company.bankAccount||''} onChange={v=>co("bankAccount",v)} placeholder="0123456789"/>
-        <Inp label="Account name" value={company.bankAccountName||''} onChange={v=>co("bankAccountName",v)} placeholder="Fayvouree Luxe Cakes"/>
+        <Inp label="Account name" value={company.bankAccountName||''} onChange={v=>co("bankAccountName",v)} placeholder="e.g. Sweet Treats Bakery"/>
       </Card>
+
     </div>}
 
     {tab==="pricing"&&<PricingSetup settings={settings} setSetting={st}/>}

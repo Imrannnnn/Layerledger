@@ -170,8 +170,9 @@ export function Login({ onLogin }) {
             </div>
 
             {tenantType === "organization" && (
-              <Inp label="Organization / Bakery Name" value={companyName} onChange={setCompanyName} placeholder="e.g. Fayvouree Luxe Cakes" />
+              <Inp label="Organization / Bakery Name" value={companyName} onChange={setCompanyName} placeholder="e.g. Sweet Treats Bakery" />
             )}
+
           </>
         )}
 

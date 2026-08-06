@@ -1,7 +1,8 @@
 /**
  * App.jsx — LayerLedger root component
  * ============================================================================
- * Bakery management + accounting app for Fayvouree Luxe Cakes Studio.
+ * Bakery management + accounting app.
+
  *
  * This file now contains only the application ROOT:
  *   - ErrorBoundary : catches render errors and shows a friendly message.

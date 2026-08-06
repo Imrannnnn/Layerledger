@@ -871,8 +871,9 @@ export const saveSetting = async (key, val) => await save("ll_setting_" + key, v
 
 // Company
 export const loadCompany = () => load("ll_co", {
-  name: "Fayvouree Luxe Cakes Studio",
+  name: "My Bakery",
   address: "Abuja, Nigeria",
+
   phone: "",
   email: "",
   pin: "1234",

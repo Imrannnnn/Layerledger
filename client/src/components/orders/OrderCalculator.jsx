@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, SearchableSelect } from "../common/ui.jsx"
 import { fmt, uid, today } from "../../lib/helpers.js"
-import { DECORATION_ITEMS, DEFAULT_MULTS, DEFAULT_COVERINGS, DEFAULT_ACCESSORIES, PRICING_SIZES } from "../../constants.js"
+import { DECORATION_ITEMS, DEFAULT_MULTS, DEFAULT_COVERINGS, PRICING_SIZES } from "../../constants.js"
 import { loadCompany, loadLocal, saveLocal, loadQuotes, saveQuotes } from "../../lib/data.js"
 
 
@@ -268,11 +268,14 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   const accessoryPct=settings.accessoryPct||10
   const profitPct=margin
   const overheadPct=settings.overheadPct||27
+  const miscPct=settings.miscPct!==undefined?settings.miscPct:5
 
   const overheadAmount=Math.round(subtotal*(overheadPct/100))
   const accessoryAmount=Math.round(subtotal*(accessoryPct/100))
-  const totalCost=Math.round(subtotal+overheadAmount+accessoryAmount)
+  const miscAmount=Math.round(subtotal*(miscPct/100))
+  const totalCost=Math.round(subtotal+overheadAmount+accessoryAmount+miscAmount)
   const suggestedPrice=Math.round(totalCost/Math.max(0.05,1-profitPct/100))
+
   const profit=suggestedPrice-totalCost
 
   const cakePrice=(orderPurpose==="gift"||orderPurpose==="sample")?0:(+salePrice||suggestedPrice)
@@ -648,9 +651,11 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
               {tartFillings.filter(f=>f.type&&f.grams>0).map(f=><div key={f.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>{f.type} {f.grams}g</span><span>{fmt(coverFillCost(f.type,f.grams))}</span></div>)}
             </>}
             {totalAcc>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Boards & accessories</span><span>{fmt(totalAcc)}</span></div>}
-            {(productType==="Cake"||productType==="Cupcakes")&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Accessory {settings.accessoryPct||10}%</span><span>{fmt(accessoryAmount)}</span></div>}
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Overhead {settings.overheadPct||27}%</span><span>{fmt(overheadAmount)}</span></div>
+            {(productType==="Cake"||productType==="Cupcakes")&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Accessory {accessoryPct}%</span><span>{fmt(accessoryAmount)}</span></div>}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Overhead {overheadPct}%</span><span>{fmt(overheadAmount)}</span></div>
+            {miscAmount>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Miscellaneous {miscPct}%</span><span>{fmt(miscAmount)}</span></div>}
             <div style={{display:"flex",justifyContent:"space-between",fontWeight:600,fontSize:13,paddingTop:6,borderTop:"1px solid var(--border)",marginTop:4}}>
+
               <span>Total cost</span><span>{fmt(totalCost)}</span>
             </div>
           </div>
@@ -752,7 +757,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
               bankName:co.bankName||"",
               bankAccount:co.bankAccount||"",
               bankAccountName:co.bankAccountName||"",
-              businessName:co.name||"Fayvouree Cakes",
+              businessName:co.name||"Bakery",
             }
             const existing=loadQuotes()
             const updated=isEdit&&editId
@@ -769,9 +774,10 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
                 <button onClick={()=>{
                   const phone=clientPhone.replace(/[^0-9]/g,"").replace(/^0/,"234")
                   const tierText=tiers.map((t,i)=>`Tier ${i+1}: ${t.size}" ${t.shape} - ${t.layers.map(l=>l.flavour||"?").join("/")}${t.coverings?.length?" - Covering: "+t.coverings.map(c=>c.type).join(", "):"" }`).join("\n")
-                  const msg="Hello "+clientName+"! Cake quote:\n\n"+tierText+"\n\nQuote price: N"+suggestedPrice.toLocaleString()+"\n\n"+(clientNotes||"")+"\n\nPlease confirm to proceed. Deposit required. Thank you for choosing Fayvouree Cakes!"
+                  const msg="Hello "+clientName+"! Cake quote:\n\n"+tierText+"\n\nQuote price: N"+suggestedPrice.toLocaleString()+"\n\n"+(clientNotes||"")+"\n\nPlease confirm to proceed. Deposit required. Thank you for choosing "+(co.name||"our bakery")+"!"
                   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`,"_blank")
                 }} style={{padding:"7px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",cursor:"pointer",fontSize:12.5,fontFamily:"inherit",fontWeight:500}}>📱 Send quote via WhatsApp</button>
+
                 <button onClick={()=>setView("quotes")} style={{padding:"7px",borderRadius:8,border:"none",background:"var(--gold)",color:"#fff",cursor:"pointer",fontSize:12.5,fontFamily:"inherit"}}>📋 View all quotes</button>
                 <button onClick={()=>{setQuoteSaved(false);setIsEdit(false);setEditId(null);setClientName("");setClientPhone("");setClientNotes("");localStorage.removeItem("ll_calc_state")}} style={{padding:"7px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--muted)",cursor:"pointer",fontSize:12.5,fontFamily:"inherit"}}>🧮 Start new quote</button>
               </div>

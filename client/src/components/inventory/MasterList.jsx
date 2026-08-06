@@ -8,7 +8,8 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect } from "../common/ui.jsx"
-import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory } from "../../lib/helpers.js"
+import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES } from "../../lib/helpers.js"
+
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
 import { saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
 
@@ -228,14 +229,29 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
   const [editRow,setEditRow]=useState({})
   const [warnMsg,setWarnMsg]=useState("")
 
-  const [collapsedCats, setCollapsedCats] = useState({
-    "Dry Goods": false,
-    "Dairy and Fats": false,
-    "Flavours and Extracts": false,
-    "Decoration Extras": false,
-    "Board and Packaging": false,
-    "Other": false
-  })
+  // Custom Categories state
+  const [customCategories, setCustomCategories] = useState(() => loadLocal("ll_custom_categories", []))
+  const [showAddCatModal, setShowAddCatModal] = useState(false)
+  const [newCatName, setNewCatName] = useState("")
+  const [customCatInput, setCustomCatInput] = useState("")
+
+  const addCustomCategory = async (name) => {
+    const trimmed = (name || "").trim()
+    if (!trimmed) return ""
+    if (!DEFAULT_CATEGORIES.includes(trimmed) && !customCategories.includes(trimmed)) {
+      const updated = [...customCategories, trimmed]
+      setCustomCategories(updated)
+      await saveLocal("ll_custom_categories", updated)
+    }
+    return trimmed
+  }
+
+  const allCategoryOptions = useMemo(() => {
+    const invCats = inventory.map(i => mapCategory(i.cat, i.name)).filter(Boolean)
+    return Array.from(new Set([...DEFAULT_CATEGORIES, ...customCategories, ...invCats]))
+  }, [customCategories, inventory])
+
+  const [collapsedCats, setCollapsedCats] = useState({})
 
   const toggleCat = (cat) => setCollapsedCats(prev => ({ ...prev, [cat]: !prev[cat] }))
 
@@ -290,23 +306,117 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       cost = price / qty
     }
     if(!newItem.name||!cost)return showMsg("Name and cost per unit are required","red")
-    const item={id:uid(),name:newItem.name,unit:newItem.unit||"kg",cost:+cost,stock:0,minStock:+newItem.minStock||5,cat:newItem.cat||"Dry Goods"}
+
+    let selectedCat = newItem.cat
+    if (selectedCat === "__new__") {
+      if (!customCatInput.trim()) return showMsg("Category name is required", "red")
+      selectedCat = await addCustomCategory(customCatInput)
+    }
+
+    const item={id:uid(),name:newItem.name,unit:newItem.unit||"kg",cost:+cost,stock:0,minStock:+newItem.minStock||5,cat:selectedCat||"Dry Goods"}
     const updated=[...inventory,item]
     setInventory(updated);await saveInventory(updated)
-    setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""});setShowAdd(false)
+    setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""})
+    setCustomCatInput("")
+    setShowAdd(false)
     setCalcMode("manual")
     showMsg("✓ Item added. Set opening stock in Settings → Opening Stock.","green")
   }
 
-  const startEdit=(item)=>{setEditId(item.id);setEditRow({...item})}
-  const cancelEdit=()=>setEditId(null)
+  const startEdit=(item)=>{
+    setEditId(item.id)
+    setEditRow({...item, cat: item.cat || mapCategory(item.cat, item.name)})
+    setCustomCatInput("")
+  }
+  const cancelEdit=()=>{setEditId(null);setCustomCatInput("")}
   const doSaveEdit=async()=>{
-    const updated=inventory.map(i=>i.id===editId?{...editRow,cost:+editRow.cost,minStock:+editRow.minStock||5,stock:+editRow.stock||0}:i)
-    setInventory(updated);await saveInventory(updated);setEditId(null);showMsg("✓ Updated","green")
+    let finalCat = editRow.cat
+    if (finalCat === "__new__") {
+      if (!customCatInput.trim()) return showMsg("Category name is required", "red")
+      finalCat = await addCustomCategory(customCatInput)
+    }
+    const updated=inventory.map(i=>i.id===editId?{...editRow,cat:finalCat,cost:+editRow.cost,minStock:+editRow.minStock||5,stock:+editRow.stock||0}:i)
+    setInventory(updated);await saveInventory(updated);setEditId(null);setCustomCatInput("");showMsg("✓ Updated","green")
   }
   const doDelete=async(id)=>{
     if(!confirm("Remove this item?"))return
     const updated=inventory.filter(i=>i.id!==id);setInventory(updated);await saveInventory(updated)
+  }
+
+  const [selectedItemIds, setSelectedItemIds] = useState(new Set())
+  const [targetCatForBulk, setTargetCatForBulk] = useState("")
+
+  const toggleSelectItem = (id) => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectCategoryItems = (catItems) => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev)
+      const catIds = catItems.map(i => i.id)
+      const allSelected = catIds.length > 0 && catIds.every(id => next.has(id))
+      if (allSelected) {
+        catIds.forEach(id => next.delete(id))
+      } else {
+        catIds.forEach(id => next.add(id))
+      }
+      return next
+    })
+  }
+
+  const clearSelection = () => {
+    setSelectedItemIds(new Set())
+    setTargetCatForBulk("")
+    setCustomCatInput("")
+  }
+
+  const handleBulkMove = async () => {
+    if (selectedItemIds.size === 0) return
+    let catToApply = targetCatForBulk
+    if (!catToApply) return showMsg("Please select a target category first", "red")
+    if (catToApply === "__new__") {
+      if (!customCatInput.trim()) return showMsg("Please enter a category name", "red")
+      catToApply = await addCustomCategory(customCatInput)
+    }
+
+    const updated = inventory.map(item => {
+      if (selectedItemIds.has(item.id)) {
+        return { ...item, cat: catToApply }
+      }
+      return item
+    })
+    setInventory(updated)
+    await saveInventory(updated)
+    showMsg(`✓ Moved ${selectedItemIds.size} item(s) to "${catToApply}"`, "green")
+    setSelectedItemIds(new Set())
+    setTargetCatForBulk("")
+    setCustomCatInput("")
+  }
+
+  const moveSingleItemCategory = async (itemId, newCat) => {
+    let catToApply = newCat
+    if (catToApply === "__new__") {
+      const enteredName = prompt("Enter new category name:")
+      if (!enteredName || !enteredName.trim()) return
+      catToApply = await addCustomCategory(enteredName)
+    }
+    const updated = inventory.map(item => item.id === itemId ? { ...item, cat: catToApply } : item)
+    setInventory(updated)
+    await saveInventory(updated)
+    showMsg(`✓ Item moved to "${catToApply}"`, "green")
+  }
+
+  const selectAllItems = () => {
+    if (selectedItemIds.size === inventory.length && inventory.length > 0) {
+      setSelectedItemIds(new Set())
+    } else {
+      setSelectedItemIds(new Set(inventory.map(i => i.id)))
+    }
   }
 
   const handleSaveMarketRun = async () => {
@@ -324,6 +434,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     showMsg("✓ Stock updated from market run!", "green")
   }
 
+
   const badge=(item)=>{
     if(item.stock===0)return<span style={{background:"#FDEBE9",color:"#912622",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Out of Stock</span>
     if(item.stock<=(item.minStock||5))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Low stock ⚠</span>
@@ -331,14 +442,11 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
   }
 
   // Group inventory by mapped category
-  const categories = {
-    "Dry Goods": [],
-    "Dairy and Fats": [],
-    "Flavours and Extracts": [],
-    "Decoration Extras": [],
-    "Board and Packaging": [],
-    "Other": []
-  }
+  const categories = {}
+  allCategoryOptions.forEach(c => {
+    categories[c] = []
+  })
+
   const storedDecorations = loadLocal("ll_decorations", DECORATION_ITEMS)
   const decorIids = new Set(storedDecorations.map(d => d.iid))
 
@@ -347,12 +455,12 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     if (decorIids.has(item.id)) {
       mapped = "Decoration Extras"
     }
-    if (categories[mapped]) {
-      categories[mapped].push(item)
-    } else {
-      categories["Other"].push(item)
+    if (!categories[mapped]) {
+      categories[mapped] = []
     }
+    categories[mapped].push(item)
   })
+
 
   return <div>
     {/* HEADER */}
@@ -362,11 +470,39 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
         {lowStock.length>0&&<span onClick={()=>setView("shopping")} style={{fontSize:12.5,color:"#B03A2E",fontWeight:600,cursor:"pointer",background:"#FDEBE9",padding:"3px 10px",borderRadius:20}}>⚠ {lowStock.length} low stock → Shopping List</span>}
       </div>
       {isOwner&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
+        {inventory.length > 0 && (
+          <Btn small variant="ghost" onClick={selectAllItems}>
+            {selectedItemIds.size === inventory.length ? "☐ Deselect All" : "☑ Select All"}
+          </Btn>
+        )}
+        <Btn small variant="outline" onClick={() => setShowAddCatModal(true)}>+ New Category</Btn>
         <Btn small variant="ghost" onClick={() => setMarketRun(true)}>🛒 Update stock after market run</Btn>
         <Btn small variant="ghost" onClick={()=>{setShowImport(s=>!s);setShowAdd(false);setImportStep(1)}}>📋 Import from Excel</Btn>
         <Btn small onClick={()=>{setShowAdd(s=>!s);setShowImport(false)}}>+ Add Item</Btn>
       </div>}
     </div>
+
+
+    {/* ADD CUSTOM CATEGORY MODAL */}
+    {showAddCatModal && (
+      <Modal title="Add Custom Category" onClose={() => setShowAddCatModal(false)}>
+        <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
+          Create a new category for your inventory items. It will be saved permanently.
+        </div>
+        <Inp label="Category Name *" value={newCatName} onChange={setNewCatName} placeholder="e.g. Frozen Goods" />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+          <Btn onClick={async () => {
+            if (!newCatName.trim()) return
+            const added = await addCustomCategory(newCatName)
+            showMsg(`✓ Category "${added}" created!`, "green")
+            setNewCatName("")
+            setShowAddCatModal(false)
+          }} disabled={!newCatName.trim()}>Save Category</Btn>
+          <Btn variant="ghost" onClick={() => setShowAddCatModal(false)}>Cancel</Btn>
+        </div>
+      </Modal>
+    )}
+
 
     {/* MARKET RUN MODAL */}
     {marketRun && (
@@ -501,10 +637,23 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Add New Item</div>
       <div style={{display:"grid",gridTemplateColumns:"1.5fr 1.2fr 1fr 1.2fr",gap:10,marginBottom:10}}>
         <Inp label="Item Name *" value={newItem.name} onChange={v=>setNewItem(p=>({...p,name:v}))} placeholder="e.g. Flour"/>
-        <Sel label="Category" value={newItem.cat} onChange={v=>setNewItem(p=>({...p,cat:v}))} options={["Dry Goods", "Dairy and Fats", "Flavours and Extracts", "Decoration Extras", "Board and Packaging", "Other"].map(c=>({value:c,label:c}))}/>
+        <div>
+          <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Category *</label>
+          <select value={newItem.cat} onChange={e=>setNewItem(p=>({...p,cat:e.target.value}))} style={{...iSt}}>
+            {allCategoryOptions.map(c=><option key={c} value={c}>{c}</option>)}
+            <option value="__new__">+ Add New Category...</option>
+          </select>
+        </div>
         <Sel label="Unit *" value={newItem.unit} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["kg","g","L","ml","pcs","pack","bottle","roll","set"].map(u=>({value:u,label:u}))}/>
         <Inp label="Min Alert" type="number" value={newItem.minStock} onChange={v=>setNewItem(p=>({...p,minStock:v}))} placeholder="e.g. 10"/>
       </div>
+
+      {newItem.cat === "__new__" && (
+        <div style={{marginBottom:10,maxWidth:320}}>
+          <Inp label="New Category Name *" value={customCatInput} onChange={setCustomCatInput} placeholder="e.g. Specialty Syrups" />
+        </div>
+      )}
+
 
       <div style={{marginBottom:12}}>
         <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Cost Per Unit Setting</label>
@@ -563,6 +712,80 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       <div style={{display:"flex",gap:8}}><Btn onClick={addSingle}>Save</Btn><Btn variant="ghost" onClick={()=>{setShowAdd(false); setCalcMode("manual"); setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""})}}>Cancel</Btn></div>
     </Card>}
 
+    {/* BULK MOVE ACTION BAR */}
+    {selectedItemIds.size > 0 && (
+      <div style={{
+        position: "sticky",
+        top: 10,
+        zIndex: 100,
+        background: "#1E1E1E",
+        color: "#fff",
+        borderRadius: 10,
+        padding: "12px 18px",
+        marginBottom: 16,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+        gap: 12,
+        boxShadow: "0 6px 20px rgba(0,0,0,0.3)"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ background: "var(--gold)", color: "#fff", borderRadius: 20, padding: "3px 12px", fontWeight: 700, fontSize: 13 }}>
+            {selectedItemIds.size} item{selectedItemIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <span style={{ fontSize: 12.5, color: "#DDD" }}>Select category to move items:</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <select
+            value={targetCatForBulk}
+            onChange={e => setTargetCatForBulk(e.target.value)}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 6,
+              border: "1px solid #555",
+              background: "#2A2A2A",
+              color: "#fff",
+              fontSize: 13,
+              outline: "none",
+              cursor: "pointer"
+            }}
+          >
+            <option value="">— Select Target Category —</option>
+            {allCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+            <option value="__new__">+ Add New Category...</option>
+          </select>
+
+          {targetCatForBulk === "__new__" && (
+            <input
+              type="text"
+              value={customCatInput}
+              onChange={e => setCustomCatInput(e.target.value)}
+              placeholder="Category Name"
+              style={{
+                padding: "7px 12px",
+                borderRadius: 6,
+                border: "1px solid #555",
+                background: "#2A2A2A",
+                color: "#fff",
+                fontSize: 13,
+                outline: "none",
+                width: 150
+              }}
+            />
+          )}
+
+          <Btn small variant="success" onClick={handleBulkMove} disabled={!targetCatForBulk}>
+            Move Selected →
+          </Btn>
+          <Btn small variant="ghost" style={{ color: "#aaa", borderColor: "#555" }} onClick={selectAllItems}>
+            {selectedItemIds.size === inventory.length ? "Deselect All" : "Select All"}
+          </Btn>
+
+        </div>
+      </div>
+    )}
+
     {/* COLLAPSIBLE CATEGORIES */}
     <div>
       {Object.entries(categories).map(([catName, items]) => {
@@ -587,8 +810,9 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                 userSelect: "none"
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span>📁 {catName} ({items.length} item{items.length !== 1 ? "s" : ""})</span>
+
                 {catName === "Decoration Extras" && (
                   <span 
                     onClick={(e) => {
@@ -633,16 +857,27 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
             {!isCollapsed && (
               <div style={{ marginTop: 8, overflowX: "auto" }}>
                 <table style={{width:"100%",borderCollapse:"collapse",background:"var(--panel)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
-                  <TH cols={["Item", "Unit", "Stock qty", "Cost/Unit", "Min Alert", "Status", ...(isOwner ? ["Actions"] : [])]}/>
+                  <TH cols={[...(isOwner ? [""] : []), "Item", "Unit", "Stock qty", "Cost/Unit", "Min Alert", "Status", ...(isOwner ? ["Category / Move", "Actions"] : [])]}/>
                   <tbody>
                     {items.length === 0 ? (
-                      <tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No items in this category yet.</td></tr>
+                      <tr><td colSpan={isOwner ? 9 : 6} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No items in this category yet.</td></tr>
                     ) : (
                       items.map((item, idx) => {
                         const isLow = item.stock <= (item.minStock || 5)
                         const editing = editId === item.id
+                        const isSelected = selectedItemIds.has(item.id)
                         return (
-                          <tr key={item.id} style={{background:isLow?"#FFF9EE":idx%2===0?"var(--panel)":"#F8F3EA"}}>
+                          <tr key={item.id} style={{background: isSelected ? "#FFF3D6" : isLow ? "#FFF9EE" : idx % 2 === 0 ? "var(--panel)" : "#F8F3EA"}}>
+                            {isOwner && (
+                              <td style={{padding:"9px 10px"}} onClick={e=>e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={()=>toggleSelectItem(item.id)}
+                                  style={{cursor:"pointer",width:16,height:16,accentColor:"var(--gold)"}}
+                                />
+                              </td>
+                            )}
                             {editing ? (
                               <>
                                 <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12}}/></td>
@@ -651,6 +886,15 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                                 <td style={{padding:"6px 8px"}}><input type="number" value={editRow.cost||""} onChange={e=>setEditRow(r=>({...r,cost:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:80}}/></td>
                                 <td style={{padding:"6px 8px"}}><input type="number" value={editRow.minStock||""} onChange={e=>setEditRow(r=>({...r,minStock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}/></td>
                                 <td style={{padding:"6px 8px"}}></td>
+                                <td style={{padding:"6px 8px"}}>
+                                  <select value={editRow.cat||catName} onChange={e=>setEditRow(r=>({...r,cat:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:11}}>
+                                    {allCategoryOptions.map(c=><option key={c} value={c}>{c}</option>)}
+                                    <option value="__new__">+ New Category...</option>
+                                  </select>
+                                  {editRow.cat === "__new__" && (
+                                    <input value={customCatInput} onChange={e=>setCustomCatInput(e.target.value)} placeholder="Category Name" style={{...iSt,padding:"4px 6px",fontSize:11,marginTop:4}} />
+                                  )}
+                                </td>
                                 <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={doSaveEdit}>✓</Btn><Btn small variant="ghost" onClick={cancelEdit}>✗</Btn></div></td>
                               </>
                             ) : (
@@ -661,6 +905,28 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                                 <td style={{padding:"9px 10px",fontSize:13,fontWeight:500,color:"var(--gold)"}}>{fmt(item.cost)}/{item.unit}</td>
                                 <td style={{padding:"9px 10px",fontSize:13,color:"var(--muted)"}}>{item.minStock||5} {item.unit}</td>
                                 <td style={{padding:"9px 10px"}}>{badge(item)}</td>
+                                {isOwner && (
+                                  <td style={{padding:"9px 10px"}} onClick={e=>e.stopPropagation()}>
+                                    <select
+                                      value={item.cat || catName}
+                                      onChange={(e) => moveSingleItemCategory(item.id, e.target.value)}
+                                      style={{
+                                        padding: "4px 8px",
+                                        borderRadius: 6,
+                                        border: "1px solid var(--border)",
+                                        background: "#FAF7F0",
+                                        fontSize: 11.5,
+                                        color: "var(--text)",
+                                        cursor: "pointer",
+                                        fontWeight: 500
+                                      }}
+                                      title="Move item to another category"
+                                    >
+                                      {allCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                                      <option value="__new__">+ New Category...</option>
+                                    </select>
+                                  </td>
+                                )}
                                 {isOwner && (
                                   <td style={{padding:"9px 10px"}}>
                                     <div style={{display:"flex",gap:4}}>
@@ -683,6 +949,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
         )
       })}
     </div>
+
     <div style={{marginTop:8,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Stock reduces automatically as production orders are saved. Set opening stock in <strong>Settings → Opening Stock</strong>. Restock by scanning a purchase receipt.</div>
   </div>
 }
@@ -731,6 +998,25 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
 
     return Array.from(itemsMap.values())
   }, [inventory, decorVersion])
+
+  const decorOptions = useMemo(() => {
+    const isDecor = (i) => {
+      const cat = (i.cat || i.category || "").trim()
+      return (
+        cat === "Decoration Extras" ||
+        cat === "Decoration" ||
+        cat === "Decorations" ||
+        cat.toLowerCase().includes("decor") ||
+        mapCategory(cat, i.name) === "Decoration Extras"
+      )
+    }
+    return inventory
+      .filter(isDecor)
+      .map(i => ({
+        value: i.id,
+        label: `${i.name} (${i.unit}) — ${fmt(i.cost)}/${i.unit}`
+      }))
+  }, [inventory])
 
   const [editId, setEditId] = useState(null)
   const [editRow, setEditRow] = useState({})
@@ -851,10 +1137,7 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
           <SearchableSelect
             value={newItem.iid}
             onChange={val=>setNewItem(p=>({...p,iid:val}))}
-            options={inventory.filter(i => i.cat !== "Board and Packaging" && i.category !== "Board and Packaging").map(i=>({
-              value: i.id,
-              label: `${i.name} (${i.unit}) — ${fmt(i.cost)}/${i.unit}`
-            }))}
+            options={decorOptions}
             placeholder="Type to search item..."
           />
         </div>
@@ -880,13 +1163,25 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
                 <SearchableSelect
                   value={editRow.iid||""}
                   onChange={val=>setEditRow(r=>({...r,iid:val}))}
-                  options={inventory.filter(i => i.cat !== "Board and Packaging" && i.category !== "Board and Packaging").map(i=>({
+                  options={inventory.filter(i => {
+                    const cat = (i.cat || i.category || "").trim()
+                    return (
+                      cat === "Decoration Extras" ||
+                      cat === "Decoration" ||
+                      cat === "Decorations" ||
+                      cat.toLowerCase().includes("decor") ||
+                      mapCategory(cat, i.name) === "Decoration Extras" ||
+                      i.id === editRow.iid
+                    )
+                  }).map(i => ({
                     value: i.id,
                     label: `${i.name} (${i.unit}) — ${fmt(i.cost)}/${i.unit}`
                   }))}
                   placeholder="Type to search item..."
                 />
               </td>
+
+
               <td style={{padding:"6px 8px"}}><input type="number" value={editRow.qty||""} onChange={e=>setEditRow(r=>({...r,qty:e.target.value}))} style={{...iSt,width:70,padding:"4px 6px",fontSize:12}}/></td>
               <td style={{padding:"6px 8px",fontSize:13}}>{editRow.iid&&inventory.find(x=>x.id===editRow.iid)?fmt(inventory.find(x=>x.id===editRow.iid).cost*(+editRow.qty||0)):"—"}</td>
               <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={saveEdit}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)}>✗</Btn></div></td>

@@ -6,7 +6,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Card, SHead, TH, TR2 } from "../common/ui.jsx"
-import { fmt, uid } from "../../lib/helpers.js"
+import { fmt, uid, DEFAULT_CATEGORIES, mapCategory } from "../../lib/helpers.js"
 import { saveInventory, saveExpenses, loadLocal, saveLocal } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
@@ -15,14 +15,21 @@ export function Purchases({inventory,setInventory,expenses,setExpenses}){
   const [purchases,setPurchases]=useState(()=>loadLocal("ll_purchases",[]))
   const [f,setF]=useState({item:"",category:"",unit:"",unitSize:"",qty:"",price:"",date:new Date().toISOString().slice(0,10)})
 
+  const customCats = loadLocal("ll_custom_categories", [])
+  const categoriesList = useMemo(() => {
+    const invCats = inventory.map(i => mapCategory(i.cat, i.name)).filter(Boolean)
+    return Array.from(new Set([...DEFAULT_CATEGORIES, ...customCats, ...invCats]))
+  }, [customCats, inventory])
+
   useEffect(() => {
     if (f.item) {
       const it = inventory.find(i => i.id === f.item)
       if (it) {
-        setF(prev => ({ ...prev, category: it.cat || "" }))
+        setF(prev => ({ ...prev, category: it.cat || mapCategory(it.cat, it.name) }))
       }
     }
   }, [f.item, inventory])
+
 
   const savePurchases=async(p)=>{setPurchases(p);await saveLocal("ll_purchases",p)}
 
@@ -101,8 +108,9 @@ export function Purchases({inventory,setInventory,expenses,setExpenses}){
           <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Category *</label>
           <select value={f.category} onChange={e=>setF(p=>({...p,category:e.target.value}))} style={{...iSt}}>
             <option value="">— Select category —</option>
-            {["Dry Goods", "Dairy and Fats", "Flavours and Extracts", "Decoration Extras", "Board and Packaging", "Other"].map(c=><option key={c} value={c}>{c}</option>)}
+            {categoriesList.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
+
         </div>
         <Inp label="Pack size *" type="number" value={f.unitSize} onChange={v=>setF(p=>({...p,unitSize:v}))} placeholder={`e.g. 50`}/>
         <Inp label="Qty bought *" type="number" value={f.qty} onChange={v=>setF(p=>({...p,qty:v}))} placeholder="e.g. 3"/>
