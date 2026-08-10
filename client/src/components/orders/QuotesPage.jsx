@@ -336,7 +336,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                       <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: 20, background: st.bg, color: st.c, fontWeight: 600, textTransform: "capitalize" }}>{st.l}</span>
                     </div>
                     <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
-                      {q.cakeSummary || "Cake order"} • Due {q.deliveryDate || q.date}
+                      {q.cakeSummary || "Cake order"} • Due {q.deliveryDate || q.date}{q.collectionTime ? ` @ ${q.collectionTime}` : ""}
                     </div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, marginRight: 8 }}>
@@ -365,7 +365,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                       <div style={{ fontSize: 13, lineHeight: 1.8, color: "var(--text)" }}>
                         <div><span style={{ color: "var(--muted)" }}>Phone: </span>{q.clientPhone || "—"}</div>
                         <div><span style={{ color: "var(--muted)" }}>Email: </span>{q.clientEmail || "—"}</div>
-                        <div><span style={{ color: "var(--muted)" }}>Delivery date: </span>{q.deliveryDate || "—"}</div>
+                        <div><span style={{ color: "var(--muted)" }}>Delivery date: </span>{q.deliveryDate || "—"}{q.collectionTime ? ` at ${q.collectionTime}` : ""}</div>
                         <div><span style={{ color: "var(--muted)" }}>Product: </span>{q.productType || "Cake"}</div>
                         {q.tiers?.map((t, i) => (
                           <div key={i}>
@@ -534,11 +534,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                         {isConfirmed ? null : (
                           <>
-                             {q.status === "approved" && (
-                               <Btn small variant="success" onClick={() => confirmOrder(q)} disabled={confirming}>
-                                 {confirming ? "⌛ Confirming..." : "✓ Confirm order"}
-                               </Btn>
-                             )}
+                             <Btn small variant="success" onClick={() => confirmOrder(q)} disabled={confirming}>
+                               {confirming ? "⌛ Confirming..." : "✓ Confirm order"}
+                             </Btn>
                              <Btn small variant="ghost" onClick={async () => { await saveLocal("ll_calc_edit", q); setView("calculator") }}>✏ Edit quote</Btn>
                           </>
                         )}

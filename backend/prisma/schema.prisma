@@ -21,6 +21,7 @@ model Tenant {
   clients           Client[]
   decorations       Decoration[]
   expenses          Expense[]
+  inventoryHistory  InventoryHistory[]
   inventory         InventoryItem[]
   invoices          Invoice[]
   orders            Order[]
@@ -30,7 +31,6 @@ model Tenant {
   tokenTransactions TokenTransaction[]
   transactions      Transaction[]
   users             User[]
-  inventoryHistory  InventoryHistory[]
 }
 
 model User {
@@ -73,14 +73,14 @@ model InventoryItem {
   unit              String
   cost              Float
   stock             Float              @default(0)
-  totalValueOnHand  Float              @default(0)
   minStock          Float              @default(0)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
-  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  recipeIngredients RecipeIngredient[]
+  totalValueOnHand  Float              @default(0)
   inventoryHistory  InventoryHistory[]
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   purchases         Purchase[]
+  recipeIngredients RecipeIngredient[]
 
   @@index([tenantId])
 }
@@ -121,9 +121,10 @@ model Order {
   totalPrice          Float          @default(0)
   totalCost           Float          @default(0)
   notes               String?
-  ingredientsDeducted Boolean        @default(false)
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
+  ingredientsDeducted Boolean        @default(false)
+  metadata            Json?          @default("{}")
   invoices            Invoice[]
   client              Client?        @relation(fields: [clientId], references: [id])
   tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -132,7 +133,6 @@ model Order {
 
   @@index([tenantId])
   @@index([clientId])
-  @@index([tenantId, orderDate])
 }
 
 model OrderItem {
@@ -180,7 +180,6 @@ model Transaction {
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
-  @@index([tenantId, date])
 }
 
 model Expense {
@@ -196,7 +195,6 @@ model Expense {
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
-  @@index([tenantId, date])
 }
 
 model Invoice {
@@ -215,7 +213,6 @@ model Invoice {
 
   @@index([tenantId])
   @@index([orderId])
-  @@index([tenantId, issueDate])
 }
 
 model Packaging {
@@ -247,37 +244,33 @@ model Decoration {
 }
 
 model Purchase {
-  id         String   @id @default(uuid())
-  tenantId   String
-  date       DateTime @default(now())
-  supplier   String?
-  amount     Float
-  receiptUrl String?
-  notes      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
-  // WAVCO fields
-  itemId     String?
-  unitSize   Float?
-  qty        Float?
-  price      Float?
-  total      Float?
-  cpu        Float?
-  stockAdded Float?
-  inventoryItem InventoryItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  id            String         @id @default(uuid())
+  tenantId      String
+  date          DateTime       @default(now())
+  supplier      String?
+  amount        Float
+  receiptUrl    String?
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  itemId        String?
+  unitSize      Float?
+  qty           Float?
+  price         Float?
+  total         Float?
+  cpu           Float?
+  stockAdded    Float?
+  inventoryItem InventoryItem? @relation(fields: [itemId], references: [id])
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
-  @@index([tenantId, date])
-  @@index([itemId])
 }
 
 model InventoryHistory {
   id              String        @id @default(uuid())
   tenantId        String
   inventoryItemId String
-  type            String        // 'PURCHASE', 'USAGE', 'ADJUSTMENT', 'OPENING_BALANCE'
+  type            String
   date            DateTime      @default(now())
   qtyDelta        Float
   valueDelta      Float
@@ -286,7 +279,7 @@ model InventoryHistory {
   valueAfter      Float
   avgCostAfter    Float
   reason          String?
-  referenceId     String?       // ID of the related Purchase or Order
+  referenceId     String?
   createdAt       DateTime      @default(now())
   inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)

@@ -174,6 +174,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   const [clientPhone,setClientPhone]=useState(()=>saved?.clientPhone||"")
   const [clientNotes,setClientNotes]=useState(()=>saved?.clientNotes||saved?.notes||"")
   const [deliveryDate,setDeliveryDate]=useState(()=>saved?.deliveryDate||"")
+  const [collectionTime,setCollectionTime]=useState(()=>saved?.collectionTime||"")
   const [quoteSaved,setQuoteSaved]=useState(false)
   const [isEdit,setIsEdit]=useState(()=>!!saved?.isEdit)
   const [editId,setEditId]=useState(()=>saved?.editId||null)
@@ -197,7 +198,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
 
   // Auto-save calculator state on every change
   const autoSave=(extra={})=>{
-    saveLocal("ll_calc_state",{productType,clientName,clientPhone,clientNotes,tiers,accRows,topper,margin,...extra})
+    saveLocal("ll_calc_state",{productType,clientName,clientPhone,clientNotes,tiers,accRows,topper,margin,deliveryDate,collectionTime,...extra})
   }
   const [tiers,setTiers]=useState(()=>saved?.tiers?.length>0?saved.tiers:[])
   const [decQty,setDecQty]=useState(()=>saved?.decQty||{})
@@ -378,7 +379,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
         <Inp label="Client name *" value={clientName} onChange={v=>{setClientName(v);autoSave({clientName:v})}} placeholder="Mrs Iye Achem"/>
         <Inp label="Phone (WhatsApp)" value={clientPhone} onChange={v=>{setClientPhone(v);autoSave({clientPhone:v})}} placeholder="+234..."/>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.5fr 1fr 1.5fr",gap:8,marginBottom:8}}>
         <Inp label="Delivery / collection date *" type="date" value={deliveryDate} min={today()} onChange={v=>{
           if (v && v < today()) {
             alert("Delivery date cannot be in the past.")
@@ -386,6 +387,10 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
           }
           setDeliveryDate(v);
           autoSave({deliveryDate:v})
+        }}/>
+        <Inp label="Time of Collection *" type="time" value={collectionTime} onChange={v=>{
+          setCollectionTime(v);
+          autoSave({collectionTime:v})
         }}/>
         <Sel label="Event" value={eventType} onChange={v=>{setEventType(v);autoSave({eventType:v})}} options={[{value:"",label:"— Select event —"},...EVENT_TYPES.map(e=>({value:e,label:e}))]}/>
       </div>
@@ -752,6 +757,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
               cakeSummary,flavourSummary,
               notes:clientNotes,
               deliveryDate:deliveryDate||(isGS?new Date().toISOString().slice(0,10):""),
+              collectionTime,
               eventType,
               status:"pending",
               bankName:co.bankName||"",

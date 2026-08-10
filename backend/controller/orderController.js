@@ -55,7 +55,7 @@ const getOrderById = asyncHandler(async (req, res) => {
  */
 const createOrder = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { clientId, status, dueDate, items, totalPrice, totalCost, payments, notes, usages } = req.body;
+    const { clientId, status, dueDate, items, totalPrice, totalCost, payments, notes, usages, metadata } = req.body;
 
     const result = await prisma.$transaction(async (tx) => {
         let ingredientsDeducted = false;
@@ -74,6 +74,7 @@ const createOrder = asyncHandler(async (req, res) => {
                 totalCost: totalCost || 0,
                 notes,
                 ingredientsDeducted,
+                metadata: metadata || {},
                 items: {
                     create: items?.map(item => ({
                         recipeId: item.recipeId,
@@ -158,7 +159,7 @@ const createOrder = asyncHandler(async (req, res) => {
  */
 const updateOrder = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { clientId, status, dueDate, items, totalPrice, totalCost, payments, notes, usages } = req.body;
+    const { clientId, status, dueDate, items, totalPrice, totalCost, payments, notes, usages, metadata } = req.body;
 
     const existing = await prisma.order.findFirst({ where: { id: req.params.id, tenantId } });
     if (!existing) {
@@ -284,7 +285,8 @@ const updateOrder = asyncHandler(async (req, res) => {
             totalPrice,
             totalCost,
             notes,
-            ingredientsDeducted
+            ingredientsDeducted,
+            metadata: metadata || undefined
         };
 
         if (items) {

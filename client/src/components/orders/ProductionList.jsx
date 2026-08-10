@@ -98,7 +98,7 @@ export function ProductionList({ productions, setProductions, company, setView }
         <div class="card">
           <div class="card-header">
             <span>#${i + 1} - ${p.client || "Client name"} (${p.productType || "Cake"})</span>
-            <span>Date: ${p.deliveryDate || "Unscheduled"} | Status: ${(p.status || "Pending").toUpperCase()}</span>
+            <span>Date: ${p.deliveryDate || "Unscheduled"}${p.collectionTime ? ` @ ${p.collectionTime}` : ""} | Status: ${(p.status || "Pending").toUpperCase()}</span>
           </div>
           
           <!-- Cake details -->
@@ -334,7 +334,7 @@ export function ProductionList({ productions, setProductions, company, setView }
 
                     {/* Delivery Date */}
                     <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
-                      <span>📅 Delivery / Collection: <strong>{p.deliveryDate || "Unscheduled"}</strong></span>
+                      <span>📅 Delivery / Collection: <strong>{p.deliveryDate || "Unscheduled"}{p.collectionTime ? ` at ${p.collectionTime}` : ""}</strong></span>
                     </div>
 
                     {/* Topper/Inscription highlighted in a blue box */}
@@ -376,7 +376,7 @@ export function ProductionList({ productions, setProductions, company, setView }
                       <option value="ready">Ready</option>
                       <option value="delivered">Delivered</option>
                     </select>
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>Due {p.deliveryDate || "Unscheduled"}</div>
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>Due {p.deliveryDate || "Unscheduled"}{p.collectionTime ? ` at ${p.collectionTime}` : ""}</div>
                   </div>
                 </div>
               </Card>

@@ -35,7 +35,8 @@ const createOrderSchema = z.object({
         payments: z.array(orderPaymentSchema).optional(),
         notes: z.string().optional(),
         id: z.string().optional(),
-        usages: z.array(orderUsageSchema).optional()
+        usages: z.array(orderUsageSchema).optional(),
+        metadata: z.any().optional()
     })
 });
 
@@ -49,7 +50,8 @@ const updateOrderSchema = z.object({
         totalCost: z.number().nonnegative('Total cost must be a non-negative number').optional(),
         payments: z.array(orderPaymentSchema).optional(),
         notes: z.string().optional(),
-        usages: z.array(orderUsageSchema).optional()
+        usages: z.array(orderUsageSchema).optional(),
+        metadata: z.any().optional()
     })
 });
 

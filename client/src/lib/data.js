@@ -5,6 +5,80 @@
 const cache = {}
 const lastSyncedValues = {}
 
+// Mapping functions to transform server DB structures to client/localStorage structures
+const mapServerInventoryToLocal = (item) => ({
+  id: item.id,
+  name: item.name,
+  cat: item.category,
+  unit: item.unit,
+  cost: item.cost,
+  stock: item.stock,
+  minStock: item.minStock
+})
+
+const mapServerRecipeToLocal = (rec) => ({
+  id: rec.id,
+  name: rec.name,
+  notes: rec.notes || "",
+  ing: (rec.ingredients || []).map(ri => ({
+    iid: ri.inventoryItemId,
+    qty: ri.quantity
+  }))
+})
+
+const mapServerExpenseToLocal = (exp) => ({
+  id: exp.id,
+  date: exp.date ? exp.date.split("T")[0] : new Date().toISOString().split("T")[0],
+  amount: exp.amount,
+  category: exp.category,
+  description: exp.description || "",
+  receiptUrl: exp.receiptUrl || ""
+})
+
+const mapServerPurchaseToLocal = (pur) => ({
+  id: pur.id,
+  date: pur.date ? pur.date.split("T")[0] : new Date().toISOString().split("T")[0],
+  supplier: pur.supplier || "Market Run",
+  total: pur.total || pur.amount,
+  item: pur.notes ? pur.notes.split(" — Qty:")[0] : "Ingredient",
+  qty: pur.qty || 1,
+  stockAdded: pur.stockAdded || 0,
+  itemId: pur.itemId,
+  unitSize: pur.unitSize || 0,
+  price: pur.price || 0,
+  cpu: pur.cpu || 0
+})
+
+const mapServerInvoiceToLocal = (inv) => ({
+  id: inv.id,
+  quoteId: inv.orderId || inv.id,
+  invoiceNumber: inv.invoiceNumber || inv.id,
+  date: inv.issueDate ? inv.issueDate.split("T")[0] : new Date().toISOString().split("T")[0],
+  deliveryDate: inv.dueDate ? inv.dueDate.split("T")[0] : null,
+  status: inv.status || "unpaid",
+  notes: inv.notes || ""
+})
+
+const mapServerOrderToLocal = (o) => {
+  const base = o.metadata && typeof o.metadata === "object" ? o.metadata : {}
+  return {
+    ...base,
+    id: o.id,
+    notes: o.notes || "",
+    salePrice: o.totalPrice,
+    cost: o.totalCost,
+    status: o.status,
+    dueDate: o.dueDate ? o.dueDate.split("T")[0] : null,
+    deliveryDate: o.dueDate ? o.dueDate.split("T")[0] : base.deliveryDate || null,
+    tiers: base.tiers || (o.items || []).map(item => ({
+      covering: item.name,
+      size: item.size || "6",
+      shape: item.shape || "round",
+      layers: Array.from({ length: item.layers || 1 }, () => ({}))
+    }))
+  }
+}
+
 const load = (key, fallback) => {
   if (cache[key] !== undefined && cache[key] !== null) {
     try {
@@ -40,9 +114,6 @@ export const loadLocal = (key, fallback) => {
   return val
 }
 
-let isSyncing = false
-let syncQueue = false
-let hasLoadedFromBackend = false
 
 const save = async (key, val) => {
   try {
@@ -52,9 +123,66 @@ const save = async (key, val) => {
     } catch (e) {
       // Ignored
     }
-    await syncToBackend()
+
+    const headers = getAuthHeaders()
+    if (!headers) return
+
+    if (key === "ll_inv") {
+      await syncInventoryItems(headers, val)
+    } else if (key === "ll_recipes") {
+      await syncRecipesList(headers, val)
+    } else if (key === "ll_prods") {
+      await syncOrdersList(headers, val, load("ll_quotes", []), load("ll_inv", []), load("ll_recipes", []))
+    } else if (key === "ll_quotes") {
+      await syncOrdersList(headers, load("ll_prods", []), val, load("ll_inv", []), load("ll_recipes", []))
+    } else if (key === "ll_quote_invoices" || key === "ll_invoices") {
+      await syncInvoicesList(headers, val)
+    } else if (key === "ll_exp") {
+      await syncExpensesList(headers, val)
+    } else if (key === "ll_purchases") {
+      await syncPurchasesList(headers, val)
+    } else {
+      await syncTenantSettingsOnly(headers)
+    }
   } catch (e) {
-    // Ignored
+    console.error(`Save to backend error for key ${key}:`, e)
+  }
+}
+
+const syncTenantSettingsOnly = async (headers) => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) return
+  try {
+    const res = await fetch(`${apiUrl}/api/tenant`, { headers })
+    if (res.ok) {
+      const tenant = await res.json()
+      const data = {}
+      Object.entries(cache).forEach(([k, v]) => {
+        const keysToStoreInLocalState = [
+          "ll_co", "ll_multipliers", "ll_coverings", "ll_decorations", "ll_packaging", "ll_opening_stock", 
+          "ll_onboarded", "ll_anthropic_key", "ll_users", "ll_clients", "ll_txns"
+        ]
+        if (keysToStoreInLocalState.includes(k) || k.startsWith("ll_setting_")) {
+          data[k] = typeof v === "string" ? v : JSON.stringify(v)
+        }
+      })
+      const updatedSettings = {
+        ...(tenant.settings || {}),
+        localState: data
+      }
+      await fetch(`${apiUrl}/api/tenant`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          name: tenant.name,
+          contactEmail: tenant.contactEmail || "",
+          contactPhone: tenant.contactPhone || "",
+          settings: updatedSettings
+        })
+      })
+    }
+  } catch (e) {
+    console.error("Failed to sync tenant settings:", e)
   }
 }
 
@@ -76,143 +204,10 @@ export const getAuthHeaders = () => {
   }
 }
 
-export const syncToBackend = async (forceAll = false) => {
-  if (!hasLoadedFromBackend) return
-
-  if (isSyncing) {
-    syncQueue = true
-    return
-  }
-  isSyncing = true
-
+export const syncToBackend = async () => {
   const headers = getAuthHeaders()
-  if (!headers) {
-    isSyncing = false
-    return
-  }
-  const apiUrl = import.meta.env.VITE_API_URL
-  if (!apiUrl) {
-    isSyncing = false
-    return
-  }
-
-  try {
-    const data = {}
-    Object.entries(cache).forEach(([k, v]) => {
-      data[k] = typeof v === "string" ? v : JSON.stringify(v)
-    })
-
-    const res = await fetch(`${apiUrl}/api/tenant`, { headers })
-    if (res.status === 401 || res.status === 403) {
-      console.warn("Backend sync paused: User session token is invalid or expired. Please log out and log in again.")
-      return
-    }
-    if (res.ok) {
-      const tenant = await res.json()
-      const updatedSettings = {
-        ...(tenant.settings || {}),
-        localState: data
-      }
-
-      const updateRes = await fetch(`${apiUrl}/api/tenant`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify({
-          name: tenant.name,
-          contactEmail: tenant.contactEmail || "",
-          contactPhone: tenant.contactPhone || "",
-          settings: updatedSettings
-        })
-      })
-
-      if (updateRes.ok) {
-        const updatedTenant = await updateRes.json()
-        const tenantInfo = {
-          id: updatedTenant.id,
-          name: updatedTenant.name,
-          createdAt: updatedTenant.createdAt,
-          tokenBalance: updatedTenant.tokenBalance,
-          settings: {
-            plan: updatedTenant.settings?.plan || "Free",
-            status: updatedTenant.settings?.status || "Active"
-          }
-        }
-        localStorage.setItem("ll_tenant_info", JSON.stringify(tenantInfo))
-      } else {
-        const tenantInfo = {
-          id: tenant.id,
-          name: tenant.name,
-          createdAt: tenant.createdAt,
-          tokenBalance: tenant.tokenBalance,
-          settings: {
-            plan: tenant.settings?.plan || "Free",
-            status: tenant.settings?.status || "Active"
-          }
-        }
-        localStorage.setItem("ll_tenant_info", JSON.stringify(tenantInfo))
-      }
-    }
-
-    // Sync to individual tables and await completions ONLY if data has changed or forced
-    // Phase 1: Sync recipes, purchases, expenses, orders, and invoices
-    const phase1Promises = []
-
-    if (forceAll || data["ll_recipes"] !== lastSyncedValues["ll_recipes"]) {
-      phase1Promises.push(syncRecipesList(headers, JSON.parse(data["ll_recipes"] || "[]"))
-        .then(() => { lastSyncedValues["ll_recipes"] = data["ll_recipes"] })
-        .catch(console.error))
-    }
-
-    if (forceAll || data["ll_exp"] !== lastSyncedValues["ll_exp"]) {
-      phase1Promises.push(syncExpensesList(headers, JSON.parse(data["ll_exp"] || "[]"))
-        .then(() => { lastSyncedValues["ll_exp"] = data["ll_exp"] })
-        .catch(console.error))
-    }
-
-    if (forceAll || data["ll_purchases"] !== lastSyncedValues["ll_purchases"]) {
-      phase1Promises.push(syncPurchasesList(headers, JSON.parse(data["ll_purchases"] || "[]"))
-        .then(() => { lastSyncedValues["ll_purchases"] = data["ll_purchases"] })
-        .catch(console.error))
-    }
-
-    if (forceAll || data["ll_prods"] !== lastSyncedValues["ll_prods"] || data["ll_quotes"] !== lastSyncedValues["ll_quotes"]) {
-      phase1Promises.push(syncOrdersList(
-        headers, 
-        JSON.parse(data["ll_prods"] || "[]"), 
-        JSON.parse(data["ll_quotes"] || "[]"),
-        JSON.parse(data["ll_inv"] || "[]"),
-        JSON.parse(data["ll_recipes"] || "[]")
-      )
-        .then(() => { 
-          lastSyncedValues["ll_prods"] = data["ll_prods"]
-          lastSyncedValues["ll_quotes"] = data["ll_quotes"]
-        })
-        .catch(console.error))
-    }
-
-    if (forceAll || data["ll_quote_invoices"] !== lastSyncedValues["ll_quote_invoices"]) {
-      phase1Promises.push(syncInvoicesList(headers, JSON.parse(data["ll_quote_invoices"] || "[]"))
-        .then(() => { lastSyncedValues["ll_quote_invoices"] = data["ll_quote_invoices"] })
-        .catch(console.error))
-    }
-
-    await Promise.all(phase1Promises)
-
-    // Phase 2: Sync inventory items (fetching server-computed stock and moving average costs)
-    if (forceAll || data["ll_inv"] !== lastSyncedValues["ll_inv"]) {
-      await syncInventoryItems(headers, JSON.parse(data["ll_inv"] || "[]"))
-        .then(() => { lastSyncedValues["ll_inv"] = localStorage.getItem("ll_inv") || data["ll_inv"] })
-        .catch(console.error)
-    }
-
-  } catch (error) {
-    console.error("Sync to backend error:", error)
-  } finally {
-    isSyncing = false
-    if (syncQueue) {
-      syncQueue = false
-      await syncToBackend()
-    }
+  if (headers) {
+    await syncTenantSettingsOnly(headers)
   }
 }
 
@@ -561,7 +556,8 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
       totalCost: Number(o.cost || 0),
       notes: o.notes || "",
       items,
-      usages
+      usages,
+      metadata: o
     }
 
     if (sOrder) {
@@ -686,64 +682,118 @@ export const syncFromBackend = async () => {
   if (!apiUrl) return false
 
   try {
-    const res = await fetch(`${apiUrl}/api/tenant`, { headers })
-    if (res.ok) {
-      const tenant = await res.json()
-      hasLoadedFromBackend = true
-      const tenantInfo = {
-        id: tenant.id,
-        name: tenant.name,
-        createdAt: tenant.createdAt,
-        tokenBalance: tenant.tokenBalance,
-        settings: {
-          plan: tenant.settings?.plan || "Free",
-          status: tenant.settings?.status || "Active"
-        }
-      }
-      localStorage.setItem("ll_tenant_info", JSON.stringify(tenantInfo))
+    const tenantRes = await fetch(`${apiUrl}/api/tenant`, { headers })
+    if (!tenantRes.ok) return false
+    const tenant = await tenantRes.json()
 
-      if (tenant.settings && tenant.settings.localState) {
-        const state = tenant.settings.localState
-        Object.keys(cache).forEach(k => {
-          delete cache[k]
-        })
-        Object.keys(lastSyncedValues).forEach(k => {
-          delete lastSyncedValues[k]
-        })
-
-        // Explicitly clear temporary calculator states on login so they don't persist across sessions
-        const keysToIgnoreOnLogin = ["ll_calc_state", "ll_calc_edit", "ll_calc_prefill", "ll_quote_prefill"]
-        keysToIgnoreOnLogin.forEach(k => {
-          try {
-            localStorage.removeItem(k)
-          } catch (e) {
-            /* ignore error */
-          }
-        })
-
-        Object.entries(state).forEach(([k, v]) => {
-          if (v !== null && !keysToIgnoreOnLogin.includes(k)) {
-            try {
-              cache[k] = typeof v === "string" ? JSON.parse(v) : v
-            } catch {
-              cache[k] = v
-            }
-            lastSyncedValues[k] = typeof v === "string" ? v : JSON.stringify(v)
-            try {
-              localStorage.setItem(k, typeof v === "string" ? v : JSON.stringify(v))
-            } catch (e) {
-              // Ignore
-            }
-            if (k === "ll_anthropic_key") {
-              window.__anthropic_key = cache[k]
-            }
-          }
-        })
-        // Trigger background self-healing sync to populate relational tables in Supabase if needed
-        setTimeout(() => syncToBackend(true), 100)
-        return true
+    const tenantInfo = {
+      id: tenant.id,
+      name: tenant.name,
+      createdAt: tenant.createdAt,
+      tokenBalance: tenant.tokenBalance,
+      settings: {
+        plan: tenant.settings?.plan || "Free",
+        status: tenant.settings?.status || "Active"
       }
     }
+    localStorage.setItem("ll_tenant_info", JSON.stringify(tenantInfo))
+
+    const keysToIgnoreOnLogin = ["ll_calc_state", "ll_calc_edit", "ll_calc_prefill", "ll_quote_prefill"]
+    keysToIgnoreOnLogin.forEach(k => {
+      try { localStorage.removeItem(k) } catch (e) { /* ignore */ }
+      delete cache[k]
+    })
+
+    if (tenant.settings && tenant.settings.localState) {
+      const state = tenant.settings.localState
+      Object.entries(state).forEach(([k, v]) => {
+        if (v !== null && !keysToIgnoreOnLogin.includes(k)) {
+          let parsed;
+          try {
+            parsed = typeof v === "string" ? JSON.parse(v) : v
+          } catch {
+            parsed = v
+          }
+          cache[k] = parsed
+          localStorage.setItem(k, typeof v === "string" ? v : JSON.stringify(v))
+          if (k === "ll_anthropic_key") {
+            window.__anthropic_key = parsed
+          }
+        }
+      })
+    }
+
+    const [invRes, recipesRes, ordersRes, expensesRes, purchasesRes, invoicesRes] = await Promise.all([
+      fetch(`${apiUrl}/api/inventory`, { headers }),
+      fetch(`${apiUrl}/api/recipes`, { headers }),
+      fetch(`${apiUrl}/api/orders`, { headers }),
+      fetch(`${apiUrl}/api/expenses`, { headers }),
+      fetch(`${apiUrl}/api/purchases`, { headers }),
+      fetch(`${apiUrl}/api/invoices`, { headers })
+    ])
+
+    if (invRes.ok) {
+      const serverInv = await invRes.json()
+      const localInv = serverInv.map(mapServerInventoryToLocal)
+      cache["ll_inv"] = localInv
+      localStorage.setItem("ll_inv", JSON.stringify(localInv))
+      lastSyncedValues["ll_inv"] = JSON.stringify(localInv)
+    }
+
+    if (recipesRes.ok) {
+      const serverRecipes = await recipesRes.json()
+      const localRecipes = serverRecipes.map(mapServerRecipeToLocal)
+      cache["ll_recipes"] = localRecipes
+      localStorage.setItem("ll_recipes", JSON.stringify(localRecipes))
+      lastSyncedValues["ll_recipes"] = JSON.stringify(localRecipes)
+    }
+
+    if (ordersRes.ok) {
+      const serverOrders = await ordersRes.json()
+      const localProds = []
+      const localQuotes = []
+      serverOrders.forEach(o => {
+        const localOrder = mapServerOrderToLocal(o)
+        if (o.status === "quote") {
+          localQuotes.push(localOrder)
+        } else {
+          localProds.push(localOrder)
+        }
+      })
+      cache["ll_prods"] = localProds
+      localStorage.setItem("ll_prods", JSON.stringify(localProds))
+      lastSyncedValues["ll_prods"] = JSON.stringify(localProds)
+
+      cache["ll_quotes"] = localQuotes
+      localStorage.setItem("ll_quotes", JSON.stringify(localQuotes))
+      lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
+    }
+
+    if (expensesRes.ok) {
+      const serverExpenses = await expensesRes.json()
+      const localExpenses = serverExpenses.map(mapServerExpenseToLocal)
+      cache["ll_exp"] = localExpenses
+      localStorage.setItem("ll_exp", JSON.stringify(localExpenses))
+      lastSyncedValues["ll_exp"] = JSON.stringify(localExpenses)
+    }
+
+    if (purchasesRes.ok) {
+      const serverPurchases = await purchasesRes.json()
+      const localPurchases = serverPurchases.map(mapServerPurchaseToLocal)
+      cache["ll_purchases"] = localPurchases
+      localStorage.setItem("ll_purchases", JSON.stringify(localPurchases))
+      lastSyncedValues["ll_purchases"] = JSON.stringify(localPurchases)
+    }
+
+    if (invoicesRes.ok) {
+      const serverInvoices = await invoicesRes.json()
+      const localInvoices = serverInvoices.map(mapServerInvoiceToLocal)
+      cache["ll_quote_invoices"] = localInvoices
+      localStorage.setItem("ll_quote_invoices", JSON.stringify(localInvoices))
+      lastSyncedValues["ll_quote_invoices"] = JSON.stringify(localInvoices)
+    }
+
+    return true
   } catch (error) {
     console.error("Sync from backend error:", error)
   }
@@ -763,7 +813,6 @@ export const clearTempCalculatorState = () => {
 }
 
 export const logout = () => {
-  hasLoadedFromBackend = false
   clearTempCalculatorState()
   Object.keys(cache).forEach(k => {
     delete cache[k]
@@ -795,7 +844,6 @@ export const clearAllDataOnServer = async () => {
   if (!apiUrl) return
 
   try {
-    hasLoadedFromBackend = false
     Object.keys(cache).forEach(k => {
       delete cache[k]
     })
@@ -839,31 +887,58 @@ export const clearAllDataOnServer = async () => {
 
 
 // Inventory
-export const loadInventory = async (def = []) => {
+export const loadInventory = (def = []) => {
   const t = load("ll_inv", null)
   return t && t.length > 0 ? t : (def || [])
 }
-export const saveInventory = async (data) => await save("ll_inv", data)
+export const saveInventory = async (data) => {
+  cache["ll_inv"] = data
+  try {
+    localStorage.setItem("ll_inv", JSON.stringify(data))
+  } catch (e) { /* ignore */ }
+  const headers = getAuthHeaders()
+  if (!headers) return
+  await syncInventoryItems(headers, data)
+}
 
 // Productions
-export const loadProductions = async (def = []) => load("ll_prods", def)
-export const saveProductionsList = async (data) => await save("ll_prods", data)
+export const loadProductions = (def = []) => load("ll_prods", def)
+export const saveProductionsList = async (data) => {
+  cache["ll_prods"] = data
+  try {
+    localStorage.setItem("ll_prods", JSON.stringify(data))
+  } catch (e) { /* ignore */ }
+  const headers = getAuthHeaders()
+  if (!headers) return
+  await syncOrdersList(headers, data, load("ll_quotes", []), load("ll_inv", []), load("ll_recipes", []))
+}
 export const saveProduction = async (prod) => {
   const all = load("ll_prods", [])
   const exists = all.find(p => p.id === prod.id)
-  await save("ll_prods", exists ? all.map(p => p.id === prod.id ? prod : p) : [...all, prod])
+  const updated = exists ? all.map(p => p.id === prod.id ? prod : p) : [...all, prod]
+  await saveProductionsList(updated)
 }
 export const updateProdStatus = async (id, status) => {
-  await save("ll_prods", load("ll_prods", []).map(p => p.id === id ? { ...p, status } : p))
+  const all = load("ll_prods", [])
+  const updated = all.map(p => p.id === id ? { ...p, status } : p)
+  await saveProductionsList(updated)
 }
 
 // Transactions
-export const loadTransactions = async (def = []) => load("ll_txns", def)
+export const loadTransactions = (def = []) => load("ll_txns", def)
 export const saveTxns = async (data) => await save("ll_txns", data)
 
 // Expenses
-export const loadExpenses = () => load("ll_exp", [])
-export const saveExpenses = async (data) => await save("ll_exp", data)
+export const loadExpenses = (def = []) => load("ll_exp", def)
+export const saveExpenses = async (data) => {
+  cache["ll_exp"] = data
+  try {
+    localStorage.setItem("ll_exp", JSON.stringify(data))
+  } catch (e) { /* ignore */ }
+  const headers = getAuthHeaders()
+  if (!headers) return
+  await syncExpensesList(headers, data)
+}
 
 // Settings
 export const loadSetting = (key, def) => load("ll_setting_" + key, def)
@@ -873,7 +948,6 @@ export const saveSetting = async (key, val) => await save("ll_setting_" + key, v
 export const loadCompany = () => load("ll_co", {
   name: "My Bakery",
   address: "Abuja, Nigeria",
-
   phone: "",
   email: "",
   pin: "1234",
@@ -883,8 +957,16 @@ export const loadCompany = () => load("ll_co", {
 export const saveCompany = async (data) => await save("ll_co", data)
 
 // Quotes
-export const loadQuotes = () => load("ll_quotes", [])
-export const saveQuotes = async (data) => await save("ll_quotes", data)
+export const loadQuotes = (def = []) => load("ll_quotes", def)
+export const saveQuotes = async (data) => {
+  cache["ll_quotes"] = data
+  try {
+    localStorage.setItem("ll_quotes", JSON.stringify(data))
+  } catch (e) { /* ignore */ }
+  const headers = getAuthHeaders()
+  if (!headers) return
+  await syncOrdersList(headers, load("ll_prods", []), data, load("ll_inv", []), load("ll_recipes", []))
+}
 
 // Invoices
 export const loadInvoices = () => load("ll_invoices", [])
@@ -896,7 +978,15 @@ export const saveUsers = async (data) => await save("ll_users", data)
 
 // Recipes
 export const loadRecipes = () => load("ll_recipes", null)
-export const saveRecipes = async (data) => await save("ll_recipes", data)
+export const saveRecipes = async (data) => {
+  cache["ll_recipes"] = data
+  try {
+    localStorage.setItem("ll_recipes", JSON.stringify(data))
+  } catch (e) { /* ignore */ }
+  const headers = getAuthHeaders()
+  if (!headers) return
+  await syncRecipesList(headers, data)
+}
 
 // Clients
 export const loadClients = () => load("ll_clients", [])

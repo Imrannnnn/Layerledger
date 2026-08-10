@@ -140,10 +140,15 @@ export default function App(){
           await syncFromBackend()
           setTenantInfo(loadTenantInfo())
         }
-        const [inv,prods,txns]=await Promise.all([loadInventory(DEFAULT_INV),loadProductions([]),loadTransactions([])])
-        setInventory(inv);setProductions(prods);setTransactions(txns)
-        setExpenses(loadExpenses());setUsers(loadUsers());setCompany(loadCompany())
-        const saved=loadRecipes();if(saved)setRecipes(saved)
+        const inv = loadInventory(DEFAULT_INV)
+        const prods = loadProductions([])
+        const txns = loadTransactions([])
+        const exps = loadExpenses([])
+        const recs = loadRecipes()
+
+        setInventory(inv);setProductions(prods);setTransactions(txns);setExpenses(exps)
+        if(recs)setRecipes(recs)
+        setUsers(loadUsers());setCompany(loadCompany())
         setSettings({accessoryPct:loadSetting("accessoryPct",10),profitPct:loadSetting("profitPct",40)})
         setOnboarded(!!loadLocal("ll_onboarded", false))
       } catch (err) {
@@ -155,20 +160,37 @@ export default function App(){
     init()
   },[currentUser])
 
-  // Periodic background sync every 10 seconds
+  // Periodic background pull every 10 seconds to keep data in sync across devices
   useEffect(()=>{
     if(currentUser){
       const interval=setInterval(async ()=>{
-        await syncToBackend()
-        setTenantInfo(loadTenantInfo())
+        const success = await syncFromBackend()
+        if (success) {
+          setTenantInfo(loadTenantInfo())
+          setInventory(loadInventory(DEFAULT_INV))
+          setProductions(loadProductions([]))
+          setTransactions(loadTransactions([]))
+          setExpenses(loadExpenses([]))
+          const recs = loadRecipes()
+          if (recs) setRecipes(recs)
+        }
       },10000)
       return ()=>clearInterval(interval)
     }
   },[currentUser])
 
-  const setViewWithSync = (v) => {
-    syncToBackend()
+  const setViewWithSync = async (v) => {
     goTo(v)
+    const success = await syncFromBackend()
+    if (success) {
+      setTenantInfo(loadTenantInfo())
+      setInventory(loadInventory(DEFAULT_INV))
+      setProductions(loadProductions([]))
+      setTransactions(loadTransactions([]))
+      setExpenses(loadExpenses([]))
+      const recs = loadRecipes()
+      if (recs) setRecipes(recs)
+    }
   }
 
   const gold=company.primaryColor||"var(--gold)"
