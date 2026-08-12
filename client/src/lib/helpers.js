@@ -89,7 +89,7 @@ export async function callClaude(messages, system="") {
       },
       body: JSON.stringify({
         model: "claude-sonnet-5",
-        max_tokens: 4000,
+        max_tokens: 1500,
         system,
         messages
       })
@@ -100,22 +100,30 @@ export async function callClaude(messages, system="") {
 
   const text = await res.text()
   if (!res.ok) {
+    let errMsg = ""
+    try {
+      if (text && text.trim()) {
+        const errJson = JSON.parse(text)
+        errMsg = errJson.error?.message || errJson.message || ""
+        if (errJson.error?.type === "not_found_error") {
+          errMsg = `Anthropic API error: Model not found (${errMsg}). This usually means your Anthropic account has no credits/funds left or billing is inactive. Please fund your account in the Anthropic Console.`
+        }
+      }
+    } catch (e) {
+      // Ignore JSON parse errors and fallback to status checks
+    }
+
+    if (errMsg) {
+      throw new Error(errMsg)
+    }
+
     if (res.status === 401 || res.status === 403) {
       throw new Error(`Authentication failed (${res.status}). Your session token may be invalid or expired. Please log out and log back in.`)
     }
     if (res.status === 404) {
       throw new Error(`AI proxy endpoint not found (404). Endpoint URL: ${endpoint}. Make sure the backend server is running and VITE_API_URL in the frontend environment is set correctly.`)
     }
-    let errMsg = `API error (Status ${res.status})`
-    try {
-      if (text && text.trim()) {
-        const errJson = JSON.parse(text)
-        errMsg = errJson.error?.message || errJson.message || errMsg
-      }
-    } catch (e) {
-      errMsg = text || errMsg
-    }
-    throw new Error(errMsg)
+    throw new Error(`API error (Status ${res.status}): ${text || "Unknown error"}`)
   }
   if (!text || !text.trim()) {
     throw new Error("No response from API.")

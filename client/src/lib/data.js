@@ -704,8 +704,12 @@ export const syncFromBackend = async () => {
       delete cache[k]
     })
 
+    let isAlreadyOnboarded = false
     if (tenant.settings && tenant.settings.localState) {
       const state = tenant.settings.localState
+      if (state.ll_onboarded === "1" || state.ll_onboarded === 1 || state.ll_co || state.ll_multipliers) {
+        isAlreadyOnboarded = true
+      }
       Object.entries(state).forEach(([k, v]) => {
         if (v !== null && !keysToIgnoreOnLogin.includes(k)) {
           let parsed;
@@ -734,6 +738,7 @@ export const syncFromBackend = async () => {
 
     if (invRes.ok) {
       const serverInv = await invRes.json()
+      if (serverInv.length > 0) isAlreadyOnboarded = true
       const localInv = serverInv.map(mapServerInventoryToLocal)
       cache["ll_inv"] = localInv
       localStorage.setItem("ll_inv", JSON.stringify(localInv))
@@ -742,6 +747,7 @@ export const syncFromBackend = async () => {
 
     if (recipesRes.ok) {
       const serverRecipes = await recipesRes.json()
+      if (serverRecipes.length > 0) isAlreadyOnboarded = true
       const localRecipes = serverRecipes.map(mapServerRecipeToLocal)
       cache["ll_recipes"] = localRecipes
       localStorage.setItem("ll_recipes", JSON.stringify(localRecipes))
@@ -750,6 +756,7 @@ export const syncFromBackend = async () => {
 
     if (ordersRes.ok) {
       const serverOrders = await ordersRes.json()
+      if (serverOrders.length > 0) isAlreadyOnboarded = true
       const localProds = []
       const localQuotes = []
       serverOrders.forEach(o => {
@@ -791,6 +798,14 @@ export const syncFromBackend = async () => {
       cache["ll_quote_invoices"] = localInvoices
       localStorage.setItem("ll_quote_invoices", JSON.stringify(localInvoices))
       lastSyncedValues["ll_quote_invoices"] = JSON.stringify(localInvoices)
+    }
+
+    if (isAlreadyOnboarded) {
+      cache["ll_onboarded"] = "1"
+      localStorage.setItem("ll_onboarded", "1")
+      if (!tenant.settings?.localState?.ll_onboarded) {
+        setTimeout(() => syncTenantSettingsOnly(headers), 100)
+      }
     }
 
     return true

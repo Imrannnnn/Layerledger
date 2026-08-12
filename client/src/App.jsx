@@ -371,7 +371,7 @@ export default function App(){
               {view==="calculator"  &&<OrderCalculator inventory={inventory} recipes={recipes} settings={settings} setView={setViewWithSync} company={company}/>}
               {view==="production" &&<ProductionEntry inventory={inventory} setInventory={setInventory} recipes={recipes} productions={productions} setProductions={setProductions} settings={settings} setView={setViewWithSync} user={currentUser}/>}
               {view==="receipts"   &&<ReceiptScanner inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses}/>}
-              {view==="purchases"  &&<Purchases inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses}/>}
+              {view==="purchases"  &&<Purchases inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses} setView={setViewWithSync}/>}
               {view==="expenses"   &&<Expenses expenses={expenses} setExpenses={setExpenses}/>}
               {view==="quotes"     &&<QuotesPage inventory={inventory} setInventory={setInventory} recipes={recipes} setView={setViewWithSync} productions={productions} setProductions={setProductions}/>}
               {view==="records"    &&<Records productions={productions} setProductions={setProductions} setView={setViewWithSync} setPrefillProd={setPrefillProd} user={currentUser}/>}

@@ -10,7 +10,7 @@ import { fmt, uid, DEFAULT_CATEGORIES, mapCategory } from "../../lib/helpers.js"
 import { saveInventory, saveExpenses, loadLocal, saveLocal } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
-export function Purchases({inventory,setInventory,expenses,setExpenses}){
+export function Purchases({inventory,setInventory,expenses,setExpenses,setView}){
   const [showForm,setShowForm]=useState(false)
   const [purchases,setPurchases]=useState(()=>loadLocal("ll_purchases",[]))
   const [f,setF]=useState({item:"",category:"",unit:"",unitSize:"",qty:"",price:"",date:new Date().toISOString().slice(0,10)})
@@ -90,7 +90,14 @@ export function Purchases({inventory,setInventory,expenses,setExpenses}){
       <Card style={{padding:"12px 14px"}}><div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Items updated</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:"#357A52"}}>{new Set(purchases.map(p=>p.itemId)).size}</div></Card>
     </div>
 
-    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+      <div>
+        {setView && (
+          <Btn variant="ghost" onClick={() => setView("receipts")}>
+            🧾 Go to Receipt Scanner →
+          </Btn>
+        )}
+      </div>
       <Btn onClick={()=>setShowForm(s=>!s)}>+ Log Purchase</Btn>
     </div>
 

@@ -216,8 +216,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
 export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,setTab}){
   const [showImport,setShowImport]=useState(false)
   const [showAdd,setShowAdd]=useState(false)
-  const [marketRun,setMarketRun]=useState(false)
-  const [marketQuantities,setMarketQuantities]=useState({})
+
   const [importStep,setImportStep]=useState(1) // 1=paste 2=preview 3=done
   const [prevItems,setPrevItems]=useState([])
   const [pasteN,setPasteN]=useState("")
@@ -419,20 +418,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     }
   }
 
-  const handleSaveMarketRun = async () => {
-    const updated = inventory.map(item => {
-      const added = parseFloat(marketQuantities[item.id]) || 0
-      if (added > 0) {
-        return { ...item, stock: parseFloat((item.stock + added).toFixed(3)) }
-      }
-      return item
-    })
-    setInventory(updated)
-    await saveInventory(updated)
-    setMarketQuantities({})
-    setMarketRun(false)
-    showMsg("✓ Stock updated from market run!", "green")
-  }
+
 
 
   const badge=(item)=>{
@@ -476,7 +462,6 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
           </Btn>
         )}
         <Btn small variant="outline" onClick={() => setShowAddCatModal(true)}>+ New Category</Btn>
-        <Btn small variant="ghost" onClick={() => setMarketRun(true)}>🛒 Update stock after market run</Btn>
         <Btn small variant="ghost" onClick={()=>{setShowImport(s=>!s);setShowAdd(false);setImportStep(1)}}>📋 Import from Excel</Btn>
         <Btn small onClick={()=>{setShowAdd(s=>!s);setShowImport(false)}}>+ Add Item</Btn>
       </div>}
@@ -504,44 +489,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     )}
 
 
-    {/* MARKET RUN MODAL */}
-    {marketRun && (
-      <Modal title="Market Run Stock Update" onClose={() => setMarketRun(false)}>
-        <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
-          Enter the quantities purchased for low-stock and out-of-stock ingredients. Click **Save All** to update inventory levels simultaneously.
-        </div>
-        {lowStock.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "20px 0", fontSize: 14, color: "green", fontWeight: 600 }}>
-            ✓ All items are fully stocked! No low-stock items to update.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 350, overflowY: "auto", paddingRight: 6, marginBottom: 14 }}>
-            {lowStock.map(item => (
-              <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#FAF7F0", padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border)" }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{item.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Current stock: {item.stock} {item.unit} | Min: {item.minStock} {item.unit}</div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="number"
-                    placeholder="+ Qty"
-                    value={marketQuantities[item.id] || ""}
-                    onChange={e => setMarketQuantities({ ...marketQuantities, [item.id]: e.target.value })}
-                    style={{ ...iSt, width: 90, padding: "8px 10px", fontSize: 13, fontWeight: 600, textAlign: "right" }}
-                  />
-                  <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--muted)", width: 26 }}>{item.unit}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-          <Btn variant="success" onClick={handleSaveMarketRun} disabled={Object.keys(marketQuantities).length === 0}>Save All Updates</Btn>
-          <Btn variant="ghost" onClick={() => setMarketRun(false)}>Cancel</Btn>
-        </div>
-      </Modal>
-    )}
+
 
     {/* SUMMARY CARDS */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:12}}>

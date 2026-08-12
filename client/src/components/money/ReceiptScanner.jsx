@@ -63,7 +63,7 @@ function normalizeItem(r) {
     unit_size: Number(r.unit_size || r.size || 1) || 1,
     unit_price: price,
     line_total: total,
-    type: (r.type === "expense" || r.type === "Expense") ? "expense" : "purchase",
+    type: "purchase",
     overrideId: String(r.matched_id || r.overrideId || ""),
     approved: r.approved !== undefined ? Boolean(r.approved) : r.confidence !== "low",
     confidence: String(r.confidence || "high")
@@ -79,7 +79,6 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
   const [parsed, setParsed] = useState(null) // { supplier, receipt_date, items: [...] }
   const [totalAmount, setTotalAmount] = useState("")
   const [saving, setSaving] = useState(false)
-  const [rawParseError, setRawParseError] = useState("")
   const fileRef = useRef()
 
   // State for creating a new inventory item directly from the review step
@@ -105,7 +104,7 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
     setLoading(true)
     setError("")
     try {
-      const compressed = await compressImage(photoB64, 1200)
+      const compressed = await compressImage(photoB64, 800)
       const invList = inventory.map(i => `${i.id}:${i.name}(${i.unit})`).join(", ")
       const raw = await callClaude([
         {
@@ -159,9 +158,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
           receipt_date: result?.receipt_date || today(),
           items: [
             { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
-          ],
-          rawText: displayRawText,
-          isEditingRaw: true
+          ]
         })
         setTotalAmount("")
       } else {
@@ -169,9 +166,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
           supplier: result.supplier || "",
           receipt_date: result.receipt_date || today(),
           ...result,
-          items: rawItems.map(normalizeItem),
-          rawText: displayRawText,
-          isEditingRaw: true
+          items: rawItems.map(normalizeItem)
         })
         if (result.receipt_total) setTotalAmount(String(result.receipt_total))
       }
@@ -189,46 +184,16 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       receipt_date: today(),
       items: [
         { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
-      ],
-      rawText: "",
-      isEditingRaw: false
+      ]
     })
     setTotalAmount("")
     setSaved(false)
     setPhoto(null)
     setPhotoB64(null)
     setError("")
-    setRawParseError("")
   }
 
   // Reparse raw text manually edited by user
-  const handleReparseRaw = () => {
-    setRawParseError("")
-    if (!parsed || !parsed.rawText) return
-
-    const result = extractAndRepairJson(parsed.rawText)
-    const rawItems = result && (
-      Array.isArray(result.items) ? result.items :
-        Array.isArray(result.purchases) ? result.purchases :
-          Array.isArray(result.data) ? result.data :
-            Array.isArray(result.receipt_items) ? result.receipt_items : null
-    )
-
-    if (!result || !rawItems || rawItems.length === 0) {
-      setRawParseError("Could not parse JSON or no items list found. Please check syntax (quotes, brackets).")
-      return
-    }
-
-    setParsed(prev => ({
-      ...prev,
-      ...result,
-      items: rawItems.map(normalizeItem),
-      isEditingRaw: true
-    }))
-    if (result.receipt_total) {
-      setTotalAmount(String(result.receipt_total))
-    }
-  }
 
   // Edit list helper
   const updateRow = (idx, field, val) => {
@@ -267,7 +232,6 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
   }
 
   const toggleApprove = idx => setParsed(p => ({ ...p, items: p.items.map((r, i) => i === idx ? { ...r, approved: !r.approved } : r) }))
-  const toggleType = idx => setParsed(p => ({ ...p, items: p.items.map((r, i) => i === idx ? { ...r, type: r.type === "purchase" ? "expense" : "purchase" } : r) }))
   const setMatch = (idx, id) => setParsed(p => ({ ...p, items: p.items.map((r, i) => i === idx ? { ...r, overrideId: id, approved: true } : r) }))
 
   // Save the receipt to stock + expenses
@@ -562,48 +526,9 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 600 }}>Review & Match Items</div>
               <div style={{ display: "flex", gap: 8 }}>
-                {!parsed.isEditingRaw ? (
-                  <Btn small variant="outline" onClick={() => setParsed({ ...parsed, isEditingRaw: true })}>✍️ Show Raw AI Response</Btn>
-                ) : (
-                  <Btn small variant="outline" onClick={() => setParsed({ ...parsed, isEditingRaw: false })}>🙈 Hide Raw Box</Btn>
-                )}
                 <Btn small variant="ghost" onClick={addBlankRow}>+ Add Row</Btn>
               </div>
             </div>
-
-            {parsed.isEditingRaw && (
-              <div style={{ marginBottom: 14, padding: 12, background: "#FFF9EE", border: "1px solid #FEF0D0", borderRadius: 8 }}>
-                <div style={{ fontWeight: 600, fontSize: 12, color: "#7A5500", marginBottom: 6 }}>
-                  🤖 Raw AI Response JSON (Inspect or edit text below, then click Parse):
-                </div>
-                <textarea
-                  value={parsed.rawText || ""}
-                  onChange={e => setParsed({ ...parsed, rawText: e.target.value })}
-                  placeholder="Raw AI response will appear here..."
-                  style={{
-                    width: "100%",
-                    height: 150,
-                    fontFamily: "monospace",
-                    fontSize: 11,
-                    padding: 8,
-                    background: "white",
-                    border: "1px solid var(--border)",
-                    borderRadius: 4,
-                    resize: "vertical",
-                    lineHeight: 1.4
-                  }}
-                />
-                {rawParseError && (
-                  <div style={{ color: "#B03A2E", fontSize: 11, marginTop: 6, fontWeight: 600 }}>
-                    ❌ Parsing Error: {rawParseError}
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <Btn small variant="success" onClick={handleReparseRaw}>✓ Parse & Load JSON</Btn>
-                  <Btn small variant="outline" onClick={() => setParsed({ ...parsed, isEditingRaw: false })}>Hide Box</Btn>
-                </div>
-              </div>
-            )}
 
             {/* Receipt Metadata */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
@@ -625,12 +550,6 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
                       />
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                      <span
-                        onClick={() => toggleType(idx)}
-                        style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, cursor: "pointer", fontWeight: 600, background: r.type === "purchase" ? "#E8EFFC" : "#FEF0D0", color: r.type === "purchase" ? "#2355A0" : "#7A5500" }}
-                      >
-                        {r.type === "purchase" ? "🛍 Buy" : "💸 Exp"}
-                      </span>
                       <div onClick={() => toggleApprove(idx)} style={{ width: 32, height: 18, borderRadius: 9, background: r.approved ? "#357A52" : "var(--border)", cursor: "pointer", position: "relative", flexShrink: 0 }}>
                         <div style={{ width: 14, height: 14, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: r.approved ? 16 : 2, transition: "left 0.2s" }} />
                       </div>
