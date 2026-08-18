@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "test": "jest",
+    "test": "jest --runInBand",
     "lint": "eslint .",
     "dev": "nodemon server.js",
     "start": "node server.js",

@@ -9,10 +9,13 @@ if (process.env.NODE_ENV === 'test' || !process.env.NODE_TLS_REJECT_UNAUTHORIZED
 }
 
 function createPrismaClient() {
-  const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-  });
+  const url = process.env.DATABASE_URL || '';
+  const isSslNeeded = url.includes('sslmode=') || url.includes('supabase') || url.includes('ssl=true');
+  const poolConfig = { connectionString: url };
+  if (isSslNeeded) {
+    poolConfig.ssl = { rejectUnauthorized: false };
+  }
+  const pool = new Pool(poolConfig);
   const adapter = new PrismaPg(pool);
   const client = new PrismaClient({ adapter });
   client.$pool = pool;
