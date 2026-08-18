@@ -20,6 +20,9 @@ const mapServerRecipeToLocal = (rec) => ({
   id: rec.id,
   name: rec.name,
   notes: rec.notes || "",
+  type: rec.type || "layer",
+  batchWeight: rec.batchWeight || null,
+  batchSize: rec.batchSize || null,
   ing: (rec.ingredients || []).map(ri => ({
     iid: ri.inventoryItemId,
     qty: ri.quantity
@@ -310,6 +313,9 @@ const syncRecipesList = async (headers, localRecipes) => {
       id: rec.id,
       name: rec.name || "Recipe",
       notes: rec.notes || "",
+      type: rec.type || "layer",
+      batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null ? Number(rec.batchWeight) : null,
+      batchSize: rec.batchSize !== undefined && rec.batchSize !== null ? Number(rec.batchSize) : null,
       ingredients: (rec.ing || []).map(i => ({
         item: i.iid || "item",
         quantity: Number(i.qty) || 0

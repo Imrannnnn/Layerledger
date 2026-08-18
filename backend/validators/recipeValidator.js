@@ -8,8 +8,11 @@ const recipeIngredientSchema = z.object({
 const createRecipeSchema = z.object({
     body: z.object({
         name: z.string().trim().min(1, 'Recipe name is required'),
-        notes: z.string().optional(),
-        ingredients: z.array(recipeIngredientSchema).min(1, 'Ingredients list is required and must not be empty'),
+        notes: z.string().optional().nullable(),
+        ingredients: z.array(recipeIngredientSchema).optional().default([]),
+        type: z.string().optional().default('layer'),
+        batchWeight: z.number().optional().nullable(),
+        batchSize: z.number().optional().nullable(),
         id: z.string().optional()
     })
 });
@@ -17,8 +20,11 @@ const createRecipeSchema = z.object({
 const updateRecipeSchema = z.object({
     body: z.object({
         name: z.string().trim().min(1, 'Recipe name cannot be empty').optional(),
-        notes: z.string().optional(),
-        ingredients: z.array(recipeIngredientSchema).min(1, 'Ingredients list must not be empty').optional()
+        notes: z.string().optional().nullable(),
+        ingredients: z.array(recipeIngredientSchema).optional(),
+        type: z.string().optional(),
+        batchWeight: z.number().optional().nullable(),
+        batchSize: z.number().optional().nullable()
     })
 });
 

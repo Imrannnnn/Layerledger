@@ -57,7 +57,7 @@ const getRecipeById = asyncHandler(async (req, res) => {
  */
 const createRecipe = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { name, notes, ingredients } = req.body;
+    const { name, notes, ingredients, type, batchWeight, batchSize } = req.body;
 
     const recipe = await prisma.recipe.create({
         data: {
@@ -65,8 +65,11 @@ const createRecipe = asyncHandler(async (req, res) => {
             tenantId,
             name,
             notes,
+            type: type || "layer",
+            batchWeight: batchWeight !== undefined ? batchWeight : null,
+            batchSize: batchSize !== undefined ? batchSize : null,
             ingredients: {
-                create: ingredients.map(ing => ({
+                create: (ingredients || []).map(ing => ({
                     inventoryItemId: ing.item,
                     quantity: ing.quantity
                 }))
@@ -86,7 +89,7 @@ const createRecipe = asyncHandler(async (req, res) => {
  */
 const updateRecipe = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { name, notes, ingredients } = req.body;
+    const { name, notes, ingredients, type, batchWeight, batchSize } = req.body;
 
     // Verify the recipe exists and belongs to the tenant
     const existing = await prisma.recipe.findFirst({ where: { id: req.params.id, tenantId } });
@@ -95,8 +98,12 @@ const updateRecipe = asyncHandler(async (req, res) => {
         throw new Error('Recipe not found');
     }
 
-    const updateData = { notes };
-    if (name) updateData.name = name;
+    const updateData = {};
+    if (notes !== undefined) updateData.notes = notes;
+    if (name !== undefined) updateData.name = name;
+    if (type !== undefined) updateData.type = type;
+    if (batchWeight !== undefined) updateData.batchWeight = batchWeight;
+    if (batchSize !== undefined) updateData.batchSize = batchSize;
 
     if (ingredients) {
         updateData.ingredients = {

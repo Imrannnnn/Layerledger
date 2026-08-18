@@ -90,6 +90,9 @@ model Recipe {
   tenantId    String
   name        String
   notes       String?
+  type        String             @default("layer")
+  batchWeight Float?
+  batchSize   Float?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   orderItems  OrderItem[]

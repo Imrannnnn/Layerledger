@@ -1416,6 +1416,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
   const isOwner = user?.role==="owner"
   const [showRecipeExcelImport, setShowRecipeExcelImport] = useState(false)
   const [showRecipeScan, setShowRecipeScan] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [searchQueries, setSearchQueries] = useState({
     inventory: "",
     recipes: "",
@@ -1438,19 +1439,47 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
   const openRecipe = (r) => setRecipeModal(r ? {...r} : {id:uid(),name:"",size:"6",tiers:1,covering:"buttercream",ing:[]})
   const saveRecipe = async () => {
     if(!recipeModal.name)return showMsg("Recipe name is required")
-    const updated = recipes.find(r=>r.id===recipeModal.id) ? recipes.map(r=>r.id===recipeModal.id?recipeModal:r) : [...recipes, recipeModal]
-    setRecipes(updated); saveRecipes(updated); setRecipeModal(null); showMsg("✓ Recipe saved","green")
+    setSaving(true)
+    try {
+      const updated = recipes.find(r=>r.id===recipeModal.id) ? recipes.map(r=>r.id===recipeModal.id?recipeModal:r) : [...recipes, recipeModal]
+      setRecipes(updated)
+      await saveRecipes(updated)
+      setRecipeModal(null)
+      showMsg("✓ Recipe saved","green")
+    } catch (e) {
+      showMsg("Failed to save recipe: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
   }
   const deleteRecipe = async (id) => {
     if(!confirm("Delete this recipe?"))return
-    const updated=recipes.filter(r=>r.id!==id); setRecipes(updated); saveRecipes(updated); showMsg("Recipe deleted")
+    setSaving(true)
+    try {
+      const updated=recipes.filter(r=>r.id!==id)
+      setRecipes(updated)
+      await saveRecipes(updated)
+      showMsg("Recipe deleted")
+    } catch (e) {
+      showMsg("Failed to delete recipe: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
   }
-  const duplicateRecipe = (r) => {
-    const copy={...r,id:uid(),name:r.name+" (copy)",ing:r.ing?r.ing.map(i=>({...i})):[]}
-    const updated=[...recipes,copy]
-    setRecipes(updated);saveRecipes(updated)
-    setRecipeModal(copy)
-    showMsg("✓ Recipe duplicated — rename it and adjust quantities","green")
+  const duplicateRecipe = async (r) => {
+    setSaving(true)
+    try {
+      const copy={...r,id:uid(),name:r.name+" (copy)",ing:r.ing?r.ing.map(i=>({...i})):[]}
+      const updated=[...recipes,copy]
+      setRecipes(updated)
+      await saveRecipes(updated)
+      setRecipeModal(copy)
+      showMsg("✓ Recipe duplicated — rename it and adjust quantities","green")
+    } catch (e) {
+      showMsg("Failed to duplicate recipe: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
   }
   const addIngToRecipe = () => setRecipeModal(r=>({...r,ing:[...r.ing,{iid:"",qty:""}]}))
   const updateIng = (idx,field,val) => setRecipeModal(r=>({...r,ing:r.ing.map((ing,i)=>i===idx?{...ing,[field]:val}:ing)}))
@@ -1553,7 +1582,16 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
               {recipeModal.batchSize>0&&<span style={{marginLeft:8,color:"var(--muted)"}}>· Cost per piece: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory)/(recipeModal.batchSize))}</strong></span>}</>
             :<>Cost per {recipeModal.type==="covering"?"batch":"layer"}: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory))}</strong></>}
         </div>}
-        <div style={{marginTop:12,display:"flex",gap:8}}><Btn variant="success" onClick={saveRecipe}>✓ Save Recipe</Btn><Btn variant="ghost" onClick={()=>setRecipeModal(null)}>Cancel</Btn></div>
+        <div style={{marginTop:12,display:"flex",gap:8}}>
+          {saving ? (
+            <Spinner />
+          ) : (
+            <>
+              <Btn variant="success" onClick={saveRecipe}>✓ Save Recipe</Btn>
+              <Btn variant="ghost" onClick={()=>setRecipeModal(null)}>Cancel</Btn>
+            </>
+          )}
+        </div>
       </Modal>}
 
       {showRecipeExcelImport && (
