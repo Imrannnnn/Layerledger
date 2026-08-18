@@ -16,18 +16,18 @@
  *   constants.js              seed data & fixed option lists
  *   lib/helpers.js            money formatting, ids, costing, AI, CSV
  *   lib/costing.jsx            revenue/report helpers + P&L row components
- *   lib/data.js               localStorage read/write ("the database")
+ *   lib/data.js               sessionStorage read/write ("the database")
  *   components/common/ui.jsx  shared UI building blocks
  *   components/<domain>/...   one screen (or group) per file
  *
  * DATA STORAGE: no server database yet — all data is in the browser's
- * localStorage via lib/data.js. A backend + real database (Cloudflare D1 or
+ * sessionStorage via lib/data.js. A backend + real database (Cloudflare D1 or
  * Supabase) with login and cross-device sync is the planned "Stage 2".
  * ============================================================================
  */
 import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from "react"
 
-// ─── Data access layer (localStorage today; a backend API in Stage 2) ───────
+// ─── Data access layer (sessionStorage today; a backend API in Stage 2) ───────
 import { loadInventory, saveInventory, loadProductions, saveProduction, updateProdStatus,
   loadTransactions, saveTxns, loadExpenses, saveExpenses, loadSetting, saveSetting,
   loadCompany, saveCompany, loadInvoices, saveInvoice, loadUsers, saveUsers,
@@ -102,7 +102,7 @@ export default function App(){
 
   const [currentUser, setCurrentUser] = useState(() => {
     try {
-      const saved = localStorage.getItem("ll_current_user");
+      const saved = sessionStorage.getItem("ll_current_user");
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -238,7 +238,7 @@ export default function App(){
       <Suspense fallback={<Spinner />}>
         <Login onLogin={(u)=>{
           setCurrentUser(u);
-          localStorage.setItem("ll_current_user", JSON.stringify(u));
+          sessionStorage.setItem("ll_current_user", JSON.stringify(u));
           saveSetting("lastUser",u.id);
           if(!loadLocal("ll_onboarded", false))setOnboarded(false);
         }}/>
@@ -371,18 +371,18 @@ export default function App(){
               {view==="calculator"  &&<OrderCalculator inventory={inventory} recipes={recipes} settings={settings} setView={setViewWithSync} company={company}/>}
               {view==="production" &&<ProductionEntry inventory={inventory} setInventory={setInventory} recipes={recipes} productions={productions} setProductions={setProductions} settings={settings} setView={setViewWithSync} user={currentUser}/>}
               {view==="receipts"   &&<ReceiptScanner inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses}/>}
-              {view==="purchases"  &&<Purchases inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses} setView={setViewWithSync}/>}
-              {view==="expenses"   &&<Expenses expenses={expenses} setExpenses={setExpenses}/>}
+              {view==="purchases"  &&<Purchases inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses} setView={setViewWithSync} isOwner={!currentUser || currentUser?.role === "owner"}/>}
+              {view==="expenses"   &&<Expenses expenses={expenses} setExpenses={setExpenses} isOwner={!currentUser || currentUser?.role === "owner"}/>}
               {view==="quotes"     &&<QuotesPage inventory={inventory} setInventory={setInventory} recipes={recipes} setView={setViewWithSync} productions={productions} setProductions={setProductions}/>}
               {view==="records"    &&<Records productions={productions} setProductions={setProductions} setView={setViewWithSync} setPrefillProd={setPrefillProd} user={currentUser}/>}
               {view==="prodlist"   &&<ProductionList productions={productions} setProductions={setProductions} company={company} setView={setViewWithSync}/>}
               {view==="bank"       &&<BankImport transactions={transactions} setTransactions={setTransactions} productions={productions} setProductions={setProductions} expenses={expenses} setExpenses={setExpenses}/>}
-              {view==="monthly"    &&<MonthlyOverview inventory={inventory} productions={productions} expenses={expenses} company={company}/>}
+              {view==="monthly"    &&<MonthlyOverview inventory={inventory} productions={productions} setProductions={setProductions} expenses={expenses} setExpenses={setExpenses} company={company} isOwner={!currentUser || currentUser?.role === "owner"}/>}
               {view==="pandl"      &&<PandL productions={productions} expenses={expenses} company={company}/>}
               {view==="payables"   &&<Payables inventory={inventory} setInventory={setInventory}/>}
               {view==="balance"    &&<BalanceSheet productions={productions} expenses={expenses} inventory={inventory} transactions={transactions} company={company}/>}
               {view==="shopping"   &&<ShoppingList inventory={inventory} setInventory={setInventory} company={company}/>}
-              {view==="invoices"   &&<Invoices productions={productions} company={company} prefillProd={prefillProd} setPrefillProd={setPrefillProd}/>}
+              {view==="invoices"   &&<Invoices productions={productions} company={company} prefillProd={prefillProd} setPrefillProd={setPrefillProd} isOwner={!currentUser || currentUser?.role === "owner"}/>}
               {view==="settings"   &&<Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory} setInventory={setInventory} user={currentUser}/>}
             </Suspense>
           }

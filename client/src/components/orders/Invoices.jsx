@@ -6,14 +6,28 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect } from "react"
-import { Btn, iSt, Card, Badge, SHead, Tabs } from "../common/ui.jsx"
+import { Btn, iSt, Card, Badge, SHead, Tabs, Spinner } from "../common/ui.jsx"
 import { loadLocal, saveLocal } from "../../lib/data.js"
 
-export function Invoices({productions,company,prefillProd,setPrefillProd}){
+export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner}){
   const loadInvs=()=>{return loadLocal("ll_quote_invoices",[])}
   const [invoices,setInvoices]=useState(loadInvs)
   const [search,setSearch]=useState("")
   const [filter,setFilter]=useState("all")
+  const [deletingAll, setDeletingAll] = useState(false)
+
+  const handleDeleteAll = async () => {
+    if (!window.confirm("Are you sure you want to delete ALL invoices? This will clear all invoice records permanently. This cannot be undone.")) return
+    setDeletingAll(true)
+    try {
+      setInvoices([])
+      await saveLocal("ll_quote_invoices", [])
+    } catch (err) {
+      alert("Failed to delete invoices: " + err.message)
+    } finally {
+      setDeletingAll(false)
+    }
+  }
 
   // Reload when component mounts
   useEffect(()=>{ setInvoices(loadInvs()) },[])
@@ -130,9 +144,26 @@ export function Invoices({productions,company,prefillProd,setPrefillProd}){
       </Card>
       :<>
         {/* Search and filter */}
-        <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by client name or invoice number..." style={{...iSt,flex:1,minWidth:200}}/>
-          <Tabs tabs={[{v:"all",l:"All"},{v:"unpaid",l:"Unpaid"},{v:"paid",l:"Paid"}]} active={filter} onChange={setFilter}/>
+        <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",gap:10,flex:1,minWidth:200,alignItems:"center",flexWrap:"wrap"}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by client name or invoice number..." style={{...iSt,flex:1,minWidth:200}}/>
+            <Tabs tabs={[{v:"all",l:"All"},{v:"unpaid",l:"Unpaid"},{v:"paid",l:"Paid"}]} active={filter} onChange={setFilter}/>
+          </div>
+          {isOwner && (
+            deletingAll ? (
+              <Spinner />
+            ) : (
+              <Btn
+                small
+                variant="ghost"
+                disabled={deletingAll}
+                style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px", fontWeight: "normal", padding: "4px 8px" }}
+                onClick={handleDeleteAll}
+              >
+                🗑 Clear All Invoices
+              </Btn>
+            )
+          )}
         </div>
 
         {/* Summary row */}

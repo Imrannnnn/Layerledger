@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect } from "../common/ui.jsx"
+import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect, Spinner } from "../common/ui.jsx"
 import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES } from "../../lib/helpers.js"
 
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
@@ -36,10 +36,10 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
   const isPastry=r.type==="pastry"
   const isCovering=r.type==="covering" || r.type==="filling"
 
-  // Load multipliers from localStorage (set in Settings → Pricing setup)
+  // Load multipliers from sessionStorage (set in Settings → Pricing setup)
   const getMult=()=>{
     try{
-      const all=JSON.parse(localStorage.getItem("ll_multipliers")||"null")||DEFAULT_MULTS
+      const all=JSON.parse(sessionStorage.getItem("ll_multipliers")||"null")||DEFAULT_MULTS
       const key=size.replace(" inch","").replace('"','').trim()+"-"+shape.toLowerCase()
       return all[key]||null
     }catch{return null}
@@ -210,12 +210,13 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
 }
 
 // ═══════════════════════════════════════════════════════════
-//  DECORATIONS TAB (standalone — own state, saved to localStorage)
+//  DECORATIONS TAB (standalone — own state, saved to sessionStorage)
 
 // ═══════════════════════════════════════════════════════════
-export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,setTab}){
+export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,setTab,searchQuery=""}){
   const [showImport,setShowImport]=useState(false)
   const [showAdd,setShowAdd]=useState(false)
+  const [saving,setSaving]=useState(false)
 
   const [importStep,setImportStep]=useState(1) // 1=paste 2=preview 3=done
   const [prevItems,setPrevItems]=useState([])
@@ -287,11 +288,18 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
   }
 
   const confirmImport=async()=>{
-    const approved=prevItems.filter(p=>p.on)
-    const updated=[...inventory,...approved.filter(ni=>!inventory.find(i=>i.name.toLowerCase()===ni.name.toLowerCase()))]
-    setInventory(updated);await saveInventory(updated)
-    setPasteN("");setPasteU("");setPasteC("");setImportStep(3)
-    showMsg(`✓ ${approved.length} items imported. Set opening stock in Settings → Opening Stock.`,"green")
+    setSaving(true)
+    try {
+      const approved=prevItems.filter(p=>p.on)
+      const updated=[...inventory,...approved.filter(ni=>!inventory.find(i=>i.name.toLowerCase()===ni.name.toLowerCase()))]
+      setInventory(updated);await saveInventory(updated)
+      setPasteN("");setPasteU("");setPasteC("");setImportStep(3)
+      showMsg(`✓ ${approved.length} items imported. Set opening stock in Settings → Opening Stock.`,"green")
+    } catch (e) {
+      showMsg("Failed to import: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const addSingle=async()=>{
@@ -312,14 +320,21 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       selectedCat = await addCustomCategory(customCatInput)
     }
 
-    const item={id:uid(),name:newItem.name,unit:newItem.unit||"kg",cost:+cost,stock:0,minStock:+newItem.minStock||5,cat:selectedCat||"Dry Goods"}
-    const updated=[...inventory,item]
-    setInventory(updated);await saveInventory(updated)
-    setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""})
-    setCustomCatInput("")
-    setShowAdd(false)
-    setCalcMode("manual")
-    showMsg("✓ Item added. Set opening stock in Settings → Opening Stock.","green")
+    setSaving(true)
+    try {
+      const item={id:uid(),name:newItem.name,unit:newItem.unit||"kg",cost:+cost,stock:0,minStock:+newItem.minStock||5,cat:selectedCat||"Dry Goods"}
+      const updated=[...inventory,item]
+      setInventory(updated);await saveInventory(updated)
+      setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""})
+      setCustomCatInput("")
+      setShowAdd(false)
+      setCalcMode("manual")
+      showMsg("✓ Item added. Set opening stock in Settings → Opening Stock.","green")
+    } catch (e) {
+      showMsg("Failed to add item: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const startEdit=(item)=>{
@@ -334,12 +349,26 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       if (!customCatInput.trim()) return showMsg("Category name is required", "red")
       finalCat = await addCustomCategory(customCatInput)
     }
-    const updated=inventory.map(i=>i.id===editId?{...editRow,cat:finalCat,cost:+editRow.cost,minStock:+editRow.minStock||5,stock:+editRow.stock||0}:i)
-    setInventory(updated);await saveInventory(updated);setEditId(null);setCustomCatInput("");showMsg("✓ Updated","green")
+    setSaving(true)
+    try {
+      const updated=inventory.map(i=>i.id===editId?{...editRow,cat:finalCat,cost:+editRow.cost,minStock:+editRow.minStock||5,stock:+editRow.stock||0}:i)
+      setInventory(updated);await saveInventory(updated);setEditId(null);setCustomCatInput("");showMsg("✓ Updated","green")
+    } catch (e) {
+      showMsg("Failed to save item: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
   }
   const doDelete=async(id)=>{
     if(!confirm("Remove this item?"))return
-    const updated=inventory.filter(i=>i.id!==id);setInventory(updated);await saveInventory(updated)
+    setSaving(true)
+    try {
+      const updated=inventory.filter(i=>i.id!==id);setInventory(updated);await saveInventory(updated)
+    } catch (e) {
+      showMsg("Failed to delete item: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const [selectedItemIds, setSelectedItemIds] = useState(new Set())
@@ -383,18 +412,25 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       catToApply = await addCustomCategory(customCatInput)
     }
 
-    const updated = inventory.map(item => {
-      if (selectedItemIds.has(item.id)) {
-        return { ...item, cat: catToApply }
-      }
-      return item
-    })
-    setInventory(updated)
-    await saveInventory(updated)
-    showMsg(`✓ Moved ${selectedItemIds.size} item(s) to "${catToApply}"`, "green")
-    setSelectedItemIds(new Set())
-    setTargetCatForBulk("")
-    setCustomCatInput("")
+    setSaving(true)
+    try {
+      const updated = inventory.map(item => {
+        if (selectedItemIds.has(item.id)) {
+          return { ...item, cat: catToApply }
+        }
+        return item
+      })
+      setInventory(updated)
+      await saveInventory(updated)
+      showMsg(`✓ Moved ${selectedItemIds.size} item(s) to "${catToApply}"`, "green")
+      setSelectedItemIds(new Set())
+      setTargetCatForBulk("")
+      setCustomCatInput("")
+    } catch (e) {
+      showMsg("Failed to move items: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const moveSingleItemCategory = async (itemId, newCat) => {
@@ -404,10 +440,17 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       if (!enteredName || !enteredName.trim()) return
       catToApply = await addCustomCategory(enteredName)
     }
-    const updated = inventory.map(item => item.id === itemId ? { ...item, cat: catToApply } : item)
-    setInventory(updated)
-    await saveInventory(updated)
-    showMsg(`✓ Item moved to "${catToApply}"`, "green")
+    setSaving(true)
+    try {
+      const updated = inventory.map(item => item.id === itemId ? { ...item, cat: catToApply } : item)
+      setInventory(updated)
+      await saveInventory(updated)
+      showMsg(`✓ Item moved to "${catToApply}"`, "green")
+    } catch (e) {
+      showMsg("Failed to move item: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const selectAllItems = () => {
@@ -436,6 +479,12 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
   const storedDecorations = loadLocal("ll_decorations", DECORATION_ITEMS)
   const decorIids = new Set(storedDecorations.map(d => d.iid))
 
+  const filteredInventory = useMemo(() => {
+    if (!searchQuery.trim()) return inventory
+    const q = searchQuery.toLowerCase()
+    return inventory.filter(i => (i.name || "").toLowerCase().includes(q) || (i.cat || i.category || "").toLowerCase().includes(q))
+  }, [inventory, searchQuery])
+
   inventory.forEach(item => {
     let mapped = mapCategory(item.cat, item.name)
     if (decorIids.has(item.id)) {
@@ -444,7 +493,9 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     if (!categories[mapped]) {
       categories[mapped] = []
     }
-    categories[mapped].push(item)
+    if (!searchQuery.trim() || (item.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || (item.cat || item.category || "").toLowerCase().includes(searchQuery.toLowerCase())) {
+      categories[mapped].push(item)
+    }
   })
 
 
@@ -476,14 +527,27 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
         </div>
         <Inp label="Category Name *" value={newCatName} onChange={setNewCatName} placeholder="e.g. Frozen Goods" />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
-          <Btn onClick={async () => {
-            if (!newCatName.trim()) return
-            const added = await addCustomCategory(newCatName)
-            showMsg(`✓ Category "${added}" created!`, "green")
-            setNewCatName("")
-            setShowAddCatModal(false)
-          }} disabled={!newCatName.trim()}>Save Category</Btn>
-          <Btn variant="ghost" onClick={() => setShowAddCatModal(false)}>Cancel</Btn>
+          {saving ? (
+            <Spinner />
+          ) : (
+            <>
+              <Btn onClick={async () => {
+                if (!newCatName.trim()) return
+                setSaving(true)
+                try {
+                  const added = await addCustomCategory(newCatName)
+                  showMsg(`✓ Category "${added}" created!`, "green")
+                  setNewCatName("")
+                  setShowAddCatModal(false)
+                } catch (e) {
+                  showMsg("Failed to add category: " + e.message, "red")
+                } finally {
+                  setSaving(false)
+                }
+              }} disabled={!newCatName.trim()}>Save Category</Btn>
+              <Btn variant="ghost" onClick={() => setShowAddCatModal(false)}>Cancel</Btn>
+            </>
+          )}
         </div>
       </Modal>
     )}
@@ -567,8 +631,14 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
           After import, go to <strong>Settings → Opening Stock</strong> to set your opening quantities. Stock will then track automatically from there.
         </div>
         <div style={{display:"flex",gap:8}}>
-          <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p=>p.on)}>✓ Confirm & Import {prevItems.filter(p=>p.on).length} Items</Btn>
-          <Btn variant="ghost" onClick={()=>setImportStep(1)}>← Edit</Btn>
+          {saving ? (
+            <Spinner />
+          ) : (
+            <>
+              <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p=>p.on)}>✓ Confirm & Import {prevItems.filter(p=>p.on).length} Items</Btn>
+              <Btn variant="ghost" onClick={()=>setImportStep(1)}>← Edit</Btn>
+            </>
+          )}
         </div>
       </div>}
 
@@ -657,7 +727,16 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
         </div>
       )}
 
-      <div style={{display:"flex",gap:8}}><Btn onClick={addSingle}>Save</Btn><Btn variant="ghost" onClick={()=>{setShowAdd(false); setCalcMode("manual"); setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""})}}>Cancel</Btn></div>
+      <div style={{display:"flex",gap:8}}>
+        {saving ? (
+          <Spinner />
+        ) : (
+          <>
+            <Btn onClick={addSingle}>Save</Btn>
+            <Btn variant="ghost" onClick={()=>{setShowAdd(false); setCalcMode("manual"); setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""})}}>Cancel</Btn>
+          </>
+        )}
+      </div>
     </Card>}
 
     {/* BULK MOVE ACTION BAR */}
@@ -723,10 +802,10 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
             />
           )}
 
-          <Btn small variant="success" onClick={handleBulkMove} disabled={!targetCatForBulk}>
-            Move Selected →
+          <Btn small variant="success" onClick={handleBulkMove} disabled={!targetCatForBulk || saving}>
+            {saving ? "Moving..." : "Move Selected →"}
           </Btn>
-          <Btn small variant="ghost" style={{ color: "#aaa", borderColor: "#555" }} onClick={selectAllItems}>
+          <Btn small variant="ghost" style={{ color: "#aaa", borderColor: "#555" }} onClick={selectAllItems} disabled={saving}>
             {selectedItemIds.size === inventory.length ? "Deselect All" : "Select All"}
           </Btn>
 
@@ -810,7 +889,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                     {items.length === 0 ? (
                       <tr><td colSpan={isOwner ? 9 : 6} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No items in this category yet.</td></tr>
                     ) : (
-                      items.map((item, idx) => {
+                      items.filter(i => (i.name || "").toLowerCase().includes(searchQuery.toLowerCase())).map((item, idx) => {
                         const isLow = item.stock <= (item.minStock || 5)
                         const editing = editId === item.id
                         const isSelected = selectedItemIds.has(item.id)
@@ -843,7 +922,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                                     <input value={customCatInput} onChange={e=>setCustomCatInput(e.target.value)} placeholder="Category Name" style={{...iSt,padding:"4px 6px",fontSize:11,marginTop:4}} />
                                   )}
                                 </td>
-                                <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={doSaveEdit}>✓</Btn><Btn small variant="ghost" onClick={cancelEdit}>✗</Btn></div></td>
+                                <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={doSaveEdit} disabled={saving}>✓</Btn><Btn small variant="ghost" onClick={cancelEdit} disabled={saving}>✗</Btn></div></td>
                               </>
                             ) : (
                               <>
@@ -858,6 +937,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                                     <select
                                       value={item.cat || catName}
                                       onChange={(e) => moveSingleItemCategory(item.id, e.target.value)}
+                                      disabled={saving}
                                       style={{
                                         padding: "4px 8px",
                                         borderRadius: 6,
@@ -878,8 +958,8 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                                 {isOwner && (
                                   <td style={{padding:"9px 10px"}}>
                                     <div style={{display:"flex",gap:4}}>
-                                      <Btn small variant="ghost" onClick={()=>startEdit(item)}>✎ Edit</Btn>
-                                      <Btn small variant="danger" onClick={()=>doDelete(item.id)}>×</Btn>
+                                      <Btn small variant="ghost" onClick={()=>startEdit(item)} disabled={saving}>✎ Edit</Btn>
+                                      <Btn small variant="danger" onClick={()=>doDelete(item.id)} disabled={saving}>×</Btn>
                                     </div>
                                   </td>
                                 )}
@@ -907,7 +987,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
 //  RECIPE CARD (standalone component — avoids hook-in-map bug)
 
 // ═══════════════════════════════════════════════════════════
-export function DecorationsTab({inventory, setInventory, isOwner}){
+export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""}){
   const LS_KEY = "ll_decorations"
   const [decorVersion, setDecorVersion] = useState(0)
 
@@ -947,6 +1027,12 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
     return Array.from(itemsMap.values())
   }, [inventory, decorVersion])
 
+  const displayItems = useMemo(() => {
+    if (!searchQuery.trim()) return items
+    const q = searchQuery.toLowerCase()
+    return items.filter(d => (d.name || d.label || "").toLowerCase().includes(q))
+  }, [items, searchQuery])
+
   const decorOptions = useMemo(() => {
     const isDecor = (i) => {
       const cat = (i.cat || i.category || "").trim()
@@ -971,6 +1057,7 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
   const [adding, setAdding] = useState(false)
   const [newItem, setNewItem] = useState({name:"", label:"", iid:"", qty:"1", cost:"", unit:"pcs"})
   const [msg, setMsg] = useState("")
+  const [saving, setSaving] = useState(false)
 
   const showMsg = (m) => { setMsg(m); setTimeout(()=>setMsg(""), 3000) }
 
@@ -996,12 +1083,19 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
       updatedDecorations.push({ ...editRow, id: editId, name: targetName, label: targetName, qty: targetQty })
     }
 
-    saveLocal(LS_KEY, updatedDecorations)
-    setInventory(currentInv)
-    await saveInventory(currentInv)
-    setDecorVersion(v => v + 1)
-    setEditId(null)
-    showMsg("✓ Decoration updated")
+    setSaving(true)
+    try {
+      saveLocal(LS_KEY, updatedDecorations)
+      setInventory(currentInv)
+      await saveInventory(currentInv)
+      setDecorVersion(v => v + 1)
+      setEditId(null)
+      showMsg("✓ Decoration updated")
+    } catch (e) {
+      showMsg("Failed to save: " + e.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const deleteItem = async (id) => {
@@ -1019,11 +1113,18 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
     const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
     const updatedDecorations = stored.filter(d => d.id!==id && d.iid !== toDelete?.iid)
 
-    saveLocal(LS_KEY, updatedDecorations)
-    setInventory(currentInv)
-    await saveInventory(currentInv)
-    setDecorVersion(v => v + 1)
-    showMsg("Decoration deleted")
+    setSaving(true)
+    try {
+      saveLocal(LS_KEY, updatedDecorations)
+      setInventory(currentInv)
+      await saveInventory(currentInv)
+      setDecorVersion(v => v + 1)
+      showMsg("Decoration deleted")
+    } catch (e) {
+      showMsg("Failed to delete: " + e.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const addItem = async () => {
@@ -1058,14 +1159,20 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
     const item = { id: "d_" + targetIid, name: newItem.name.trim(), label: newItem.name.trim(), iid: targetIid, qty: +newItem.qty }
     const updatedDecorations = [...stored.filter(x => x.iid !== targetIid && x.id !== item.id), item]
 
-    saveLocal(LS_KEY, updatedDecorations)
-    setInventory(currentInv)
-    await saveInventory(currentInv)
-    setDecorVersion(v => v + 1)
-
-    setNewItem({name:"", label:"", iid:"", qty:"1", cost:"", unit:"pcs"})
-    setAdding(false)
-    showMsg("✓ Decoration added")
+    setSaving(true)
+    try {
+      saveLocal(LS_KEY, updatedDecorations)
+      setInventory(currentInv)
+      await saveInventory(currentInv)
+      setDecorVersion(v => v + 1)
+      setNewItem({name:"", label:"", iid:"", qty:"1", cost:"", unit:"pcs"})
+      setAdding(false)
+      showMsg("✓ Decoration added")
+    } catch (e) {
+      showMsg("Failed to add: " + e.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return <div>
@@ -1095,13 +1202,22 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
         </>}
         <Inp label="Standard Qty Used *" type="number" value={newItem.qty} onChange={v=>setNewItem(p=>({...p,qty:v}))} placeholder="e.g. 0.15"/>
       </div>
-      <div style={{display:"flex", gap:8}}><Btn onClick={addItem}>Save</Btn><Btn variant="ghost" onClick={()=>setAdding(false)}>Cancel</Btn></div>
+      <div style={{display:"flex", gap:8}}>
+        {saving ? (
+          <Spinner />
+        ) : (
+          <>
+            <Btn onClick={addItem}>Save</Btn>
+            <Btn variant="ghost" onClick={()=>setAdding(false)}>Cancel</Btn>
+          </>
+        )}
+      </div>
     </Card>}
 
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%", borderCollapse:"collapse", background:"var(--panel)", borderRadius:10, overflow:"hidden", border:"1px solid var(--border)"}}>
         <TH cols={["Decoration", "Linked Inventory Item", "Std Qty", "Cost", ...(isOwner?["Actions"]:[])]}/>
-        <tbody>{items.map((d,i)=>{
+        <tbody>{displayItems.map((d,i)=>{
           const it = inventory.find(x=>x.id===d.iid)
           const editing = editId===d.id
           return <tr key={d.id} style={{background:i%2===0?"var(--panel)":"#F8F3EA"}}>
@@ -1132,13 +1248,13 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
 
               <td style={{padding:"6px 8px"}}><input type="number" value={editRow.qty||""} onChange={e=>setEditRow(r=>({...r,qty:e.target.value}))} style={{...iSt,width:70,padding:"4px 6px",fontSize:12}}/></td>
               <td style={{padding:"6px 8px",fontSize:13}}>{editRow.iid&&inventory.find(x=>x.id===editRow.iid)?fmt(inventory.find(x=>x.id===editRow.iid).cost*(+editRow.qty||0)):"—"}</td>
-              <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={saveEdit}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)}>✗</Btn></div></td>
+              <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={saveEdit} disabled={saving}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}>✗</Btn></div></td>
             </> : <>
               <td style={{padding:"9px 10px",fontWeight:500,fontSize:13}}>{d.name||d.label}</td>
               <td style={{padding:"9px 10px",color:"var(--muted)",fontSize:12.5}}>{it?.name||<span style={{color:"#B03A2E"}}>⚠ Not found</span>}</td>
               <td style={{padding:"9px 10px",fontSize:13}}>{d.qty} {it?.unit||""}</td>
               <td style={{padding:"9px 10px",color:"var(--gold)",fontWeight:500,fontSize:13}}>{it?fmt(it.cost*d.qty):"—"}</td>
-              {isOwner&&<td style={{padding:"9px 10px"}}><div style={{display:"flex",gap:4}}><Btn small variant="ghost" onClick={()=>startEdit(d)}>✎ Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(d.id)}>×</Btn></div></td>}
+              {isOwner&&<td style={{padding:"9px 10px"}}><div style={{display:"flex",gap:4}}><Btn small variant="ghost" onClick={()=>startEdit(d)} disabled={saving}>✎ Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(d.id)} disabled={saving}>×</Btn></div></td>}
             </>}
           </tr>
         })}</tbody>
@@ -1154,7 +1270,7 @@ export function DecorationsTab({inventory, setInventory, isOwner}){
 //  PACKAGING TAB — boards, boxes, drums linked to Order Calculator
 
 // ═══════════════════════════════════════════════════════════
-export function PackagingTab({inventory,setInventory,isOwner}){
+export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
   const items = useMemo(() => {
     return inventory.filter(item => 
       item.cat === "Board and Packaging" || 
@@ -1163,10 +1279,17 @@ export function PackagingTab({inventory,setInventory,isOwner}){
     )
   }, [inventory])
 
+  const displayItems = useMemo(() => {
+    if (!searchQuery.trim()) return items
+    const q = searchQuery.toLowerCase()
+    return items.filter(p => (p.name || "").toLowerCase().includes(q) || (p.cat || p.category || "").toLowerCase().includes(q))
+  }, [items, searchQuery])
+
   const [adding,setAdding]=useState(false)
   const [newItem,setNewItem]=useState({name:"",price:"",unit:"pcs",minStock:"5"})
   const [editId,setEditId]=useState(null)
   const [editRow,setEditRow]=useState({})
+  const [saving,setSaving]=useState(false)
 
   const addItem=async()=>{
     if(!newItem.name.trim()||!newItem.price)return
@@ -1180,18 +1303,39 @@ export function PackagingTab({inventory,setInventory,isOwner}){
       minStock:+newItem.minStock||5
     }
     const updated=[...inventory,item]
-    setInventory(updated);await saveInventory(updated)
-    setAdding(false);setNewItem({name:"",price:"",unit:"pcs",minStock:"5"})
+    setSaving(true)
+    try {
+      setInventory(updated);await saveInventory(updated)
+      setAdding(false);setNewItem({name:"",price:"",unit:"pcs",minStock:"5"})
+    } catch (e) {
+      alert("Failed to add packaging: " + e.message)
+    } finally {
+      setSaving(false)
+    }
   }
   const saveEdit=async(id)=>{
     const updated=inventory.map(i=>i.id===id?{...i,name:editRow.name.trim(),cost:+editRow.price,unit:editRow.unit||"pcs",stock:+editRow.stock||0,minStock:+editRow.minStock||5}:i)
-    setInventory(updated);await saveInventory(updated)
-    setEditId(null)
+    setSaving(true)
+    try {
+      setInventory(updated);await saveInventory(updated)
+      setEditId(null)
+    } catch (e) {
+      alert("Failed to save: " + e.message)
+    } finally {
+      setSaving(false)
+    }
   }
   const deleteItem=async(id)=>{
     if(!confirm("Remove this packaging item?"))return
     const updated=inventory.filter(i=>i.id!==id)
-    setInventory(updated);await saveInventory(updated)
+    setSaving(true)
+    try {
+      setInventory(updated);await saveInventory(updated)
+    } catch (e) {
+      alert("Failed to delete: " + e.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const badge=(item)=>{
@@ -1217,18 +1361,24 @@ export function PackagingTab({inventory,setInventory,isOwner}){
         </div>
         <Inp label="Min Alert" type="number" value={newItem.minStock} onChange={v=>setNewItem(n=>({...n,minStock:v}))} placeholder="5"/>
         <div style={{display:"flex",gap:6}}>
-          <Btn small variant="success" onClick={addItem}>✓ Save</Btn>
-          <Btn small variant="ghost" onClick={()=>setAdding(false)}>Cancel</Btn>
+          {saving ? (
+            <Spinner />
+          ) : (
+            <>
+              <Btn small variant="success" onClick={addItem}>✓ Save</Btn>
+              <Btn small variant="ghost" onClick={()=>setAdding(false)}>Cancel</Btn>
+            </>
+          )}
         </div>
       </div>
     </Card>}
     <table style={{width:"100%",borderCollapse:"collapse",background:"var(--panel)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
       <TH cols={["Item","Price/Cost","Unit","Stock Qty","Status",...(isOwner?["Actions"]:[])]}/>
       <tbody>
-        {items.length === 0 ? (
+        {displayItems.length === 0 ? (
           <tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No board and packaging items found. Click + Add item above to create one.</td></tr>
         ) : (
-          items.map((item,i)=>{
+          displayItems.map((item,i)=>{
             const isLow = item.stock <= (item.minStock || 5)
             return <tr key={item.id} style={{background:isLow?"#FFF9EE":i%2===0?"var(--panel)":"#F8F3EA"}}>
               {editId===item.id
@@ -1238,7 +1388,7 @@ export function PackagingTab({inventory,setInventory,isOwner}){
                   <td style={{padding:"6px 8px"}}><select value={editRow.unit||"pcs"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,fontSize:12}}>{["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
                   <td style={{padding:"6px 8px"}}><input type="number" value={editRow.stock||0} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,fontSize:12,width:70}}/></td>
                   <td style={{padding:"6px 8px"}}></td>
-                  <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={()=>saveEdit(item.id)}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)}>✗</Btn></div></td>
+                  <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={()=>saveEdit(item.id)} disabled={saving}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}>✗</Btn></div></td>
                 </>
                 :<>
                   <td style={{padding:"9px 10px",fontSize:13,fontWeight:500}}>{item.name}</td>
@@ -1246,7 +1396,7 @@ export function PackagingTab({inventory,setInventory,isOwner}){
                   <td style={{padding:"9px 10px",fontSize:12,color:"var(--muted)"}}>{item.unit}</td>
                   <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{item.stock||0} {item.unit}</td>
                   <td style={{padding:"9px 10px"}}>{badge(item)}</td>
-                  {isOwner&&<td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><Btn small variant="ghost" onClick={()=>{setEditId(item.id);setEditRow({name:item.name,price:item.cost,unit:item.unit,stock:item.stock||0,minStock:item.minStock||5})}}>Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(item.id)}>×</Btn></div></td>}
+                  {isOwner&&<td style={{padding:"9px 8px"}}><div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><Btn small variant="ghost" onClick={()=>{setEditId(item.id);setEditRow({name:item.name,price:item.cost,unit:item.unit,stock:item.stock||0,minStock:item.minStock||5})}} disabled={saving}>Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(item.id)} disabled={saving}>×</Btn></div></td>}
                 </>}
             </tr>
           })
@@ -1260,63 +1410,29 @@ export function PackagingTab({inventory,setInventory,isOwner}){
 
 export function MasterList({inventory,setInventory,recipes,setRecipes,user,setView}){
   const [tab,setTab]=useState("inventory")
-  const [editId,setEditId]=useState(null)
-  const [editRow,setEditRow]=useState({})
-  const [addMode,setAddMode]=useState(false)
-  const [newItem,setNewItem]=useState({name:"",cat:"",unit:"kg",unitSize:"",qtyBought:"",bulkPrice:"",minStock:"",stock:0,cost:0})
   const [msg,setMsg]=useState("")
   const [msgColor,setMsgColor]=useState("gold")
   const [recipeModal,setRecipeModal]=useState(null)
-  const [pasteMode,setPasteMode]=useState(false)
-  const [pasteText,setPasteText]=useState("")
-  const csvRef=useRef()
   const isOwner = user?.role==="owner"
   const [showRecipeExcelImport, setShowRecipeExcelImport] = useState(false)
   const [showRecipeScan, setShowRecipeScan] = useState(false)
+  const [searchQueries, setSearchQueries] = useState({
+    inventory: "",
+    recipes: "",
+    decorations: "",
+    packaging: ""
+  })
+
+  const searchQuery = searchQueries[tab] || ""
+  const setSearchQuery = (val) => setSearchQueries(prev => ({ ...prev, [tab]: val }))
 
   const showMsg = (m,c="gold") => { setMsg(m); setMsgColor(c); setTimeout(()=>setMsg(""),4000) }
 
-  // ── Inventory ──
-  const startEdit = (item) => { setEditId(item.id); setEditRow({...item}) }
-  const saveEdit = async () => {
-    const updated = inventory.map(i=>i.id===editId?{...editRow,cost:+editRow.cost,stock:+editRow.stock,minStock:+editRow.minStock||2}:i)
-    setInventory(updated); await saveInventory(updated); setEditId(null); showMsg("✓ Item updated","green")
-  }
-  const deleteItem = async (id) => {
-    if(!confirm("Delete this item?"))return
-    const updated=inventory.filter(i=>i.id!==id); setInventory(updated); await saveInventory(updated); showMsg("Item deleted")
-  }
-  const addItem = async () => {
-    if(!newItem.name||!newItem.bulkPrice||!newItem.unitSize||!newItem.qtyBought)return showMsg("Name, bulk price, unit size and qty bought are required")
-    const cost=parseFloat((+newItem.bulkPrice/(+newItem.unitSize||1)).toFixed(2))
-    const stock=parseFloat(((+newItem.unitSize)*(+newItem.qtyBought)).toFixed(3))
-    const item={id:uid(),name:newItem.name,cat:newItem.cat||"General",unit:newItem.unit||"kg",unitSize:+newItem.unitSize,qtyBought:+newItem.qtyBought,bulkPrice:+newItem.bulkPrice,minStock:+newItem.minStock||5,stock,cost}
-    const updated=[...inventory,item]
-    setInventory(updated);await saveInventory(updated)
-    setNewItem({name:"",cat:"",unit:"kg",unitSize:"",qtyBought:"",bulkPrice:"",minStock:"",stock:0,cost:0})
-    setAddMode(false);showMsg("✓ Item added — cost/unit: "+fmt(cost),"green")
-  }
-
-  const handleCSV = e => {
-    const file=e.target.files[0]; if(!file)return; e.target.value=""
-    const reader=new FileReader()
-    reader.onload=async ev=>{
-      try{
-        const items=parseCSV(ev.target.result)
-        if(items.length===0){ showMsg("⚠ No items found. Check column headers: name, category, unit, cost, stock","red"); return }
-        const updated=[...inventory,...items.filter(ni=>!inventory.find(i=>i.name.toLowerCase()===ni.name.toLowerCase()))]
-        setInventory(updated); await saveInventory(updated)
-        showMsg(`✓ ${items.length} items imported successfully (${updated.length-inventory.length} new, duplicates skipped)`,"green")
-      }catch(err){ showMsg(`⚠ Import failed: ${err.message}`,"red") }
-    }
-    reader.readAsText(file)
-  }
-
-  const restock = async (id, qty) => {
-    if(!qty||+qty<=0)return
-    const updated=inventory.map(i=>i.id===id?{...i,stock:parseFloat((i.stock+(+qty)).toFixed(3))}:i)
-    setInventory(updated); await saveInventory(updated)
-  }
+  const filteredRecipes = useMemo(() => {
+    if (!searchQuery.trim()) return recipes
+    const q = searchQuery.toLowerCase()
+    return recipes.filter(r => (r.name || "").toLowerCase().includes(q) || (r.notes || "").toLowerCase().includes(q))
+  }, [recipes, searchQuery])
 
   // ── Recipes ──
   const openRecipe = (r) => setRecipeModal(r ? {...r} : {id:uid(),name:"",size:"6",tiers:1,covering:"buttercream",ing:[]})
@@ -1340,15 +1456,33 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
   const updateIng = (idx,field,val) => setRecipeModal(r=>({...r,ing:r.ing.map((ing,i)=>i===idx?{...ing,[field]:val}:ing)}))
   const removeIng = (idx) => setRecipeModal(r=>({...r,ing:r.ing.filter((_,i)=>i!==idx)}))
 
-  const cats=[...new Set(inventory.map(i=>i.cat))].sort()
-
   return <div>
     <SHead title="Master List" sub="All your ingredients, recipes, and decorations — changes here update all calculations."/>
     <Alert msg={msg} color={msgColor} onClose={()=>setMsg("")}/>
-    <Tabs tabs={[{v:"inventory",l:"Inventory"},{v:"recipes",l:"Base Recipes"},{v:"decorations",l:"Decoration Extras"},{v:"packaging",l:"Boards & Packaging"}]} active={tab} onChange={setTab}/>
+    
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+      <Tabs tabs={[{v:"inventory",l:"Inventory"},{v:"recipes",l:"Base Recipes"},{v:"decorations",l:"Decoration Extras"},{v:"packaging",l:"Boards & Packaging"}]} active={tab} onChange={setTab}/>
+      <div style={{ position: "relative", minWidth: 240 }}>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder={`Search ${tab === "inventory" ? "inventory" : tab === "recipes" ? "base recipes" : tab === "decorations" ? "decorations" : "packaging"}...`}
+          style={{ ...iSt, padding: "8px 30px 8px 12px", fontSize: 13, borderRadius: 8, border: "1.5px solid var(--gold)" }}
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 14 }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+    </div>
 
     {/* ── INVENTORY ── */}
-    {tab==="inventory"&&<InventoryTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} showMsg={showMsg} setView={setView} setTab={setTab}/>}
+    {tab==="inventory"&&<InventoryTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} showMsg={showMsg} setView={setView} setTab={setTab} searchQuery={searchQuery}/>}
 
     {/* ── RECIPES ── */}
     {tab==="recipes"&&<div>
@@ -1456,9 +1590,9 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     </div>}
 
     {/* ── DECORATIONS ── */}
-    {tab==="decorations"&&<DecorationsTab inventory={inventory} setInventory={setInventory} isOwner={isOwner}/>}
+    {tab==="decorations"&&<DecorationsTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} searchQuery={searchQueries.decorations}/>}
     {/* ── PACKAGING ── */}
-    {tab==="packaging"&&<PackagingTab inventory={inventory} setInventory={setInventory} isOwner={isOwner}/>}
+    {tab==="packaging"&&<PackagingTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} searchQuery={searchQueries.packaging}/>}
   </div>
 }
 

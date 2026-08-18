@@ -1,5 +1,25 @@
 import { fmt, uid, today, recipeCost, calcFullCost, parseCSV } from './helpers';
 
+jest.mock('../constants.js', () => ({
+  DECORATION_ITEMS: [
+    { id: "d3", name: "Fresh Flowers", iid: "i31", qty: 3, label: "Fresh flowers (3 pcs)" }
+  ],
+  FLAVOR_EXTRAS: {
+    "red velvet": [],
+    chocolate:    [{ iid: "i20", qty: 0.08 }],
+    carrot:       [],
+    "fruit cake": [],
+    lemon:        [],
+    vanilla:      [],
+    strawberry:   [],
+    banana:       [],
+    orange:       []
+  },
+  DEFAULT_INV: [],
+  DEFAULT_RECIPES: [],
+  COVERING_EXTRAS: {}
+}));
+
 describe('client helpers', () => {
   describe('fmt', () => {
     it('should format numbers to Naira currency', () => {

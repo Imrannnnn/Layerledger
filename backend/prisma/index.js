@@ -4,8 +4,15 @@ const { Pool } = require('pg');
 
 let prisma;
 
+if (process.env.NODE_ENV === 'test' || !process.env.NODE_TLS_REJECT_UNAUTHORIZED) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 function createPrismaClient() {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
   const adapter = new PrismaPg(pool);
   const client = new PrismaClient({ adapter });
   client.$pool = pool;

@@ -26,7 +26,7 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout
 
             const response = await fetch("https://api.anthropic.com/v1/messages", {
                 method: "POST",

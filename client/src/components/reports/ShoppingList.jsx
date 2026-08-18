@@ -133,7 +133,7 @@ export function ShoppingList({ inventory, setInventory, company }) {
             {low.length > 0 && (
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn small variant="success" onClick={markAllPurchased}>✓ Mark All Purchased</Btn>
-                <Btn small onClick={print}>🖨️ Print (ink saver)</Btn>
+                <Btn small onClick={print}>🖨️ Download and print</Btn>
               </div>
             )}
           </div>

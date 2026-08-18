@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Modal } from "../common/ui.jsx"
 import { fmt, uid, today, callClaude, compressImage } from "../../lib/helpers.js"
-import { saveInventory, saveExpenses, saveLocal, loadLocal } from "../../lib/data.js"
+import { saveInventory, saveExpenses, saveLocal, loadLocal, loadAliases, saveAliases } from "../../lib/data.js"
 
 // Helper to extract and repair common LLM JSON syntax flaws (trailing commas, unquoted keys, comments)
 function extractAndRepairJson(rawText) {
@@ -80,6 +80,13 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
   const [totalAmount, setTotalAmount] = useState("")
   const [saving, setSaving] = useState(false)
   const fileRef = useRef()
+
+  const [aliases, setAliases] = useState({})
+
+  useEffect(() => {
+    const loaded = loadAliases({})
+    if (loaded) setAliases(loaded)
+  }, [])
 
   // State for creating a new inventory item directly from the review step
   const [addingNewItemForIdx, setAddingNewItemForIdx] = useState(null)
@@ -203,6 +210,15 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
         if (i !== idx) return r
         const updatedRow = { ...r, [field]: val }
 
+        if (field === "item_on_receipt") {
+          const key = (val || "").trim().toLowerCase()
+          const matchedId = aliases[key]
+          const isValidIng = matchedId && inventory.some(item => item.id === matchedId)
+          if (isValidIng) {
+            updatedRow.overrideId = matchedId
+          }
+        }
+
         // Auto-calculate line total if qty or price changes
         if (field === "qty" || field === "unit_price") {
           const qty = Number(field === "qty" ? val : r.qty) || 0
@@ -232,7 +248,19 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
   }
 
   const toggleApprove = idx => setParsed(p => ({ ...p, items: p.items.map((r, i) => i === idx ? { ...r, approved: !r.approved } : r) }))
-  const setMatch = (idx, id) => setParsed(p => ({ ...p, items: p.items.map((r, i) => i === idx ? { ...r, overrideId: id, approved: true } : r) }))
+  const setMatch = (idx, id) => {
+    setParsed(p => ({
+      ...p,
+      items: p.items.map((r, i) => {
+        if (i !== idx) return r
+        const key = (r.item_on_receipt || "").trim().toLowerCase()
+        if (key && id) {
+          setAliases(prev => ({ ...prev, [key]: id }))
+        }
+        return { ...r, overrideId: id, approved: true }
+      })
+    }))
+  }
 
   // Save the receipt to stock + expenses
   const applyUpdates = async () => {
@@ -271,6 +299,10 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       if (purchases.length > 0) {
         setInventory(updInv)
         await saveInventory(updInv)
+      }
+
+      if (Object.keys(aliases).length > 0) {
+        await saveAliases(aliases)
       }
 
       // Save purchase logs to database (via saveLocal which triggers sync)

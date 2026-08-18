@@ -369,8 +369,8 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                         <div><span style={{ color: "var(--muted)" }}>Product: </span>{q.productType || "Cake"}</div>
                         {q.tiers?.map((t, i) => (
                           <div key={i}>
-                            <span style={{ color: "var(--muted)" }}>Tier {i + 1}: </span>
-                            {t.size}" {t.shape} • {t.layers?.map(l => l.flavour).filter(Boolean).join(", ") || "—"}
+                            <span style={{ color: "var(--muted)" }}>Cake {i + 1}: </span>
+                            {t.size}" {t.shape} • {t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + l.flavour).filter(Boolean).join(", ") || "—"}
                             {t.coverings?.length ? " • " + t.coverings.map(c => c.type).join("+") : ""}
                           </div>
                         ))}
@@ -594,9 +594,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               + "<div style='font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid " + gold + ";padding-bottom:4px;margin-bottom:10px'>Order details</div>"
                               // Cake/Cupcake tiers
                               + ((!q.productType || q.productType === "Cake" || q.productType === "Cupcakes")
-                                ? trs.map((t, i) => "<div class='tier'><strong>Tier " + (i + 1) + " — " + t.size + "\" " + (t.shape || "") + "</strong>"
+                                ? trs.map((t, i) => "<div class='tier'><strong>Cake " + (i + 1) + " — " + t.size + "\" " + (t.shape || "") + "</strong>"
                                   + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
-                                  + "Flavours: " + (t.layers?.map(l => l.flavour).filter(Boolean).join(", ") || "—") + "<br>"
+                                  + "Flavours: " + (t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + l.flavour).filter(Boolean).join(", ") || "—") + "<br>"
                                   + (t.fillings?.length ? "Filling: " + t.fillings.map(f => f.type + (f.grams ? " (" + f.grams + "g)" : "")).join(", ") + "<br>" : "")
                                   + "Covering: " + (t.coverings?.map(c => c.type).join(" + ") || t.covering || "—")
                                   + "</div></div>").join("")

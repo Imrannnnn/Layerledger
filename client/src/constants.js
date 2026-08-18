@@ -9,7 +9,7 @@
  *
  * NOTE ON THE DATABASE:
  *   LayerLedger currently has NO server-side database. All live data is stored
- *   in the browser's localStorage (a small key/value store built into every
+ *   in the browser's sessionStorage (a small key/value store built into every
  *   web browser, unique to each device + browser). The constants below are the
  *   initial seed values used to populate that store the first time the app runs
  *   on a new device. Moving to a real database (e.g. Cloudflare D1 or Supabase)
@@ -21,47 +21,24 @@
 // Each item: id, name, cat(egory), unit, cost (₦ per unit), stock (on hand),
 // minStock (low-stock alert threshold).
 
-export const DEFAULT_INV = [
-  { id: "i1",  name: "Flour",          cat: "Dry Goods",   unit: "kg",     cost: 1140,  stock: 50,   minStock: 10 },
-  { id: "i3",  name: "Oil",            cat: "Fats & Oils", unit: "L",      cost: 3000,  stock: 25,   minStock: 5 },
-  { id: "i7",  name: "Eggs",           cat: "Dairy",       unit: "pcs",    cost: 700,   stock: 120,  minStock: 24 },
-  { id: "i26", name: "Flavour",        cat: "Flavoring",   unit: "bottle", cost: 3000,  stock: 5,    minStock: 2 },
-  { id: "i31", name: "Flowers",        cat: "Decoration",  unit: "pcs",    cost: 2000,  stock: 20,   minStock: 5 },
-  { id: "i36", name: 'Cake Board 8"',  cat: "Packaging",   unit: "pcs",    cost: 450,   stock: 20,   minStock: 5 },
-]
+export const DEFAULT_INV = []
 
+export const DEFAULT_RECIPES = []
 
-// ─── Default recipes ────────────────────────────────────────────────────────
-// IMPORTANT: quantities are PER SINGLE LAYER. The order calculator multiplies
-// by the number of layers and by the size/shape multiplier (see PricingSetup).
-// `ing` = list of { iid: inventory item id, qty: amount in that item's unit }.
-export const DEFAULT_RECIPES = [
-  { id: "r1", name: "Vanilla Cake", notes: "Classic vanilla sponge — quantities for 1 layer",
-    ing: [{ iid: "i1", qty: 0.3 }, { iid: "i3", qty: 0.2 }, { iid: "i7", qty: 3 }, { iid: "i26", qty: 0.1 }] }
-]
+export const DECORATION_ITEMS = []
 
-// ─── Decoration extras ──────────────────────────────────────────────────────
-// Optional add-ons selectable per order. Each maps to an inventory item (iid)
-// and a quantity consumed (qty) when chosen.
-export const DECORATION_ITEMS = [
-  { id: "d3",  name: "Fresh Flowers",       iid: "i31", qty: 3,    label: "Fresh flowers (3 pcs)" },
-]
-
-
-// Extra ingredients consumed by each covering type (per cake), keyed by name.
 export const COVERING_EXTRAS = {
-  buttercream: [{ iid: "i11", qty: 0.4 }],
-  fondant:     [{ iid: "i14", qty: 0.8 }, { iid: "i17", qty: 0.1 }],
-  ganache:     [{ iid: "i21", qty: 0.4 }],
+  buttercream: [],
+  fondant:     [],
+  ganache:     [],
   naked:       [],
 }
 
-// Extra ingredients that certain flavours require on top of the base recipe.
 export const FLAVOR_EXTRAS = {
-  "red velvet": [{ iid: "i23", qty: 0.05 }, { iid: "i24", qty: 5 }],
-  chocolate:    [{ iid: "i20", qty: 0.08 }],
-  carrot:       [{ iid: "i28", qty: 0.15 }],
-  "fruit cake": [{ iid: "i27", qty: 0.2 }],
+  "red velvet": [],
+  chocolate:    [],
+  carrot:       [],
+  "fruit cake": [],
   lemon:        [],
   vanilla:      [],
   strawberry:   [],

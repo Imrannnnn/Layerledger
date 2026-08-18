@@ -6,12 +6,12 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState } from "react"
-import { Btn, Card, SHead, TH, TR2 } from "../common/ui.jsx"
+import { Btn, Card, SHead, TH, TR2, Spinner } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { mergeRevenueSources } from "../../lib/costing.jsx"
-import { loadLocal } from "../../lib/data.js"
+import { loadLocal, saveLocal, saveExpenses, saveProductionsList } from "../../lib/data.js"
 
-export function MonthlyOverview({ inventory, productions, expenses, company }) {
+export function MonthlyOverview({ inventory, productions, setProductions, expenses, setExpenses, company, isOwner }) {
   const allRevenue = mergeRevenueSources(productions)
 
   const cur = new Date().toISOString().slice(0, 7)
@@ -23,6 +23,42 @@ export function MonthlyOverview({ inventory, productions, expenses, company }) {
 
   const [sel, setSel] = useState(cur)
   const monthLabel = new Date(sel + "-02").toLocaleDateString("en-NG", { month: "long", year: "numeric" })
+  const [deletingAll, setDeletingAll] = useState(false)
+
+  const handleClearMonthData = async () => {
+    if (!window.confirm(`Are you sure you want to clear ALL data for ${monthLabel}? This will clear revenue orders, production costs, overhead expenses, and purchases logged for this month. This cannot be undone.`)) return
+    setDeletingAll(true)
+    try {
+      // 1. Clear confirmed orders / productions for this month (resets Revenue & Production Cost)
+      if (setProductions && productions) {
+        const updatedProds = productions.filter(p => {
+          const m = p.fromQuote && p.confirmedAt ? p.confirmedAt.slice(0, 7) : (p.deliveryDate || p.orderDate || "").slice(0, 7)
+          return m !== sel
+        })
+        setProductions(updatedProds)
+        await saveProductionsList(updatedProds)
+      }
+
+      // 2. Clear purchases for this month in local storage
+      const allPurchases = loadLocal("ll_purchases", [])
+      const updatedPurchases = allPurchases.filter(p => !p.date?.startsWith(sel))
+      await saveLocal("ll_purchases", updatedPurchases)
+
+      // 3. Clear opening stock for this month in local storage
+      await saveLocal("ll_os_" + sel, {})
+
+      // 4. Clear overhead expenses for this month (resets Overheads)
+      if (setExpenses && expenses) {
+        const updatedExpenses = expenses.filter(e => !e.date?.startsWith(sel))
+        setExpenses(updatedExpenses)
+        await saveExpenses(updatedExpenses)
+      }
+    } catch (err) {
+      alert("Failed to clear monthly data: " + err.message)
+    } finally {
+      setDeletingAll(false)
+    }
+  }
 
   // Revenue comes from confirmed quotes/orders confirmed in the selected month
   const mRevenue = allRevenue.filter(p => {
@@ -71,6 +107,8 @@ export function MonthlyOverview({ inventory, productions, expenses, company }) {
   }
 
   const getBought = id => mPurchases.filter(p => p.itemId === id).reduce((s, p) => s + (p.stockAdded || 0), 0)
+
+  const hasMonthData = mPurchases.length > 0 || mExp.length > 0 || osItems.length > 0
 
   const dl = () => {
     const w = window.open("", "_blank")
@@ -141,6 +179,21 @@ export function MonthlyOverview({ inventory, productions, expenses, company }) {
           ))}
         </select>
         <Btn onClick={dl}>📥 Download PDF</Btn>
+        {isOwner && (
+          deletingAll ? (
+            <Spinner />
+          ) : (
+            <Btn
+              small
+              variant="ghost"
+              disabled={deletingAll}
+              style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px", fontWeight: "normal", padding: "4px 8px" }}
+              onClick={handleClearMonthData}
+            >
+              🗑 Clear Month Data
+            </Btn>
+          )
+        )}
         {osItems.length === 0 && (
           <span style={{ fontSize: 12, color: "#B03A2E", background: "#FDEBE9", padding: "4px 10px", borderRadius: 20 }}>
             ⚠ No opening stock set for {monthLabel} — go to Settings → Opening Stock

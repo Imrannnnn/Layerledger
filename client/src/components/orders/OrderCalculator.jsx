@@ -131,8 +131,9 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   const coveringRecipes=recipes.filter(r=>r.type==="covering")
   const pastryRecipes=recipes.filter(r=>r.type==="pastry")
   const allRecipes=recipes // all recipes for fallback search
-  const allCoveringTypes=[...new Set([...coveringRecipes.map(r=>r.name),...["Buttercream","Fondant","Drip","Ganache","Whipped Cream","Mirror Glaze","Naked"]])]
-  const allFillingTypes=[...new Set([...coveringRecipes.map(r=>r.name),...["Buttercream","Jam","Ganache","Custard","Cream Cheese","Whipped Cream"]])]
+  const coveringRecipeNames=coveringRecipes.map(r=>r.name)
+  const allCoveringTypes=[...new Set([...coveringRecipeNames,...["Buttercream","Fondant","Drip","Ganache","Whipped Cream","Mirror Glaze","Naked"]])]
+  const allFillingTypes=[...new Set([...coveringRecipeNames,...["Buttercream","Jam","Ganache","Custard","Cream Cheese","Whipped Cream"]])]
 
   const getAccPrice=(type,size)=>{if(!size)return 0;const m=String(size).match(/[₦N$]?([\d,]+)\s*$/);return m?parseInt(m[1].replace(",","")):0}
 
@@ -167,7 +168,11 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   }
   const saved=useState(()=>restoreCalc())[0]
 
-  const [productType,setProductType]=useState(()=>saved?.productType||"")
+  const [showCake, setShowCake] = useState(() => saved?.showCake ?? (saved?.tiers?.length > 0 || saved?.productType === "Cake" || saved?.productType === "Cupcakes"))
+  const [showPastry, setShowPastry] = useState(() => saved?.showPastry ?? (saved?.pastryItems?.some(p => p.flavour) || saved?.donutGroups?.some(g => g.flavour) || saved?.loaves?.some(l => l.flavour) || saved?.tartQty > 0 || saved?.productType === "Pastry" || saved?.productType === "Tarts / Pastry" || saved?.productType === "Donuts" || saved?.productType === "Cake Loaf"))
+
+  const [productType, setProductType] = useState(() => saved?.productType || "Cake")
+
   const [showItemPicker,setShowItemPicker]=useState(false)
   const [clientName,setClientName]=useState(()=>saved?.clientName||saved?.clientName||"")
   const [eventType,setEventType]=useState(()=>saved?.eventType||"")
@@ -190,17 +195,25 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  const [donutGroups,setDonutGroups]=useState(()=>saved?.donutGroups||[{id:uid2(),flavour:"",qty:12,filling:"",fillingGrams:0}])
-  const [loaves,setLoaves]=useState(()=>saved?.loaves||[{id:uid2(),flavour:""}])
-  const [tartQty,setTartQty]=useState(()=>saved?.tartQty||12)
-  const [tartFillings,setTartFillings]=useState(()=>saved?.tartFillings||[{id:uid2(),type:"",grams:0}])
-  const [tartGarnish,setTartGarnish]=useState(()=>saved?.tartGarnish||"")
+  const [pastryItems, setPastryItems] = useState(() => {
+    if (saved?.pastryItems?.length > 0) return saved.pastryItems
+    if (saved?.donutGroups?.length > 0) return saved.donutGroups
+    if (saved?.loaves?.length > 0) return saved.loaves.map(l => ({ id: l.id, flavour: l.flavour, qty: 1, filling: "", fillingGrams: 0 }))
+    if (saved?.tartQty > 0 || saved?.tartFillings?.length > 0) {
+      const mainFill = saved.tartFillings?.find(f => f.type)?.type || ""
+      const mainGrams = saved.tartFillings?.find(f => f.type)?.grams || 0
+      return [{ id: uid2(), flavour: "", qty: saved.tartQty || 12, filling: mainFill, fillingGrams: mainGrams }]
+    }
+    return []
+  })
 
   // Auto-save calculator state on every change
   const autoSave=(extra={})=>{
-    saveLocal("ll_calc_state",{productType,clientName,clientPhone,clientNotes,tiers,accRows,topper,margin,deliveryDate,collectionTime,...extra})
+    saveLocal("ll_calc_state",{productType,showCake,showPastry,clientName,clientPhone,clientNotes,tiers,accRows,topper,margin,deliveryDate,collectionTime,pastryItems,...extra})
   }
   const [tiers,setTiers]=useState(()=>saved?.tiers?.length>0?saved.tiers:[])
+  const isCakeVisible = showCake || tiers.length > 0
+  const isPastryVisible = showPastry || pastryItems.some(p => p.flavour || p.qty > 0)
   const [decQty,setDecQty]=useState(()=>saved?.decQty||{})
   const [accRows,setAccRows]=useState(()=>saved?.accRows?.length>0?saved.accRows:[{id:uid2(),itemId:"",name:"",price:0}])
   const [topper,setTopper]=useState(()=>saved?.topper||{enabled:false,make:"",deliver:"",description:""})
@@ -211,12 +224,13 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   const [vatRate,setVatRate]=useState(()=>saved?.vatRate||7.5)
 
   // Tier operations
-  const addTier=()=>setTiers(t=>[...t,{id:uid2(),size:"",shape:"",layers:[{id:uid2(),flavour:""}],coverings:[{id:uid2(),type:"Buttercream",grams:0}],fillings:[{id:uid2(),type:"Buttercream",grams:0}]}])
+  const addTier=()=>setTiers(t=>[...t,{id:uid2(),size:"",shape:"",layers:[{id:uid2(),flavour:"",qty:1}],coverings:[{id:uid2(),type:"Buttercream",grams:0}],fillings:[{id:uid2(),type:"Buttercream",grams:0}]}])
   const removeTier=id=>setTiers(t=>t.filter(x=>x.id!==id))
   const updateTier=(id,key,val)=>setTiers(t=>t.map(x=>x.id===id?{...x,[key]:val}:x))
-  const addLayer=tid=>setTiers(t=>t.map(x=>x.id===tid?{...x,layers:[...x.layers,{id:uid2(),flavour:""}]}:x))
+  const addLayer=tid=>setTiers(t=>t.map(x=>x.id===tid?{...x,layers:[...x.layers,{id:uid2(),flavour:"",qty:1}]}:x))
   const removeLayer=(tid,lid)=>setTiers(t=>t.map(x=>x.id===tid?{...x,layers:x.layers.filter(l=>l.id!==lid)}:x))
   const updateLayer=(tid,lid,v)=>setTiers(t=>t.map(x=>x.id===tid?{...x,layers:x.layers.map(l=>l.id===lid?{...l,flavour:v}:l)}:x))
+  const updateLayerQty=(tid,lid,qty)=>setTiers(t=>t.map(x=>x.id===tid?{...x,layers:x.layers.map(l=>l.id===lid?{...l,qty:Math.max(1,parseInt(qty)||1)}:l)}:x))
   const addFilling=tid=>setTiers(t=>t.map(x=>x.id===tid?{...x,fillings:[...x.fillings,{id:uid2(),type:"Buttercream",grams:200}]}:x))
   const removeFilling=(tid,fid)=>setTiers(t=>t.map(x=>x.id===tid?{...x,fillings:x.fillings.filter(f=>f.id!==fid)}:x))
   const updateFilling=(tid,fid,key,val)=>setTiers(t=>t.map(x=>x.id===tid?{...x,fillings:x.fillings.map(f=>f.id===fid?{...f,[key]:key==="grams"?parseInt(val)||0:val}:f)}:x))
@@ -235,7 +249,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
 
   // Cost calculations
   const tierCost=tier=>
-    tier.layers.reduce((s,l)=>s+(l.flavour?layerCost(l.flavour,tier.size,tier.shape):0),0)+
+    tier.layers.reduce((s,l)=>s+(l.flavour?layerCost(l.flavour,tier.size,tier.shape)*(l.qty||1):0),0)+
     tier.coverings.reduce((s,c)=>s+coverFillCost(c.type,c.grams),0)+
     tier.fillings.reduce((s,f)=>s+coverFillCost(f.type,f.grams),0)
   const totalTiers=useMemo(() => tiers.reduce((s,t)=>s+tierCost(t),0), [tiers, inventory, recipes, mults])
@@ -246,24 +260,13 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
   },0), [accRows, packagingItems])
   const topperCost=(+topper.make||0)+(+topper.deliver||0)
 
-  const donutTotalQty=useMemo(() => donutGroups.reduce((s,g)=>s+(+g.qty||0),0), [donutGroups])
-  const donutCost=useMemo(() => donutGroups.reduce((s,g)=>{
-    const pieceCost=g.flavour?costPerPiece(g.flavour):0
-    return s+(pieceCost*(+g.qty||0))+(g.filling?coverFillCost(g.filling,+g.fillingGrams||0):0)
-  },0), [donutGroups, inventory, recipes])
-  const loafCost=useMemo(() => loaves.reduce((s,l)=>s+(l.flavour?batchCost(l.flavour):0),0), [loaves, inventory, recipes])
-  const tartShellCost=useMemo(() => tartQty>0?(()=>{
-    const r=pastryRecipes.find(x=>x.name.toLowerCase().includes("tart"))||recipes.find(x=>x.name.toLowerCase().includes("tart"))
-    if(!r)return 0
-    const bc=r.ing.reduce((s,ing)=>{const it=inventory.find(x=>x.id===ing.iid);return s+(it?it.cost*ing.qty:0)},0)
-    return r.batchSize>0?bc/r.batchSize*tartQty:bc*Math.ceil(tartQty/12)
-  })():0, [tartQty, pastryRecipes, recipes, inventory])
-  const tartFillCost=useMemo(() => tartFillings.reduce((s,f)=>s+coverFillCost(f.type,+f.grams||0),0), [tartFillings, inventory, recipes])
-  const productBaseCost=productType==="Cake"||productType==="Cupcakes"?totalTiers+totalDecs+topperCost
-    :productType==="Donuts"?donutCost
-    :productType==="Cake Loaf"?loafCost
-    :productType==="Tarts / Pastry"?tartShellCost+tartFillCost
-    :totalTiers+totalDecs+topperCost
+  const cakeCost = isCakeVisible ? (totalTiers + totalDecs + topperCost) : 0
+  const pastryCost = isPastryVisible ? pastryItems.reduce((s, p) => {
+    const pieceCost = p.flavour ? costPerPiece(p.flavour) : 0
+    return s + (pieceCost * (+p.qty || 0)) + (p.filling ? coverFillCost(p.filling, +p.fillingGrams || 0) : 0)
+  }, 0) : 0
+
+  const productBaseCost = cakeCost + pastryCost
 
   const subtotal=productBaseCost+totalAcc
   const accessoryPct=settings.accessoryPct||10
@@ -288,8 +291,8 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
     const tc=tierCost(tier)
     return <Card key={tier.id} style={{marginBottom:12,borderLeft:"4px solid var(--gold)",padding:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-        <div style={{fontWeight:500,fontSize:13}}>Tier {ti+1}</div>
-        {tiers.length>1&&<Btn small variant="danger" onClick={()=>removeTier(tier.id)}>Remove tier</Btn>}
+        <div style={{fontWeight:500,fontSize:13}}>Cake {ti+1}</div>
+        {tiers.length>1&&<Btn small variant="danger" onClick={()=>removeTier(tier.id)}>Remove cake</Btn>}
       </div>
 
       {/* Size + Shape */}
@@ -312,14 +315,22 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
 
       {/* Layers */}
       <div style={{marginBottom:10}}>
-        <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Layers — one flavour per layer</label>
-        {tier.layers.map((l,li)=><div key={l.id} style={{display:"grid",gridTemplateColumns:"auto 1fr auto auto",gap:6,alignItems:"center",marginBottom:5}}>
+        <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Layers — cake recipe per layer *</label>
+        {tier.layers.map((l,li)=><div key={l.id} style={{display:"grid",gridTemplateColumns:"auto 1fr auto auto auto",gap:6,alignItems:"center",marginBottom:5}}>
           <span style={{fontSize:11.5,color:"var(--muted)",minWidth:52}}>Layer {li+1}</span>
           <select value={l.flavour} onChange={e=>updateLayer(tier.id,l.id,e.target.value)} style={{...iSt}}>
-            <option value="">— Select flavour —</option>
-            {layerRecipes.map(r=><option key={r.id} value={r.name}>{r.name}</option>)}
+            <option value="">— Select cake recipe —</option>
+            {(layerRecipes.length > 0 ? layerRecipes : allRecipes).map(r => (
+              <option key={r.id} value={r.name}>
+                {r.name} {tier.size && tier.shape && layerCost(r.name, tier.size, tier.shape) > 0 ? "— " + fmt(layerCost(r.name, tier.size, tier.shape)) + "/layer" : ""}
+              </option>
+            ))}
           </select>
-          <span style={{fontSize:11,color:"var(--gold)",whiteSpace:"nowrap"}}>{l.flavour?fmt(layerCost(l.flavour,tier.size,tier.shape)):""}</span>
+          <div style={{display:"flex",alignItems:"center",gap:2}}>
+            <span style={{fontSize:12,color:"var(--muted)"}}>×</span>
+            <input type="number" min="1" value={l.qty||1} onChange={e=>updateLayerQty(tier.id,l.id,e.target.value)} style={{...iSt,width:48,textAlign:"center",padding:"6px 4px"}}/>
+          </div>
+          <span style={{fontSize:11,color:"var(--gold)",whiteSpace:"nowrap"}}>{l.flavour?fmt(layerCost(l.flavour,tier.size,tier.shape)*(l.qty||1)):""}</span>
           {tier.layers.length>1
             ?<button onClick={()=>removeLayer(tier.id,l.id)} style={{width:22,height:22,padding:0,borderRadius:4,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",fontSize:12,color:"var(--muted)"}}>×</button>
             :<span style={{width:22}}/>}
@@ -329,9 +340,10 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
 
       {/* Fillings */}
       <div style={{marginBottom:10}}>
-        <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Fillings between layers</label>
+        <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Fillings — covering & filling recipe *</label>
         {tier.fillings.map(f=><div key={f.id} style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:6,alignItems:"center",marginBottom:5}}>
           <select value={f.type} onChange={e=>updateFilling(tier.id,f.id,"type",e.target.value)} style={{...iSt}}>
+            <option value="">— Select filling recipe —</option>
             {allFillingTypes.map(x=><option key={x} value={x}>{x}</option>)}
           </select>
           <div style={{display:"flex",alignItems:"center",gap:4}}>
@@ -346,10 +358,11 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
 
       {/* Coverings */}
       <div style={{marginBottom:8}}>
-        <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Coverings</label>
+        <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Coverings — covering & filling recipe *</label>
         {tier.coverings.map(c=><div key={c.id} style={{background:"var(--bg)",borderRadius:6,padding:"8px 10px",marginBottom:5}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:6,alignItems:"center"}}>
             <select value={c.type} onChange={e=>updateCovering(tier.id,c.id,"type",e.target.value)} style={{...iSt}}>
+              <option value="">— Select covering recipe —</option>
               {allCoveringTypes.map(x=><option key={x} value={x}>{x}</option>)}
             </select>
             <div style={{display:"flex",alignItems:"center",gap:4}}>
@@ -364,7 +377,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
       </div>
 
       <div style={{marginTop:8,padding:"6px 10px",background:"#F5F0E4",borderRadius:6,fontSize:12,color:"var(--muted)"}}>
-        Tier cost: <strong style={{color:"var(--gold)"}}>{fmt(tc)}</strong>
+        Cake cost: <strong style={{color:"var(--gold)"}}>{fmt(tc)}</strong>
       </div>
     </Card>
   }
@@ -380,11 +393,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
         <Inp label="Phone (WhatsApp)" value={clientPhone} onChange={v=>{setClientPhone(v);autoSave({clientPhone:v})}} placeholder="+234..."/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.5fr 1fr 1.5fr",gap:8,marginBottom:8}}>
-        <Inp label="Delivery / collection date *" type="date" value={deliveryDate} min={today()} onChange={v=>{
-          if (v && v < today()) {
-            alert("Delivery date cannot be in the past.")
-            return
-          }
+        <Inp label="Delivery / collection date *" type="date" value={deliveryDate} onChange={v=>{
           setDeliveryDate(v);
           autoSave({deliveryDate:v})
         }}/>
@@ -427,185 +436,228 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.3fr 0.7fr",gap:18}}>
       <div>
         {/* Add Item — choose Cake or Pastry */}
-        {!productType&&<div style={{marginBottom:14}}>
+        <div style={{marginBottom:14}}>
           {!showItemPicker
             ?<Btn onClick={()=>setShowItemPicker(true)} style={{width:"100%",borderStyle:"dashed"}} variant="ghost">+ Add Item</Btn>
             :<Card style={{background:"#FFF9EE",borderColor:"var(--gold)"}}>
               <div style={{fontSize:13,fontWeight:600,marginBottom:10,textAlign:"center"}}>What are you adding?</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                <button onClick={()=>{setProductType("Cake");setShowItemPicker(false);if(tiers.length===0)setTiers([{id:uid2(),size:"",shape:"",layers:[{id:uid2(),flavour:""}],coverings:[{id:uid2(),type:"Buttercream",grams:0}],fillings:[{id:uid2(),type:"Buttercream",grams:0}]}])}} style={{padding:"18px 12px",borderRadius:10,border:"1.5px solid var(--gold)",background:"var(--panel)",cursor:"pointer",fontFamily:"inherit"}}>
+                <button onClick={()=>{
+                  setShowCake(true);
+                  if (tiers.length === 0) {
+                    setTiers([{id:uid2(),size:"",shape:"",layers:[{id:uid2(),flavour:"",qty:1}],coverings:[{id:uid2(),type:"Buttercream",grams:0}],fillings:[{id:uid2(),type:"Buttercream",grams:0}]}]);
+                  }
+                  setShowItemPicker(false);
+                }} style={{padding:"18px 12px",borderRadius:10,border:"1.5px solid var(--gold)",background:"var(--panel)",cursor:"pointer",fontFamily:"inherit"}}>
                   <div style={{fontSize:26,marginBottom:6}}>🎂</div>
                   <div style={{fontSize:14,fontWeight:600,color:"var(--gold)"}}>Cake</div>
                   <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Layers, tiers, fillings</div>
                 </button>
-                <button onClick={()=>{setProductType("Tarts / Pastry");setShowItemPicker(false)}} style={{padding:"18px 12px",borderRadius:10,border:"1.5px solid var(--gold)",background:"var(--panel)",cursor:"pointer",fontFamily:"inherit"}}>
+                <button onClick={()=>{
+                  setShowPastry(true);
+                  if (pastryItems.length === 0) {
+                    setPastryItems([{id:uid2(),flavour:"",qty:12,filling:"",fillingGrams:0}]);
+                  }
+                  setShowItemPicker(false);
+                }} style={{padding:"18px 12px",borderRadius:10,border:"1.5px solid var(--gold)",background:"var(--panel)",cursor:"pointer",fontFamily:"inherit"}}>
                   <div style={{fontSize:26,marginBottom:6}}>🧁</div>
                   <div style={{fontSize:14,fontWeight:600,color:"var(--gold)"}}>Pastry</div>
-                  <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Loaves, donuts, tarts</div>
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Donuts, loaves, tarts & more</div>
                 </button>
               </div>
               <div style={{textAlign:"center",marginTop:10}}><button onClick={()=>setShowItemPicker(false)} style={{background:"none",border:"none",color:"var(--muted)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button></div>
             </Card>}
-        </div>}
-
-        {/* Product type sub-selector (once an item type chosen) */}
-        {productType&&<div style={{marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Item type</label>
-          <select value={productType} onChange={e=>setProductType(e.target.value)} style={{...iSt,maxWidth:200,marginTop:0}}>
-            {PRODUCT_TYPES.map(p=><option key={p} value={p}>{p}</option>)}
-          </select>
-          <button onClick={()=>{setProductType("");setTiers([]);setShowItemPicker(false)}} style={{background:"none",border:"1px solid var(--border)",borderRadius:7,padding:"6px 12px",color:"var(--muted)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear item</button>
-        </div>}
+        </div>
 
         {/* CAKE / CUPCAKES — Tiers */}
-        {(productType==="Cake"||productType==="Cupcakes")&&<>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:10}}>{productType==="Cupcakes"?"Cupcake tiers":"Cake tiers"}</div>
-          {tiers.map((tier,ti)=>renderTierCard(tier,ti))}
-          <Btn variant="ghost" onClick={addTier} style={{width:"100%",marginBottom:18,borderStyle:"dashed"}}>+ Add tier</Btn>
-          {/* Decorations */}
-          <div style={{marginBottom:18}}>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:10}}>Decoration extras</div>
-            {Object.keys(decQty).map(did=>{
-              const d=decorations.find(x=>x.id===did)
-              if(!d)return null
-              const it=inventory.find(x=>x.id===d.iid)
-              const unitCost=it?it.cost*d.qty:0
-              const qty=decQty[did]||1
-              return <div key={did} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:8,alignItems:"center",marginBottom:8}}>
-                <div style={{fontSize:13,color:"var(--text)",fontWeight:500}}>{d.label||d.name}</div>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontSize:11,color:"var(--muted)"}}>Qty:</span>
-                  <button onClick={()=>changeDec(did,-1)} style={{width:22,height:22,padding:0,fontSize:14,borderRadius:4,border:"1px solid var(--border)",background:"var(--panel)",cursor:"pointer"}}>-</button>
-                  <span style={{fontSize:13,fontWeight:500,minWidth:18,textAlign:"center"}}>{qty}</span>
-                  <button onClick={()=>changeDec(did,1)} style={{width:22,height:22,padding:0,fontSize:14,borderRadius:4,border:"1px solid var(--border)",background:"var(--panel)",cursor:"pointer"}}>+</button>
-                </div>
-                <span style={{fontSize:12,color:"var(--gold)",fontWeight:500,whiteSpace:"nowrap"}}>{fmt(unitCost*qty)}</span>
-                <button onClick={()=>changeDec(did,-999)} style={{width:24,height:24,padding:0,borderRadius:4,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",fontSize:13,color:"var(--muted)"}}>×</button>
+        {isCakeVisible && (
+          <Card style={{ marginBottom: 18, borderLeft: "4px solid var(--gold)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, borderBottom: "1px solid var(--border)", paddingBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600 }}>Cakes</span>
               </div>
-            })}
-            <div style={{display:"flex",gap:8,alignItems:"center"}}>
-              <SearchableSelect
-                value=""
-                onChange={val => {
-                  if (val) changeDec(val, 1)
+              <button
+                onClick={() => {
+                  setShowCake(false);
+                  setTiers([]);
                 }}
-                options={decorations.filter(d => !decQty[d.id]).map(d => {
-                  const it = inventory.find(x => x.id === d.iid)
-                  return {
-                    value: d.id,
-                    label: `${d.label || d.name}${it ? ` — ${fmt(it.cost * d.qty)} per set` : ""}`
-                  }
-                })}
-                placeholder="+ Add decoration extra (type to search)..."
-              />
+                style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, padding: "4px 10px", color: "var(--muted)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                ✕ Clear Cake
+              </button>
             </div>
-          </div>
-          {/* Custom Topper */}
-          <div style={{marginBottom:18}}>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:10}}>Custom topper</div>
-            <Card>
-              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",marginBottom:topper.enabled?12:0}}>
-                <input type="checkbox" checked={topper.enabled} onChange={e=>setTopper(t=>({...t,enabled:e.target.checked}))}/>
-                This order has a custom topper
-              </label>
-              {topper.enabled&&<>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-                  <Inp label="Making cost (₦)" type="number" value={topper.make} onChange={v=>setTopper(t=>({...t,make:v}))} placeholder="5000"/>
-                  <Inp label="Delivery to shop (₦)" type="number" value={topper.deliver} onChange={v=>setTopper(t=>({...t,deliver:v}))} placeholder="1500"/>
+            
+            {tiers.map((tier, ti) => renderTierCard(tier, ti))}
+            <Btn variant="ghost" onClick={addTier} style={{ width: "100%", marginBottom: 18, borderStyle: "dashed" }}>+ Add cake</Btn>
+
+            {/* Decorations */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Decoration extras</div>
+              {Object.keys(decQty).map(did => {
+                const d = decorations.find(x => x.id === did)
+                if (!d) return null
+                const it = inventory.find(x => x.id === d.iid)
+                const unitCost = it ? it.cost * d.qty : 0
+                const qty = decQty[did] || 1
+                return <div key={did} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>{d.label || d.name}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 11, color: "var(--muted)" }}>Qty:</span>
+                    <button onClick={() => changeDec(did, -1)} style={{ width: 22, height: 22, padding: 0, fontSize: 14, borderRadius: 4, border: "1px solid var(--border)", background: "var(--panel)", cursor: "pointer" }}>-</button>
+                    <span style={{ fontSize: 13, fontWeight: 500, minWidth: 18, textAlign: "center" }}>{qty}</span>
+                    <button onClick={() => changeDec(did, 1)} style={{ width: 22, height: 22, padding: 0, fontSize: 14, borderRadius: 4, border: "1px solid var(--border)", background: "var(--panel)", cursor: "pointer" }}>+</button>
+                  </div>
+                  <span style={{ fontSize: 12, color: "var(--gold)", fontWeight: 500, whiteSpace: "nowrap" }}>{fmt(unitCost * qty)}</span>
+                  <button onClick={() => changeDec(did, -999)} style={{ width: 24, height: 24, padding: 0, borderRadius: 4, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", fontSize: 13, color: "var(--muted)" }}>×</button>
                 </div>
-                <div>
-                  <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Topper description</label>
-                  <textarea value={topper.description} onChange={e=>setTopper(t=>({...t,description:e.target.value}))} placeholder="e.g. Gold acrylic Mr & Mrs topper..." style={{...iSt,height:70,resize:"vertical",fontFamily:"inherit"}}/>
-                </div>
-              </>}
-            </Card>
-          </div>
-        </>}
+              })}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <SearchableSelect
+                  value=""
+                  onChange={val => {
+                    if (val) changeDec(val, 1)
+                  }}
+                  options={decorations.filter(d => !decQty[d.id]).map(d => {
+                    const it = inventory.find(x => x.id === d.iid)
+                    return {
+                      value: d.id,
+                      label: `${d.label || d.name}${it ? ` — ${fmt(it.cost * d.qty)} per set` : ""}`
+                    }
+                  })}
+                  placeholder="+ Add decoration extra (type to search)..."
+                />
+              </div>
+            </div>
 
-        {/* DONUTS */}
-        {productType==="Donuts"&&<>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:10}}>Donut groups — total: {donutTotalQty} donuts</div>
-          {pastryRecipes.length===0&&<div style={{fontSize:12.5,color:"#8C5E00",background:"#FFF3CD",padding:"8px 12px",borderRadius:7,marginBottom:12,border:"1px solid #F0D080"}}>⚠️ No pastry recipes found. Go to <strong>Master List → Base Recipes → Pastry/Batch</strong> to add your donut recipe first.</div>}
-          {donutGroups.map((g,gi)=><Card key={g.id} style={{marginBottom:10,borderLeft:"4px solid var(--gold)",padding:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              <div style={{fontWeight:500,fontSize:13}}>Group {gi+1}</div>
-              {donutGroups.length>1&&<button onClick={()=>setDonutGroups(dg=>dg.filter(x=>x.id!==g.id))} style={{background:"#B03A2E",color:"#fff",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:12}}>Remove</button>}
+            {/* Custom Topper */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Custom topper</div>
+              <Card>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", marginBottom: topper.enabled ? 12 : 0 }}>
+                  <input type="checkbox" checked={topper.enabled} onChange={e => setTopper(t => ({ ...t, enabled: e.target.checked }))} />
+                  This order has a custom topper
+                </label>
+                {topper.enabled && <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                    <Inp label="Making cost (₦)" type="number" value={topper.make} onChange={v => setTopper(t => ({ ...t, make: v }))} placeholder="5000" />
+                    <Inp label="Delivery to shop (₦)" type="number" value={topper.deliver} onChange={v => setTopper(t => ({ ...t, deliver: v }))} placeholder="1500" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Topper description</label>
+                    <textarea value={topper.description} onChange={e => setTopper(t => ({ ...t, description: e.target.value }))} placeholder="e.g. Gold acrylic Mr & Mrs topper..." style={{ ...iSt, height: 70, resize: "vertical", fontFamily: "inherit" }} />
+                  </div>
+                </>}
+              </Card>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-              <div>
-                <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Base donut recipe</label>
-                <select value={g.flavour} onChange={e=>setDonutGroups(dg=>dg.map(x=>x.id===g.id?{...x,flavour:e.target.value}:x))} style={{...iSt}}>
-                  <option value="">— Select recipe —</option>
-                  {(pastryRecipes.length>0?pastryRecipes:allRecipes).map(r=><option key={r.id} value={r.name}>{r.name} {batchCost(r.name)>0?"— "+fmt(r.batchSize>0?batchCost(r.name)/r.batchSize:batchCost(r.name))+(r.batchSize>0?" /pc":" /batch"):""}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Quantity (donuts)</label>
-                <input type="number" min="1" value={g.qty} onChange={e=>setDonutGroups(dg=>dg.map(x=>x.id===g.id?{...x,qty:+e.target.value||0}:x))} style={{...iSt}}/>
-              </div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <div>
-                <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Filling (optional)</label>
-                <select value={g.filling} onChange={e=>setDonutGroups(dg=>dg.map(x=>x.id===g.id?{...x,filling:e.target.value}:x))} style={{...iSt}}>
-                  <option value="">— No filling —</option>
-                  {["Chocolate","Jam","Pastry Cream","Lemon Curd","Custard","Nutella",...allFillingTypes].filter((v,i,a)=>a.indexOf(v)===i).map(f=><option key={f} value={f}>{f}</option>)}
-                </select>
-              </div>
-              <Inp label="Filling amount (g)" type="number" value={g.fillingGrams} onChange={v=>setDonutGroups(dg=>dg.map(x=>x.id===g.id?{...x,fillingGrams:+v||0}:x))} placeholder="e.g. 200"/>
-            </div>
-            {g.flavour&&<div style={{marginTop:8,fontSize:12,color:"var(--gold)",fontWeight:500}}>
-              Cost: {fmt(batchCost(g.flavour)*Math.ceil((g.qty||0)/12)+(g.filling?coverFillCost(g.filling,g.fillingGrams||0):0))} — {Math.ceil((g.qty||0)/12)} batch{Math.ceil((g.qty||0)/12)>1?"es":""}
-            </div>}
-          </Card>)}
-          <Btn variant="ghost" onClick={()=>setDonutGroups(dg=>[...dg,{id:uid2(),flavour:"",qty:12,filling:"",fillingGrams:0}])} style={{width:"100%",marginBottom:18,borderStyle:"dashed"}}>+ Add donut group</Btn>
-        </>}
+          </Card>
+        )}
 
-        {/* CAKE LOAF */}
-        {productType==="Cake Loaf"&&<>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:10}}>Loaves — {loaves.length} loaf{loaves.length>1?"es":""}</div>
-          {loaves.map((l,li)=><div key={l.id} style={{display:"grid",gridTemplateColumns:"auto 1fr auto auto",gap:8,alignItems:"center",marginBottom:8}}>
-            <span style={{fontSize:12,color:"var(--muted)",minWidth:52}}>Loaf {li+1}</span>
-            <select value={l.flavour} onChange={e=>setLoaves(lv=>lv.map(x=>x.id===l.id?{...x,flavour:e.target.value}:x))} style={{...iSt}}>
-              <option value="">— Select flavour —</option>
-              {(pastryRecipes.length>0?pastryRecipes:allRecipes).map(r=><option key={r.id} value={r.name}>{r.name}</option>)}
-            </select>
-            <span style={{fontSize:12,color:"var(--gold)",fontWeight:500,whiteSpace:"nowrap"}}>{l.flavour?fmt(batchCost(l.flavour)):""}</span>
-            {loaves.length>1&&<button onClick={()=>setLoaves(lv=>lv.filter(x=>x.id!==l.id))} style={{width:24,height:24,padding:0,borderRadius:4,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",fontSize:13,color:"var(--muted)"}}>×</button>}
-          </div>)}
-          <Btn variant="ghost" onClick={()=>setLoaves(lv=>[...lv,{id:uid2(),flavour:""}])} style={{width:"100%",marginBottom:18,borderStyle:"dashed"}}>+ Add loaf</Btn>
-        </>}
-
-        {/* TARTS / PASTRY */}
-        {productType==="Tarts / Pastry"&&<>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:10}}>Tarts & Pastry</div>
-          <Card style={{marginBottom:12}}>
-            <div style={{fontWeight:500,fontSize:13,marginBottom:10}}>Shells</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <Inp label="Number of shells" type="number" value={tartQty} onChange={v=>setTartQty(+v||0)} placeholder="e.g. 120"/>
-              <div style={{fontSize:12,color:"var(--muted)",paddingTop:22}}>= {Math.ceil(tartQty/12)} batch{Math.ceil(tartQty/12)>1?"es":""} of 12 · {fmt(tartShellCost)}</div>
+        {/* PASTRIES SECTION */}
+        {isPastryVisible && (
+          <Card style={{ marginBottom: 18, borderLeft: "4px solid var(--gold)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, borderBottom: "1px solid var(--border)", paddingBottom: 10 }}>
+              <span style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600 }}>Pastries</span>
+              <button
+                onClick={() => {
+                  setShowPastry(false);
+                  setPastryItems([]);
+                }}
+                style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, padding: "4px 10px", color: "var(--muted)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                ✕ Clear Pastry
+              </button>
             </div>
-            <div style={{fontSize:11.5,color:"var(--muted)",marginTop:4}}>Tip: Add a "Tart Shell" or "Pastry Shell" recipe in Master List to get accurate costs.</div>
+
+            {pastryItems.map((p, pi) => {
+              const unitCost = p.flavour ? costPerPiece(p.flavour) : 0
+              const itemTotal = (unitCost * (+p.qty || 0)) + (p.filling ? coverFillCost(p.filling, +p.fillingGrams || 0) : 0)
+
+              return (
+                <Card key={p.id} style={{ marginBottom: 10, background: "#FFFBF2" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontWeight: 500, fontSize: 12.5 }}>Pastry Item {pi + 1}</div>
+                    {pastryItems.length > 1 && (
+                      <button
+                        onClick={() => setPastryItems(items => items.filter(x => x.id !== p.id))}
+                        style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 11, cursor: "pointer" }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                    <div>
+                      <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>
+                        Pastry type (from your recipes) *
+                      </label>
+                      <select
+                        value={p.flavour || ""}
+                        onChange={e => setPastryItems(items => items.map(x => x.id === p.id ? { ...x, flavour: e.target.value } : x))}
+                        style={{ ...iSt }}
+                      >
+                        <option value="">— Select pastry recipe —</option>
+                        {(pastryRecipes.length > 0 ? pastryRecipes : allRecipes).map(r => (
+                          <option key={r.id} value={r.name}>
+                            {r.name} {costPerPiece(r.name) > 0 ? "— " + fmt(costPerPiece(r.name)) + " /pc" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>
+                        Number of pieces *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={p.qty || ""}
+                        onChange={e => setPastryItems(items => items.map(x => x.id === p.id ? { ...x, qty: +e.target.value || 0 } : x))}
+                        style={{ ...iSt }}
+                        placeholder="e.g. 12"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <div>
+                      <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>
+                        Filling / Glaze (optional)
+                      </label>
+                      <select
+                        value={p.filling || ""}
+                        onChange={e => setPastryItems(items => items.map(x => x.id === p.id ? { ...x, filling: e.target.value } : x))}
+                        style={{ ...iSt }}
+                      >
+                        <option value="">— No filling —</option>
+                        {allFillingTypes.map(f => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <Inp
+                      label="Filling amount (g)"
+                      type="number"
+                      value={p.fillingGrams || ""}
+                      onChange={v => setPastryItems(items => items.map(x => x.id === p.id ? { ...x, fillingGrams: +v || 0 } : x))}
+                      placeholder="e.g. 200"
+                    />
+                  </div>
+
+                  {p.flavour && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: "var(--gold)", fontWeight: 500 }}>
+                      Cost: {fmt(itemTotal)} ({p.qty || 0} pcs @ {fmt(unitCost)}/pc{p.filling ? " + filling" : ""})
+                    </div>
+                  )}
+                </Card>
+              )
+            })}
+
+            <Btn variant="ghost" onClick={() => setPastryItems(items => [...items, { id: uid2(), flavour: "", qty: 12, filling: "", fillingGrams: 0 }])} style={{ width: "100%", borderStyle: "dashed" }}>
+              + Add pastry item
+            </Btn>
           </Card>
-          <Card style={{marginBottom:12}}>
-            <div style={{fontWeight:500,fontSize:13,marginBottom:10}}>Fillings & creams</div>
-            {tartFillings.map((f,fi)=><div key={f.id} style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"center",marginBottom:8}}>
-              <select value={f.type} onChange={e=>setTartFillings(tf=>tf.map(x=>x.id===f.id?{...x,type:e.target.value}:x))} style={{...iSt}}>
-                <option value="">— Select filling —</option>
-                {["Lemon Curd","Chantilly Cream","Pastry Cream","Custard","Jam","Ganache","Nutella",...allFillingTypes].filter((v,i,a)=>a.indexOf(v)===i).map(t=><option key={t} value={t}>{t}</option>)}
-              </select>
-              <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                <input type="number" value={f.grams} onChange={e=>setTartFillings(tf=>tf.map(x=>x.id===f.id?{...x,grams:+e.target.value||0}:x))} placeholder="grams" style={{...iSt,flex:1}}/>
-                <span style={{fontSize:11,color:"var(--muted)",whiteSpace:"nowrap"}}>g · {fmt(coverFillCost(f.type,+f.grams||0))}</span>
-              </div>
-              {tartFillings.length>1&&<button onClick={()=>setTartFillings(tf=>tf.filter(x=>x.id!==f.id))} style={{width:24,height:24,padding:0,borderRadius:4,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",fontSize:13,color:"var(--muted)"}}>×</button>}
-            </div>)}
-            <Btn variant="ghost" small onClick={()=>setTartFillings(tf=>[...tf,{id:uid2(),type:"",grams:0}])}>+ Add filling</Btn>
-          </Card>
-          <Card style={{marginBottom:18}}>
-            <Inp label="Garnish / topping notes" value={tartGarnish} onChange={setTartGarnish} placeholder="e.g. Fresh berries, powdered sugar, edible flowers..."/>
-          </Card>
-        </>}
+        )}
 
         {/* Boards & Accessories — shared across all product types */}
         <div style={{marginBottom:18}}>
@@ -635,28 +687,30 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:600,marginBottom:12}}>Quote summary</div>
 
           {tiers.map((tier,ti)=><div key={tier.id} style={{background:"#F5F0E4",borderRadius:8,padding:"8px 10px",marginBottom:8,fontSize:12}}>
-            <div style={{fontWeight:500,marginBottom:4}}>Tier {ti+1}: {tier.size} {tier.shape}</div>
-            {tier.layers.map((l,li)=>l.flavour?<div key={l.id} style={{color:"var(--muted)"}}>L{li+1}: {l.flavour} {fmt(layerCost(l.flavour,tier.size,tier.shape))}</div>:null)}
+            <div style={{fontWeight:500,marginBottom:4}}>Cake {ti+1}: {tier.size} {tier.shape}</div>
+            {tier.layers.map((l,li)=>l.flavour?<div key={l.id} style={{color:"var(--muted)"}}>L{li+1}: {l.qty > 1 ? `${l.qty}× ` : ""}{l.flavour} {fmt(layerCost(l.flavour,tier.size,tier.shape)*(l.qty||1))}</div>:null)}
             {tier.fillings.map(f=><div key={f.id} style={{color:"var(--muted)"}}>Fill: {f.type} {f.grams}g {fmt(coverFillCost(f.type,f.grams))}</div>)}
             {tier.coverings.map(c=><div key={c.id} style={{color:"var(--muted)"}}>Cover: {c.type} {c.grams}g {fmt(coverFillCost(c.type,c.grams))}</div>)}
           </div>)}
 
           <div style={{borderTop:"1px solid var(--border)",paddingTop:8,marginBottom:12}}>
-            {(productType==="Cake"||productType==="Cupcakes")&&[
-              ["Layers",tiers.reduce((s,t)=>s+t.layers.reduce((s2,l)=>s2+(l.flavour?layerCost(l.flavour,t.size,t.shape):0),0),0)],
+            {isCakeVisible && [
+              ["Layers",tiers.reduce((s,t)=>s+t.layers.reduce((s2,l)=>s2+(l.flavour?layerCost(l.flavour,t.size,t.shape)*(l.qty||1):0),0),0)],
               ["Fillings",tiers.reduce((s,t)=>s+t.fillings.reduce((s2,f)=>s2+coverFillCost(f.type,f.grams),0),0)],
               ["Coverings",tiers.reduce((s,t)=>s+t.coverings.reduce((s2,c)=>s2+coverFillCost(c.type,c.grams),0),0)],
               ["Decorations",totalDecs],
               ["Custom topper",topperCost],
             ].filter(([,v])=>v>0).map(([l,v])=><div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>{l}</span><span>{fmt(v)}</span></div>)}
-            {productType==="Donuts"&&donutGroups.map((g,i)=>g.flavour&&<div key={g.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Group {i+1}: {g.qty} donuts ({g.filling||"plain"})</span><span>{fmt(batchCost(g.flavour)*Math.ceil((g.qty||0)/12)+(g.filling?coverFillCost(g.filling,g.fillingGrams||0):0))}</span></div>)}
-            {productType==="Cake Loaf"&&loaves.map((l,i)=>l.flavour&&<div key={l.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Loaf {i+1}: {l.flavour}</span><span>{fmt(batchCost(l.flavour))}</span></div>)}
-            {productType==="Tarts / Pastry"&&<>
-              {tartQty>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>{tartQty} shells ({Math.ceil(tartQty/12)} batch{Math.ceil(tartQty/12)>1?"es":""})</span><span>{fmt(tartShellCost)}</span></div>}
-              {tartFillings.filter(f=>f.type&&f.grams>0).map(f=><div key={f.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>{f.type} {f.grams}g</span><span>{fmt(coverFillCost(f.type,f.grams))}</span></div>)}
-            </>}
+
+            {isPastryVisible && pastryItems.map((p, i) => p.flavour && (
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 3 }}>
+                <span>{p.qty}× {p.flavour} ({p.filling || "plain"})</span>
+                <span>{fmt((costPerPiece(p.flavour) * (+p.qty || 0)) + (p.filling ? coverFillCost(p.filling, +p.fillingGrams || 0) : 0))}</span>
+              </div>
+            ))}
+
             {totalAcc>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Boards & accessories</span><span>{fmt(totalAcc)}</span></div>}
-            {(productType==="Cake"||productType==="Cupcakes")&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Accessory {accessoryPct}%</span><span>{fmt(accessoryAmount)}</span></div>}
+            {isCakeVisible&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Accessory {accessoryPct}%</span><span>{fmt(accessoryAmount)}</span></div>}
             <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Overhead {overheadPct}%</span><span>{fmt(overheadAmount)}</span></div>
             {miscAmount>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:3}}><span>Miscellaneous {miscPct}%</span><span>{fmt(miscAmount)}</span></div>}
             <div style={{display:"flex",justifyContent:"space-between",fontWeight:600,fontSize:13,paddingTop:6,borderTop:"1px solid var(--border)",marginTop:4}}>
@@ -722,31 +776,39 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
           <Btn full onClick={()=>{
             const isGS=orderPurpose==="gift"||orderPurpose==="sample"
             if(!isGS&&!clientName.trim()){alert("Please enter a client name at the top of the page");return}
-            if(!productType){alert("Please add an item first — tap '+ Add Item' and choose Cake or Pastry");return}
-            if((productType==="Cake"||productType==="Cupcakes")&&!tiers.some(t=>t.size&&t.shape&&t.layers.some(l=>l.flavour))){alert("Please complete at least one cake tier (size, shape and flavour)");return}
-            // Generate summaries based on product type
+            if(!isCakeVisible && !isPastryVisible){alert("Please add an item first — tap '+ Add Item' and choose Cake or Pastry");return}
+            if(isCakeVisible&&!tiers.some(t=>t.size&&t.shape&&t.layers.some(l=>l.flavour))){alert("Please complete at least one cake tier (size, shape and flavour)");return}
+            
             let flavourSummary=""
             let cakeSummary=""
-            if(productType==="Cake"||productType==="Cupcakes"){
-              flavourSummary=tiers.flatMap(t=>t.layers.map(l=>l.flavour)).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(", ")
-              cakeSummary=tiers.map((t,i)=>`${t.size}" ${t.shape} (${t.layers.map(l=>l.flavour||"?").join("/")})`).join(" + ")
-            } else if(productType==="Donuts"){
-              flavourSummary=donutGroups.map(g=>g.flavour||"?").filter((v,i,a)=>a.indexOf(v)===i).join(", ")
-              cakeSummary=donutGroups.map(g=>`${g.qty} ${g.flavour||"?"} donuts${g.filling?" ("+g.filling+" filling)":""}`).join(", ")
-            } else if(productType==="Cake Loaf"){
-              flavourSummary=loaves.map(l=>l.flavour||"?").filter((v,i,a)=>a.indexOf(v)===i).join(", ")
-              cakeSummary=loaves.length+" loaf"+( loaves.length>1?"ves":"")+" ("+loaves.map(l=>l.flavour||"?").join(", ")+")"
-            } else if(productType==="Tarts / Pastry"){
-              flavourSummary=tartFillings.filter(f=>f.type).map(f=>f.type).join(", ")
-              cakeSummary=tartQty+" tart shells"+( tartFillings.filter(f=>f.type).length?" — "+tartFillings.filter(f=>f.type).map(f=>f.type).join(", "):"")
+            const summaries = []
+            const flavours = []
+
+            if(isCakeVisible && tiers.some(t => t.layers.some(l => l.flavour))){
+              const fList = tiers.flatMap(t=>t.layers.map(l=>l.flavour)).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i)
+              flavours.push(...fList)
+              const cSum = tiers.map((t,i)=>`${t.size}" ${t.shape} (${t.layers.map(l=>(l.qty > 1 ? l.qty + "×" : "") + (l.flavour||"?")).join("/")})`).join(" + ")
+              summaries.push(cSum)
             }
+            if(isPastryVisible && pastryItems.some(p => p.flavour)){
+              const fList = pastryItems.map(p => p.flavour).filter(Boolean)
+              flavours.push(...fList)
+              const pSum = pastryItems.map(p => `${p.qty}× ${p.flavour}${p.filling ? " (" + p.filling + " filling)" : ""}`).join(", ")
+              summaries.push(pSum)
+            }
+
+            flavourSummary = [...new Set(flavours)].join(", ")
+            cakeSummary = summaries.join(" | ")
+
+            const derivedProductType = (isCakeVisible && isPastryVisible) ? "Cake & Pastry" : (isCakeVisible ? "Cake" : "Pastry")
+
             const co=loadCompany()
             const quote={
               id:uid(),
               clientName:clientName.trim()||(orderPurpose==="gift"?"Gift":orderPurpose==="sample"?"Sample/Tasting":"Walk-in"),
               clientPhone,
               date:new Date().toISOString().slice(0,10),
-              productType:isGS?orderPurpose:productType,tiers,accRows,topper,decQty,
+              productType:isGS?orderPurpose:derivedProductType,tiers,accRows,topper,decQty,
               donutGroups,loaves,tartQty,tartFillings,tartGarnish,
               cakePhoto:cakePhoto||null,
               totalCost,quotePrice:suggestedPrice,
@@ -770,7 +832,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
               ?existing.map(q=>q.id===editId?{...quote,id:editId,status:q.status}:q)
               :[quote,...existing]
             saveQuotes(updated)
-            localStorage.removeItem("ll_calc_state")
+            sessionStorage.removeItem("ll_calc_state")
             setQuoteSaved(true)
           }}>{isEdit?"💬 Update quote":"💬 Generate & save quote"}</Btn>
           {quoteSaved
@@ -785,7 +847,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
                 }} style={{padding:"7px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",cursor:"pointer",fontSize:12.5,fontFamily:"inherit",fontWeight:500}}>📱 Send quote via WhatsApp</button>
 
                 <button onClick={()=>setView("quotes")} style={{padding:"7px",borderRadius:8,border:"none",background:"var(--gold)",color:"#fff",cursor:"pointer",fontSize:12.5,fontFamily:"inherit"}}>📋 View all quotes</button>
-                <button onClick={()=>{setQuoteSaved(false);setIsEdit(false);setEditId(null);setClientName("");setClientPhone("");setClientNotes("");localStorage.removeItem("ll_calc_state")}} style={{padding:"7px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--muted)",cursor:"pointer",fontSize:12.5,fontFamily:"inherit"}}>🧮 Start new quote</button>
+                <button onClick={()=>{setQuoteSaved(false);setIsEdit(false);setEditId(null);setClientName("");setClientPhone("");setClientNotes("");sessionStorage.removeItem("ll_calc_state")}} style={{padding:"7px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--muted)",cursor:"pointer",fontSize:12.5,fontFamily:"inherit"}}>🧮 Start new quote</button>
               </div>
             </div>
             :<div style={{marginTop:6,fontSize:11.5,color:"var(--muted)",textAlign:"center"}}>Quote will be saved under client name</div>

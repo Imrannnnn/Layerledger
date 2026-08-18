@@ -6,16 +6,18 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState } from "react"
-import { Btn, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, iSt } from "../common/ui.jsx"
+import { Btn, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, iSt, Spinner } from "../common/ui.jsx"
 import { fmt, uid, today } from "../../lib/helpers.js"
 import { EXP_CATS } from "../../constants.js"
 import { saveExpenses } from "../../lib/data.js"
 
-export function Expenses({ expenses, setExpenses }) {
-  const [tab, setTab] = useState("all")
+export function Expenses({ expenses, setExpenses, isOwner }) {
+  const [tab, setTab] = useState("monthly")
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState(null)
   const [editData, setEditData] = useState({})
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [deletingAll, setDeletingAll] = useState(false)
   
   const [ne, setNe] = useState({
     date: today(),
@@ -79,15 +81,13 @@ export function Expenses({ expenses, setExpenses }) {
   }
 
   // Filter logic
-  const currentMonthStr = new Date().toISOString().slice(0, 7)
-  
   const filtered = expenses.filter(e => {
     // Ingredient purchases are tracked separately in Purchases, exclude here
     if (e.source === "purchase") return false
 
-    if (tab === "this_month") {
-      return e.date?.startsWith(currentMonthStr)
-    }
+    // Filter globally by the selected month
+    if (!e.date?.startsWith(selectedMonth)) return false
+
     if (tab === "by_category") {
       return e.category === selectedCategoryFilter
     }
@@ -97,8 +97,24 @@ export function Expenses({ expenses, setExpenses }) {
     if (tab === "bank") {
       return e.source === "bank"
     }
-    return true // "all"
+    return true // "monthly"
   })
+
+  const handleDeleteAll = async () => {
+    if (!window.confirm("Are you sure you want to delete ALL overhead expenses? This will permanently delete all manual and bank expenses across all months. (Ingredient purchase expenses will be preserved). This cannot be undone.")) return
+    setDeletingAll(true)
+    try {
+      const updated = expenses.filter(e => e.source === "purchase")
+      setExpenses(updated)
+      await saveExpenses(updated)
+    } catch (err) {
+      alert("Failed to delete expenses: " + err.message)
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
+  const hasExpenses = expenses.some(e => e.source !== "purchase")
 
   const total = filtered.reduce((sum, e) => sum + (e.amount || 0), 0)
 
@@ -122,10 +138,18 @@ export function Expenses({ expenses, setExpenses }) {
       {/* Action / Filter row */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <label style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8 }}>Month:</label>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(e.target.value)}
+              style={{ ...iSt, width: 140, padding: "5px 8px", fontSize: 12.5, marginTop: 0 }}
+            />
+          </div>
           <Tabs
             tabs={[
-              { v: "all", l: "All" },
-              { v: "this_month", l: "This Month" },
+              { v: "monthly", l: "Monthly Ledger" },
               { v: "by_category", l: "By Category" },
               { v: "manual", l: "Manual Entry" },
               { v: "bank", l: "From Bank Statement" }
@@ -143,7 +167,24 @@ export function Expenses({ expenses, setExpenses }) {
             </select>
           )}
         </div>
-        <Btn onClick={() => setAdding(!adding)}>+ Add Cash Expense</Btn>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {isOwner && (
+            deletingAll ? (
+              <Spinner />
+            ) : (
+              <Btn
+                small
+                variant="ghost"
+                disabled={deletingAll}
+                style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px", fontWeight: "normal", padding: "4px 8px" }}
+                onClick={handleDeleteAll}
+              >
+                🗑 Clear All Overhead
+              </Btn>
+            )
+          )}
+          <Btn onClick={() => setAdding(!adding)}>+ Add Cash Expense</Btn>
+        </div>
       </div>
 
       {/* New Expense Form */}

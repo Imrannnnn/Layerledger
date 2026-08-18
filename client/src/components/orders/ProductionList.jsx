@@ -104,8 +104,8 @@ export function ProductionList({ productions, setProductions, company, setView }
           <!-- Cake details -->
           ${isCake && p.tiers?.length > 0 ? p.tiers.map((t, ti) => `
             <div class="tier-box">
-              <strong>Tier ${ti + 1}: ${t.size}" ${t.shape || "round"}</strong><br/>
-              Layers: ${t.layers?.map(l => l.flavour).filter(Boolean).join(", ") || "—"}<br/>
+              <strong>Cake ${ti + 1}: ${t.size}" ${t.shape || "round"}</strong><br/>
+              Layers: ${t.layers?.map(l => (l.qty > 1 ? l.qty + "× " : "") + l.flavour).filter(Boolean).join(", ") || "—"}<br/>
               ${t.fillings?.length ? `Fillings: ${t.fillings.map(f => `${f.type} (${f.grams || 0}g)`).join(", ")}<br/>` : ""}
               ${t.coverings?.length ? `Covering: ${t.coverings.map(c => `${c.type} (${c.grams || 0}g)`).join(", ")}` : ""}
             </div>
@@ -252,11 +252,11 @@ export function ProductionList({ productions, setProductions, company, setView }
                       <div style={{ marginBottom: 8 }}>
                         {p.tiers.map((tier, ti) => (
                           <div key={ti} style={{ background: "#FDFBF7", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", marginBottom: 6, fontSize: 13 }}>
-                            <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6, color: "var(--text)" }}>Tier {ti + 1} — {tier.size} {tier.shape}</div>
+                            <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6, color: "var(--text)" }}>Cake {ti + 1} — {tier.size} {tier.shape}</div>
                             {tier.layers?.map((l, li) => (
                               <div key={li} style={{ display: "flex", gap: 8, marginBottom: 3 }}>
                                 <span style={{ color: "var(--muted)", minWidth: 60, fontSize: 12 }}>Layer {li + 1}:</span>
-                                <span style={{ fontWeight: 500 }}>{l.flavour || "—"}</span>
+                                <span style={{ fontWeight: 500 }}>{(l.qty > 1 ? l.qty + "× " : "") + (l.flavour || "—")}</span>
                               </div>
                             ))}
                             {tier.fillings?.length > 0 && (

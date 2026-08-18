@@ -5,7 +5,7 @@
 const cache = {}
 const lastSyncedValues = {}
 
-// Mapping functions to transform server DB structures to client/localStorage structures
+// Mapping functions to transform server DB structures to client/sessionStorage structures
 const mapServerInventoryToLocal = (item) => ({
   id: item.id,
   name: item.name,
@@ -89,7 +89,7 @@ const load = (key, fallback) => {
     }
   }
   try {
-    const localVal = localStorage.getItem(key)
+    const localVal = sessionStorage.getItem(key)
     if (localVal !== null && localVal !== undefined) {
       try {
         const parsed = JSON.parse(localVal)
@@ -119,7 +119,7 @@ const save = async (key, val) => {
   try {
     cache[key] = val
     try {
-      localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val))
+      sessionStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val))
     } catch (e) {
       // Ignored
     }
@@ -195,7 +195,7 @@ export const saveLocal = async (key, val) => {
 
 export const getAuthHeaders = () => {
   try {
-    const u = localStorage.getItem("ll_current_user")
+    const u = sessionStorage.getItem("ll_current_user")
     if (!u) return null
     const user = JSON.parse(u)
     return user && user.token ? { "Authorization": `Bearer ${user.token}`, "Content-Type": "application/json" } : null
@@ -286,7 +286,7 @@ const syncInventoryItems = async (headers, localInv) => {
 
   if (localChanged) {
     cache["ll_inv"] = updatedLocalInv
-    localStorage.setItem("ll_inv", JSON.stringify(updatedLocalInv))
+    sessionStorage.setItem("ll_inv", JSON.stringify(updatedLocalInv))
   }
 }
 
@@ -696,11 +696,11 @@ export const syncFromBackend = async () => {
         status: tenant.settings?.status || "Active"
       }
     }
-    localStorage.setItem("ll_tenant_info", JSON.stringify(tenantInfo))
+    sessionStorage.setItem("ll_tenant_info", JSON.stringify(tenantInfo))
 
     const keysToIgnoreOnLogin = ["ll_calc_state", "ll_calc_edit", "ll_calc_prefill", "ll_quote_prefill"]
     keysToIgnoreOnLogin.forEach(k => {
-      try { localStorage.removeItem(k) } catch (e) { /* ignore */ }
+      try { sessionStorage.removeItem(k) } catch (e) { /* ignore */ }
       delete cache[k]
     })
 
@@ -719,7 +719,7 @@ export const syncFromBackend = async () => {
             parsed = v
           }
           cache[k] = parsed
-          localStorage.setItem(k, typeof v === "string" ? v : JSON.stringify(v))
+          sessionStorage.setItem(k, typeof v === "string" ? v : JSON.stringify(v))
           if (k === "ll_anthropic_key") {
             window.__anthropic_key = parsed
           }
@@ -741,7 +741,7 @@ export const syncFromBackend = async () => {
       if (serverInv.length > 0) isAlreadyOnboarded = true
       const localInv = serverInv.map(mapServerInventoryToLocal)
       cache["ll_inv"] = localInv
-      localStorage.setItem("ll_inv", JSON.stringify(localInv))
+      sessionStorage.setItem("ll_inv", JSON.stringify(localInv))
       lastSyncedValues["ll_inv"] = JSON.stringify(localInv)
     }
 
@@ -750,7 +750,7 @@ export const syncFromBackend = async () => {
       if (serverRecipes.length > 0) isAlreadyOnboarded = true
       const localRecipes = serverRecipes.map(mapServerRecipeToLocal)
       cache["ll_recipes"] = localRecipes
-      localStorage.setItem("ll_recipes", JSON.stringify(localRecipes))
+      sessionStorage.setItem("ll_recipes", JSON.stringify(localRecipes))
       lastSyncedValues["ll_recipes"] = JSON.stringify(localRecipes)
     }
 
@@ -768,11 +768,11 @@ export const syncFromBackend = async () => {
         }
       })
       cache["ll_prods"] = localProds
-      localStorage.setItem("ll_prods", JSON.stringify(localProds))
+      sessionStorage.setItem("ll_prods", JSON.stringify(localProds))
       lastSyncedValues["ll_prods"] = JSON.stringify(localProds)
 
       cache["ll_quotes"] = localQuotes
-      localStorage.setItem("ll_quotes", JSON.stringify(localQuotes))
+      sessionStorage.setItem("ll_quotes", JSON.stringify(localQuotes))
       lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
     }
 
@@ -780,7 +780,7 @@ export const syncFromBackend = async () => {
       const serverExpenses = await expensesRes.json()
       const localExpenses = serverExpenses.map(mapServerExpenseToLocal)
       cache["ll_exp"] = localExpenses
-      localStorage.setItem("ll_exp", JSON.stringify(localExpenses))
+      sessionStorage.setItem("ll_exp", JSON.stringify(localExpenses))
       lastSyncedValues["ll_exp"] = JSON.stringify(localExpenses)
     }
 
@@ -788,7 +788,7 @@ export const syncFromBackend = async () => {
       const serverPurchases = await purchasesRes.json()
       const localPurchases = serverPurchases.map(mapServerPurchaseToLocal)
       cache["ll_purchases"] = localPurchases
-      localStorage.setItem("ll_purchases", JSON.stringify(localPurchases))
+      sessionStorage.setItem("ll_purchases", JSON.stringify(localPurchases))
       lastSyncedValues["ll_purchases"] = JSON.stringify(localPurchases)
     }
 
@@ -796,13 +796,13 @@ export const syncFromBackend = async () => {
       const serverInvoices = await invoicesRes.json()
       const localInvoices = serverInvoices.map(mapServerInvoiceToLocal)
       cache["ll_quote_invoices"] = localInvoices
-      localStorage.setItem("ll_quote_invoices", JSON.stringify(localInvoices))
+      sessionStorage.setItem("ll_quote_invoices", JSON.stringify(localInvoices))
       lastSyncedValues["ll_quote_invoices"] = JSON.stringify(localInvoices)
     }
 
     if (isAlreadyOnboarded) {
       cache["ll_onboarded"] = "1"
-      localStorage.setItem("ll_onboarded", "1")
+      sessionStorage.setItem("ll_onboarded", "1")
       if (!tenant.settings?.localState?.ll_onboarded) {
         setTimeout(() => syncTenantSettingsOnly(headers), 100)
       }
@@ -820,7 +820,7 @@ export const clearTempCalculatorState = () => {
   keys.forEach(k => {
     delete cache[k]
     try {
-      localStorage.removeItem(k)
+      sessionStorage.removeItem(k)
     } catch (e) {
       /* ignore error */
     }
@@ -836,17 +836,17 @@ export const logout = () => {
     delete lastSyncedValues[k]
   })
   try {
-    localStorage.removeItem("ll_current_user")
-    localStorage.removeItem("ll_tenant_info")
-    // Remove all cache-related keys from localStorage
+    sessionStorage.removeItem("ll_current_user")
+    sessionStorage.removeItem("ll_tenant_info")
+    // Remove all cache-related keys from sessionStorage
     const keysToRemove = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i)
       if (key && key.startsWith("ll_")) {
         keysToRemove.push(key)
       }
     }
-    keysToRemove.forEach(k => localStorage.removeItem(k))
+    keysToRemove.forEach(k => sessionStorage.removeItem(k))
   } catch (e) {
     // Ignore
   }
@@ -909,7 +909,7 @@ export const loadInventory = (def = []) => {
 export const saveInventory = async (data) => {
   cache["ll_inv"] = data
   try {
-    localStorage.setItem("ll_inv", JSON.stringify(data))
+    sessionStorage.setItem("ll_inv", JSON.stringify(data))
   } catch (e) { /* ignore */ }
   const headers = getAuthHeaders()
   if (!headers) return
@@ -921,7 +921,7 @@ export const loadProductions = (def = []) => load("ll_prods", def)
 export const saveProductionsList = async (data) => {
   cache["ll_prods"] = data
   try {
-    localStorage.setItem("ll_prods", JSON.stringify(data))
+    sessionStorage.setItem("ll_prods", JSON.stringify(data))
   } catch (e) { /* ignore */ }
   const headers = getAuthHeaders()
   if (!headers) return
@@ -948,7 +948,7 @@ export const loadExpenses = (def = []) => load("ll_exp", def)
 export const saveExpenses = async (data) => {
   cache["ll_exp"] = data
   try {
-    localStorage.setItem("ll_exp", JSON.stringify(data))
+    sessionStorage.setItem("ll_exp", JSON.stringify(data))
   } catch (e) { /* ignore */ }
   const headers = getAuthHeaders()
   if (!headers) return
@@ -976,7 +976,7 @@ export const loadQuotes = (def = []) => load("ll_quotes", def)
 export const saveQuotes = async (data) => {
   cache["ll_quotes"] = data
   try {
-    localStorage.setItem("ll_quotes", JSON.stringify(data))
+    sessionStorage.setItem("ll_quotes", JSON.stringify(data))
   } catch (e) { /* ignore */ }
   const headers = getAuthHeaders()
   if (!headers) return
@@ -996,7 +996,7 @@ export const loadRecipes = () => load("ll_recipes", null)
 export const saveRecipes = async (data) => {
   cache["ll_recipes"] = data
   try {
-    localStorage.setItem("ll_recipes", JSON.stringify(data))
+    sessionStorage.setItem("ll_recipes", JSON.stringify(data))
   } catch (e) { /* ignore */ }
   const headers = getAuthHeaders()
   if (!headers) return
@@ -1027,3 +1027,7 @@ export const upsertClient = async (name, phone, email) => {
 
 // Tenant Metadata
 export const loadTenantInfo = () => load("ll_tenant_info", null)
+
+// Aliases for receipt scanner ingredient mapping
+export const loadAliases = (def = {}) => load("ll_aliases", def)
+export const saveAliases = async (data) => await save("ll_aliases", data)

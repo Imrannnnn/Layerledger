@@ -11,7 +11,7 @@ import { Btn, Card, Badge, Inp, SHead } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 
 export function SuperAdminDashboard() {
-  const [token, setToken] = useState(() => localStorage.getItem("ll_superadmin_token") || "")
+  const [token, setToken] = useState(() => sessionStorage.getItem("ll_superadmin_token") || "")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -65,8 +65,8 @@ export function SuperAdminDashboard() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || "Login failed")
 
-      localStorage.setItem("ll_superadmin_token", data.token)
-      localStorage.setItem("ll_superadmin_email", data.email)
+      sessionStorage.setItem("ll_superadmin_token", data.token)
+      sessionStorage.setItem("ll_superadmin_email", data.email)
       setToken(data.token)
     } catch (err) {
       setError(err.message)
@@ -76,8 +76,8 @@ export function SuperAdminDashboard() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem("ll_superadmin_token")
-    localStorage.removeItem("ll_superadmin_email")
+    sessionStorage.removeItem("ll_superadmin_token")
+    sessionStorage.removeItem("ll_superadmin_email")
     setToken("")
     setStats(null)
     setTenants([])

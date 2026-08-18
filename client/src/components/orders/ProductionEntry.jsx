@@ -162,9 +162,9 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
 
   const doSave = async () => {
     setSaving(true)
-    const tierSummary=tiers.map(t=>`${t.size}" ${t.shape} ${t.covering} (${t.layers.map(l=>l.flavour||"—").join("/")})`).join(" + ")
+    const tierSummary=tiers.map(t=>`${t.size}" ${t.shape} ${t.covering} (${t.layers.map(l=>(l.qty > 1 ? l.qty + "×" : "") + (l.flavour||"—")).join("/")})`).join(" + ")
     const flavourSummary=tiers.flatMap(t=>t.layers.map(l=>l.flavour)).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(", ")
-    const prod={id:uid(),client,clientPhone,clientEmail,orderDate,deliveryDate:delivDate,cost:newTotalCost,deliveryCost:delivCost,salePrice:Math.round(effectiveSale),status:"pending",size:tiers[0]?.size+'"',covering:tiers[0]?.covering,flavors:flavourSummary,tiers,topper,decorations:decorIds.join(","),layers:tiers.reduce((s,t)=>s+t.layers.length,0),accessoryPct:settings.accessoryPct,profitPct:settings.profitPct,paymentType,discountPct:+discountPct,notes,tierSummary}
+    const prod={id:uid(),client,clientPhone,clientEmail,orderDate,deliveryDate:delivDate,cost:newTotalCost,deliveryCost:delivCost,salePrice:Math.round(effectiveSale),status:"pending",size:tiers[0]?.size+'"',covering:tiers[0]?.covering,flavors:flavourSummary,tiers,topper,decorations:decorIds.join(","),layers:tiers.reduce((s,t)=>s+t.layers.reduce((sum,l)=>sum+(l.qty||1),0),0),accessoryPct:settings.accessoryPct,profitPct:settings.profitPct,paymentType,discountPct:+discountPct,notes,tierSummary}
     // Deduct inventory
     if(matchedRecipe){
       const layerCount=+layers||1
@@ -205,10 +205,10 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
         ✓ Pre-filled from saved quote. Review details and add anything extra before confirming.
       </div>}
       <Card>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:12}}>Cake Tiers</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:12}}>Cakes</div>
         {tiers.map((tier,ti)=><div key={tier.id} style={{marginBottom:12,padding:12,background:"#F5F0E4",borderRadius:10,borderLeft:"4px solid var(--gold)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div style={{fontWeight:500,fontSize:13}}>Tier {ti+1}</div>
+            <div style={{fontWeight:500,fontSize:13}}>Cake {ti+1}</div>
             {tiers.length>1&&<Btn small variant="danger" onClick={()=>removeProdTier(tier.id)}>Remove</Btn>}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
@@ -239,14 +239,18 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
                 <option value="">— Select flavour —</option>
                 {layerRecipes.map(r=><option key={r.id} value={r.name}>{r.name}</option>)}
               </select>
-              {layer.flavour&&<span style={{fontSize:11,color:"var(--gold)",whiteSpace:"nowrap"}}>{fmt(tierRecipeCost(layer.flavour,tier.size,tier.shape))}</span>}
+              <div style={{display:"flex",alignItems:"center",gap:2}}>
+                <span style={{fontSize:12,color:"var(--muted)"}}>×</span>
+                <input type="number" min="1" value={layer.qty||1} onChange={e=>updatePLayerQty(tier.id,layer.id,e.target.value)} style={{...iSt,width:48,textAlign:"center",padding:"6px 4px"}}/>
+              </div>
+              {layer.flavour&&<span style={{fontSize:11,color:"var(--gold)",whiteSpace:"nowrap"}}>{fmt(tierRecipeCost(layer.flavour,tier.size,tier.shape)*(layer.qty||1))}</span>}
               {tier.layers.length>1&&<Btn small variant="danger" onClick={()=>removePLayer(tier.id,layer.id)}>×</Btn>}
             </div>)}
             <Btn small variant="ghost" onClick={()=>addPLayer(tier.id)}>+ Add layer</Btn>
           </div>
-          <div style={{marginTop:8,fontSize:12,color:"var(--muted)"}}>Tier cost: <strong style={{color:"var(--gold)"}}>{fmt(tier.layers.reduce((s,l)=>s+(l.flavour?tierRecipeCost(l.flavour,tier.size,tier.shape):0),0)+tierCoveringCost(tier.covering,tier.size,tier.shape,tier.layers.length))}</strong></div>
+          <div style={{marginTop:8,fontSize:12,color:"var(--muted)"}}>Cake cost: <strong style={{color:"var(--gold)"}}>{fmt(tier.layers.reduce((s,l)=>s+(l.flavour?tierRecipeCost(l.flavour,tier.size,tier.shape)*(l.qty||1):0),0)+tierCoveringCost(tier.covering,tier.size,tier.shape,tier.layers.reduce((sum,l)=>sum+(l.qty||1),0)))}</strong></div>
         </div>)}
-        <Btn variant="ghost" onClick={addProdTier} style={{width:"100%",marginBottom:14,borderStyle:"dashed"}}>+ Add tier</Btn>
+        <Btn variant="ghost" onClick={addProdTier} style={{width:"100%",marginBottom:14,borderStyle:"dashed"}}>+ Add cake</Btn>
 
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:10}}>Custom topper</div>
         <Card style={{marginBottom:14}}>
@@ -297,16 +301,16 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
       <Card>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,fontWeight:600,marginBottom:16}}>Cost Breakdown</div>
         {tiers.map((tier,ti)=><div key={tier.id} style={{marginBottom:14}}>
-          <div style={{fontSize:10.5,color:"var(--muted)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Tier {ti+1} — {tier.size}" {tier.shape} · {tier.covering}</div>
+          <div style={{fontSize:10.5,color:"var(--muted)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Cake {ti+1} — {tier.size}" {tier.shape} · {tier.covering}</div>
           {tier.layers.map((layer,li)=>{
             const r=recipes.find(x=>x.name.toLowerCase().includes((layer.flavour||"").toLowerCase()))
-            const cost=r?tierRecipeCost(layer.flavour,tier.size,tier.shape):0
+            const cost=r?tierRecipeCost(layer.flavour,tier.size,tier.shape)*(layer.qty||1):0
             return layer.flavour?<div key={layer.id} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5}}>
-              <span>Layer {li+1}: {layer.flavour}</span><span>{fmt(cost)}</span>
+              <span>Layer {li+1}: {layer.qty > 1 ? `${layer.qty} × ` : ""}{layer.flavour}</span><span>{fmt(cost)}</span>
             </div>:null
           })}
           {tier.covering!=="Naked"&&<div style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--muted)"}}>
-            <span>Covering: {tier.covering}</span><span>{fmt(tierCoveringCost(tier.covering,tier.size,tier.shape,tier.layers.length))}</span>
+            <span>Covering: {tier.covering}</span><span>{fmt(tierCoveringCost(tier.covering,tier.size,tier.shape,tier.layers.reduce((sum,l)=>sum+(l.qty||1),0)))}</span>
           </div>}
         </div>)}
         {topper.enabled&&<><div style={{fontSize:10.5,color:"var(--muted)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Custom Topper</div>
@@ -326,7 +330,7 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
       </Card>
       <Card>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:12}}>Order Summary</div>
-        {[["Cake",tiers.map((t,i)=>`Tier ${i+1}: ${t.size}" ${t.shape} ${t.covering} (${t.layers.map(l=>l.flavour||"?").join("/")})`).join(" | ")],["Client",client],["Phone",clientPhone||"—"],["Order Date",orderDate],["Delivery Date",delivDate],["Payment",PAYMENT_TYPES.find(p=>p.v===paymentType)?.l||paymentType],["Notes",notes||"—"]].map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid var(--border)",fontSize:12.5}}><span style={{color:"var(--muted)"}}>{k}</span><span style={{fontWeight:500,textAlign:"right",maxWidth:"60%"}}>{v}</span></div>)}
+        {[["Cake",tiers.map((t,i)=>`Cake ${i+1}: ${t.size}" ${t.shape} ${t.covering} (${t.layers.map(l=>(l.qty > 1 ? l.qty + "×" : "") + (l.flavour||"?")).join("/")})`).join(" | ")],["Client",client],["Phone",clientPhone||"—"],["Order Date",orderDate],["Delivery Date",delivDate],["Payment",PAYMENT_TYPES.find(p=>p.v===paymentType)?.l||paymentType],["Notes",notes||"—"]].map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid var(--border)",fontSize:12.5}}><span style={{color:"var(--muted)"}}>{k}</span><span style={{fontWeight:500,textAlign:"right",maxWidth:"60%"}}>{v}</span></div>)}
         {photo&&<img src={photo} alt="" style={{width:"100%",borderRadius:8,marginTop:10}}/>}
         <div style={{marginTop:10,fontSize:12,color:"var(--muted)",background:"#FFF9EE",borderRadius:6,padding:"7px 10px"}}>⚠ Saving will deduct ingredients from inventory based on recipe quantities.</div>
         <div style={{marginTop:12,display:"flex",gap:8}}><Btn onClick={()=>setStep(3)}>Confirm →</Btn><Btn variant="ghost" onClick={()=>setStep(1)}>← Edit</Btn></div>

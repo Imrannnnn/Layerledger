@@ -1,4 +1,8 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 require('dotenv').config();
+if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=require')) {
+  process.env.DATABASE_URL = process.env.DATABASE_URL.replace('sslmode=require', 'sslmode=no-verify');
+}
 jest.setTimeout(30000);
 const prisma = require('../prisma');
 const { createItem, adjustItem } = require('../controller/inventoryController');
