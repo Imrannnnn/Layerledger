@@ -150,6 +150,132 @@ export function OpeningStockTab({inventory, setInventory}){
   const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
   const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
 
+  const [showImport, setShowImport] = useState(false)
+  const [importStep, setImportStep] = useState(1) // 1 = paste columns, 2 = preview, 3 = done
+  const [pasteN, setPasteN] = useState("")
+  const [pasteU, setPasteU] = useState("")
+  const [pasteQ, setPasteQ] = useState("")
+  const [pasteC, setPasteC] = useState("")
+  const [importItems, setImportItems] = useState([])
+  const [warnMsg, setWarnMsg] = useState("")
+
+  const L = v => v.trim().split(String.fromCharCode(10)).map(s => s.replace(/,/g, "").trim()).filter(Boolean)
+
+  const checkMatch = () => {
+    const ns = L(pasteN)
+    const qs = L(pasteQ)
+    const cs = L(pasteC)
+    const warnings = []
+    if (ns.length > 0) {
+      if (qs.length > 0 && qs.length !== ns.length) {
+        warnings.push(`Names: ${ns.length} rows — Quantities: ${qs.length} rows. Must match.`)
+      }
+      if (cs.length > 0 && cs.length !== ns.length) {
+        warnings.push(`Names: ${ns.length} rows — Costs: ${cs.length} rows. Must match.`)
+      }
+    }
+    setWarnMsg(warnings.join(" | "))
+  }
+
+  const doPreview = () => {
+    const ns = L(pasteN)
+    const us = L(pasteU)
+    const qs = L(pasteQ)
+    const cs = L(pasteC)
+    
+    if (!ns.length) {
+      alert("Item names are required.")
+      return
+    }
+    if (qs.length > 0 && qs.length !== ns.length) {
+      alert(`Names (${ns.length}) and quantities (${qs.length}) must have the same number of rows.`)
+      return
+    }
+    if (cs.length > 0 && cs.length !== ns.length) {
+      alert(`Names (${ns.length}) and costs (${cs.length}) must have the same number of rows.`)
+      return
+    }
+    
+    const parsed = ns.map((name, i) => {
+      const qtyStr = qs[i] || "0"
+      const qty = parseFloat(qtyStr.replace(/[^0-9.]/g, "")) || 0
+      const costStr = cs[i] || ""
+      const cost = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0
+      
+      const match = items.find(it => it.name.trim().toLowerCase() === name.toLowerCase())
+      
+      return {
+        id: match ? match.id : uid(),
+        name: match ? match.name : name,
+        unit: us[i] || (match ? match.unit : "kg"),
+        cost: cs.length > 0 ? cost : (match ? match.cost : 0),
+        openingQty: qs.length > 0 ? qty : (match ? match.openingQty : 0),
+        isNew: !match,
+        oldQty: match ? (match.openingQty || 0) : 0,
+        oldCost: match ? (match.cost || 0) : 0,
+        on: true
+      }
+    })
+    
+    setImportItems(parsed)
+    setImportStep(2)
+  }
+
+  const confirmImport = async () => {
+    const approved = importItems.filter(x => x.on)
+    let updatedItems = [...items]
+    const newMasterItems = []
+    
+    for (const app of approved) {
+      const idx = updatedItems.findIndex(it => it.id === app.id)
+      if (idx >= 0) {
+        updatedItems[idx] = {
+          ...updatedItems[idx],
+          unit: app.unit,
+          cost: app.cost,
+          openingQty: app.openingQty
+        }
+      } else {
+        const osItem = {
+          id: app.id,
+          name: app.name,
+          unit: app.unit,
+          cost: app.cost,
+          openingQty: app.openingQty
+        }
+        updatedItems.push(osItem)
+        
+        newMasterItems.push({
+          id: app.id,
+          name: app.name,
+          cat: "Dry Goods",
+          unit: app.unit,
+          cost: app.cost,
+          stock: app.openingQty,
+          minStock: 5
+        })
+      }
+    }
+    
+    setItems(updatedItems)
+    await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedItems })
+    
+    if (newMasterItems.length > 0) {
+      const updatedInventory = [...inventory, ...newMasterItems]
+      if (setInventory) {
+        setInventory(updatedInventory)
+      }
+      await saveInventory(updatedInventory)
+    }
+    
+    setPasteN("")
+    setPasteU("")
+    setPasteQ("")
+    setPasteC("")
+    setImportStep(3)
+    setSaved(false)
+  }
+
   // Check if today is the last day of the month
   const isLastDayOfMonth = () => {
     const today = new Date()
@@ -318,7 +444,12 @@ export function OpeningStockTab({inventory, setInventory}){
             <span style={{fontSize:13,color:"#357A52",fontWeight:600,background:"#EEF8F3",padding:"6px 12px",borderRadius:8,border:"1px solid #C2E0CF"}}>🔒 Opening Stock is locked for {curMonth}</span>
           )}
         </div>
-        {!isLocked && <Btn onClick={()=>setAddingItem(true)}>+ Add Item</Btn>}
+        {!isLocked && (
+          <div style={{display:"flex",gap:10}}>
+            <Btn variant="outline" onClick={() => { setShowImport(true); setImportStep(1); }}>📁 Import from Excel</Btn>
+            <Btn onClick={()=>setAddingItem(true)}>+ Add Item</Btn>
+          </div>
+        )}
       </div>
     </Card>
     <Card>
@@ -401,6 +532,86 @@ export function OpeningStockTab({inventory, setInventory}){
         <Btn variant="ghost" onClick={()=>{setAddingItem(false); setCalcMode("manual"); setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })}}>Cancel</Btn>
       </div>
     </Modal>}
+
+    {showImport && (
+      <Modal title="Import Starting Inventory" onClose={() => setShowImport(false)}>
+        {/* Step indicators */}
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+          {[["1","Paste columns"],["2","Preview"],["✓","Imported"]].map(([num,lbl],i)=>{
+            const idx=i+1
+            const done=importStep>idx,active=importStep===idx
+            return <div key={num} style={{display:"flex",alignItems:"center",gap:5}}>
+              <div style={{width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,background:done?"#357A52":active?"var(--gold)":"var(--border)",color:done||active?"#fff":"var(--muted)"}}>{done?"✓":num}</div>
+              <span style={{fontSize:12,color:active?"var(--text)":"var(--muted)",fontWeight:active?500:400}}>{lbl}</span>
+              {i<2&&<div style={{width:20,height:1,background:"var(--border)",margin:"0 2px"}}/>}
+            </div>
+          })}
+        </div>
+
+        {/* STEP 1 — paste */}
+        {importStep===1&&<div>
+          <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:10,lineHeight:1.7}}>Open your Excel. Copy each column and paste into its own box. Only item names and cost per unit are required.</div>
+          <div style={{background:"#FFF9EE",border:"1px solid #E8D5A3",borderRadius:7,padding:"8px 12px",fontSize:12,color:"var(--gold)",marginBottom:12}}>💡 Just copy from Excel as-is. No reformatting needed.</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:10}}>
+            <div>
+              <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Item Names *</label>
+              <textarea value={pasteN} onChange={e=>{setPasteN(e.target.value);checkMatch()}} placeholder={"Flour\nSugar\nOil\nEggs\nButter"} style={{width:"100%",minHeight:150,padding:"8px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",fontSize:11.5,fontFamily:"monospace",color:"var(--text)",boxSizing:"border-box",resize:"vertical",outline:"none"}}/>
+            </div>
+            <div>
+              <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Unit <span style={{color:"var(--muted)",fontSize:8}}>(opt)</span></label>
+              <textarea value={pasteU} onChange={e=>setPasteU(e.target.value)} placeholder={"kg\nkg\nL\npcs\nkg"} style={{width:"100%",minHeight:150,padding:"8px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",fontSize:11.5,fontFamily:"monospace",color:"var(--text)",boxSizing:"border-box",resize:"vertical",outline:"none"}}/>
+              <div style={{fontSize:9,color:"var(--muted)",marginTop:3}}>Default all to kg</div>
+            </div>
+            <div>
+              <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Opening Qty</label>
+              <textarea value={pasteQ} onChange={e=>{setPasteQ(e.target.value);checkMatch()}} placeholder={"10\n5\n2\n30\n8"} style={{width:"100%",minHeight:150,padding:"8px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",fontSize:11.5,fontFamily:"monospace",color:"var(--text)",boxSizing:"border-box",resize:"vertical",outline:"none"}}/>
+              <div style={{fontSize:9,color:"var(--muted)",marginTop:3}}>Default to 0</div>
+            </div>
+            <div>
+              <label style={{fontSize:10,color:"var(--gold)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Cost/Unit (₦) *</label>
+              <textarea value={pasteC} onChange={e=>{setPasteC(e.target.value);checkMatch()}} placeholder={"1140\n1500\n3000\n20\n17500"} style={{width:"100%",minHeight:150,padding:"8px",borderRadius:8,border:"1px solid #E8D5A3",background:"#FFF9EE",fontSize:11.5,fontFamily:"monospace",color:"var(--text)",boxSizing:"border-box",resize:"vertical",outline:"none"}}/>
+              <div style={{fontSize:9,color:"var(--gold)",marginTop:3}}>Bulk price ÷ qty</div>
+            </div>
+          </div>
+          {warnMsg&&<div style={{padding:"7px 12px",background:"#FDEBE9",borderRadius:7,fontSize:12,color:"#B03A2E",marginBottom:10}}>⚠ {warnMsg}</div>}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn variant="ghost" onClick={()=>setShowImport(false)}>Cancel</Btn>
+            <Btn onClick={doPreview} disabled={!pasteN.trim()||!pasteC.trim()||!!warnMsg}>Preview import →</Btn>
+          </div>
+        </div>}
+
+        {/* STEP 2 — preview */}
+        {importStep===2&&<div>
+          <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:10}}>Check every row. Toggle off anything you don't want. Updates will edit existing item quantities/costs/units.</div>
+          <div style={{overflowX:"auto",marginBottom:10,maxHeight:300}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5}}>
+              <thead><tr style={{background:"#EDE5D6",position:"sticky",top:0,zIndex:10}}>
+                {["","Item","Type","Unit","Qty","Cost/Unit"].map(h=><th key={h} style={{padding:"7px 10px",textAlign:h==="Cost/Unit"||h==="Qty"?"right":"left",fontSize:10,textTransform:"uppercase",letterSpacing:.8,color:"var(--muted)",fontWeight:500}}>{h}</th>)}
+              </tr></thead>
+              <tbody>{importItems.map((p,i)=><tr key={i} style={{background:i%2===0?"var(--panel)":"#F8F3EA",opacity:p.on?1:0.35}}>
+                <td style={{padding:"6px 10px"}}><div onClick={()=>setImportItems(prev=>prev.map((x,j)=>j===i?{...x,on:!x.on}:x))} style={{width:30,height:16,borderRadius:8,background:p.on?"#357A52":"var(--border)",cursor:"pointer",position:"relative"}}><div style={{width:12,height:12,borderRadius:"50%",background:"white",position:"absolute",top:2,left:p.on?16:2,transition:"left 0.2s"}}/></div></td>
+                <td style={{padding:"6px 10px",fontWeight:500}}>{p.name}</td>
+                <td style={{padding:"6px 10px"}}><Badge color={p.isNew?"green":"gold"}>{p.isNew?"New":"Update"}</Badge></td>
+                <td style={{padding:"6px 10px",color:"var(--muted)"}}>{p.unit}</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{p.openingQty}</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontWeight:500,color:"var(--gold)"}}>{fmt(p.cost)}/{p.unit}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn variant="ghost" onClick={()=>setImportStep(1)}>← Edit</Btn>
+            <Btn variant="success" onClick={confirmImport} disabled={!importItems.some(p=>p.on)}>✓ Confirm & Import {importItems.filter(p=>p.on).length} Items</Btn>
+          </div>
+        </div>}
+
+        {/* STEP 3 — done */}
+        {importStep===3&&<div style={{textAlign:"center",padding:"16px 0"}}>
+          <div style={{fontSize:16,color:"#357A52",fontWeight:600,marginBottom:6}}>✓ Import complete</div>
+          <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>Starting quantities and costs have been loaded and matched.</div>
+          <Btn variant="ghost" onClick={()=>{setImportStep(1);setShowImport(false)}}>Done</Btn>
+        </div>}
+      </Modal>
+    )}
   </div>
 }
 
