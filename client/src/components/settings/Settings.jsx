@@ -149,6 +149,8 @@ export function OpeningStockTab({inventory, setInventory}){
   const [addingItem, setAddingItem] = useState(false)
   const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
   const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
+  const [editCosts, setEditCosts] = useState(false)
+  const [calcItem, setCalcItem] = useState(null)
 
   const [showImport, setShowImport] = useState(false)
   const [importStep, setImportStep] = useState(1) // 1 = paste columns, 2 = preview, 3 = done
@@ -285,7 +287,7 @@ export function OpeningStockTab({inventory, setInventory}){
   }
   
   const isLocked = saved
-  const isEditable = isLastDayOfMonth() && !isLocked
+  const isEditable = !isLocked && (isLastDayOfMonth() || editCosts)
 
   const updateOSQty = async (id, val) => {
     const updated = items.map(item => item.id === id ? { ...item, openingQty: parseFloat(val) || 0 } : item)
@@ -420,8 +422,15 @@ export function OpeningStockTab({inventory, setInventory}){
               <td style={{padding:"8px 10px",textAlign:"right",color:"var(--gold)",fontWeight:500}}>
                 {isEditable ? (
                   <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>
+                    <button 
+                      onClick={() => setCalcItem({ id: item.id, name: item.name, unit: item.unit, totalPaid: "", qtyBought: "" })}
+                      title="Calculate cost per unit"
+                      style={{background:"none",border:"none",cursor:"pointer",fontSize:13,padding:0,marginRight:4}}
+                    >
+                      🧮
+                    </button>
                     <span>₦</span>
-                    <input type="number" value={item.cost||""} onChange={e=>updateOSCost(item.id,e.target.value)} placeholder="0" style={{...iSt,width:90,padding:"4px 8px",fontSize:13,textAlign:"right"}}/>
+                    <input type="number" value={item.cost||""} onChange={e=>updateOSCost(item.id,e.target.value)} placeholder="0" style={{...iSt,width:75,padding:"4px 8px",fontSize:13,textAlign:"right"}}/>
                   </div>
                 ) : (
                   `${fmt(item.cost)}/${item.unit}`
@@ -446,6 +455,9 @@ export function OpeningStockTab({inventory, setInventory}){
         </div>
         {!isLocked && (
           <div style={{display:"flex",gap:10}}>
+            <Btn variant={editCosts ? "outline" : "outline"} onClick={() => setEditCosts(!editCosts)} style={editCosts ? {borderColor:"var(--gold)",background:"rgba(200,145,42,0.1)",color:"var(--gold)",fontWeight:"600"} : {}}>
+              {editCosts ? "✓ Done Editing" : "✏ Edit Costs / Units"}
+            </Btn>
             <Btn variant="outline" onClick={() => { setShowImport(true); setImportStep(1); }}>📁 Import from Excel</Btn>
             <Btn onClick={()=>setAddingItem(true)}>+ Add Item</Btn>
           </div>
@@ -610,6 +622,47 @@ export function OpeningStockTab({inventory, setInventory}){
           <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>Starting quantities and costs have been loaded and matched.</div>
           <Btn variant="ghost" onClick={()=>{setImportStep(1);setShowImport(false)}}>Done</Btn>
         </div>}
+      </Modal>
+    )}
+
+    {calcItem && (
+      <Modal title={`Calculate Cost/Unit — ${calcItem.name}`} onClose={() => setCalcItem(null)}>
+        <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>
+          Input the total purchase price and quantity to calculate the unit cost automatically.
+        </div>
+        <Inp 
+          label="Total Amount Paid (₦) *" 
+          type="number" 
+          value={calcItem.totalPaid} 
+          onChange={v => setCalcItem(prev => ({ ...prev, totalPaid: v }))} 
+          placeholder="e.g. 5000" 
+        />
+        <Inp 
+          label={`Quantity Bought (${calcItem.unit}) *`} 
+          type="number" 
+          value={calcItem.qtyBought} 
+          onChange={v => setCalcItem(prev => ({ ...prev, qtyBought: v }))} 
+          placeholder="e.g. 2.5" 
+        />
+        {calcItem.totalPaid && calcItem.qtyBought && parseFloat(calcItem.qtyBought) > 0 && (
+          <div style={{ padding: "10px 14px", background: "#FFF9EE", border: "1px solid var(--gold)", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "var(--gold)", marginBottom: 14 }}>
+            Calculated Cost: {fmt(parseFloat(calcItem.totalPaid) / parseFloat(calcItem.qtyBought))}/{calcItem.unit}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setCalcItem(null)}>Cancel</Btn>
+          <Btn 
+            variant="success" 
+            disabled={!calcItem.totalPaid || !calcItem.qtyBought || parseFloat(calcItem.qtyBought) <= 0}
+            onClick={() => {
+              const cost = parseFloat(calcItem.totalPaid) / parseFloat(calcItem.qtyBought)
+              updateOSCost(calcItem.id, cost)
+              setCalcItem(null)
+            }}
+          >
+            ✓ Apply Cost
+          </Btn>
+        </div>
       </Modal>
     )}
   </div>

@@ -163,7 +163,8 @@ export default function App() {
     init()
   }, [currentUser])
 
-  // Periodic background pull every 10 seconds to keep data in sync across devices
+  // Periodic background pull paused to throttle/stop automatic sync
+  /*
   useEffect(() => {
     if (currentUser) {
       const interval = setInterval(async () => {
@@ -186,6 +187,7 @@ export default function App() {
       return () => clearInterval(interval)
     }
   }, [currentUser])
+  */
 
   const setViewWithSync = async (v) => {
     goTo(v)
