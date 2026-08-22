@@ -19,6 +19,11 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   // Step 2: Opening Stock State
   const [os, setOs] = useState(() => loadLocal("ll_opening_stock", {}))
   const [savedOS, setSavedOS] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+
+  const filteredInventory = inventory.filter(item =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  )
   const curMonth = new Date().toLocaleDateString("en-NG", { month: "long", year: "numeric" })
 
   // Step 3: Base Recipes State
@@ -431,6 +436,44 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
               </div>
             </div>
 
+            {/* Search Bar */}
+            <div style={{ position: "relative", marginBottom: 12 }}>
+              <input
+                type="text"
+                placeholder="🔍 Search items by name..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{
+                  ...iSt,
+                  padding: "8px 10px 8px 30px",
+                  fontSize: 13,
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "var(--panel)"
+                }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  style={{
+                    position: "absolute",
+                    right: 10,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "none",
+                    border: "none",
+                    color: "var(--muted)",
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    padding: 0
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
             <div style={{ overflowY: "auto", maxHeight: 260, border: "1px solid var(--border)", borderRadius: 10, marginBottom: 16 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
@@ -441,14 +484,14 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                   </tr>
                 </thead>
                 <tbody>
-                  {inventory.length === 0 ? (
+                  {filteredInventory.length === 0 ? (
                     <tr>
                       <td colSpan={5} style={{ padding: "20px", textAlign: "center", color: "var(--muted)", fontSize: 12.5 }}>
-                        No items added yet. Click "Import from Excel" or "Add Item" above to get started.
+                        {inventory.length === 0 ? "No items added yet. Click \"Import from Excel\" or \"Add Item\" above to get started." : "No matching items found."}
                       </td>
                     </tr>
                   ) : (
-                    inventory.map((item, i) => {
+                    filteredInventory.map((item, i) => {
                       const qty = os[item.id] || 0
                       const value = qty * item.cost
                       return (

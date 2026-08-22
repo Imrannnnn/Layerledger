@@ -163,6 +163,11 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
   const [pasteC, setPasteC] = useState("")
   const [importItems, setImportItems] = useState([])
   const [warnMsg, setWarnMsg] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
+
+  const filteredItems = items.filter(item =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   const L = v => v.trim().split(String.fromCharCode(10)).map(s => s.replace(/,/g, "").trim()).filter(Boolean)
 
@@ -407,74 +412,122 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
           ⚠️ You have unsaved edits. Please ensure you click the <strong>"✓ Save"</strong> button at the bottom to apply your changes.
         </div>
       )}
+      {/* Search Bar */}
+      <div style={{ position: "relative", marginBottom: 14 }}>
+        <input
+          type="text"
+          placeholder="🔍 Search items by name..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{
+            ...iSt,
+            padding: "8px 10px 8px 30px",
+            fontSize: 13,
+            borderRadius: 8,
+            border: "1px solid var(--border)",
+            background: "var(--panel)"
+          }}
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            style={{
+              position: "absolute",
+              right: 10,
+              top: "50%",
+              transform: "translateY(-50%)",
+              background: "none",
+              border: "none",
+              color: "var(--muted)",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 500,
+              padding: 0
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr style={{ background: "#EDE5D6" }}>
             {["Item", "Unit", "Opening Stock Qty", "Cost/Unit", "Opening Value", !isLocked ? "" : null].filter(h => h !== null).map(h => <th key={h} style={{ padding: "8px 10px", textAlign: h === "Item" || h === "Unit" ? "left" : h === "" ? "center" : "right", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>)}
           </tr></thead>
-          <tbody>{items.map((item, i) => {
-            const qty = item.openingQty || 0
-            return <tr key={item.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
-              <td style={{ padding: "8px 10px", fontWeight: 500 }}>{item.name}</td>
-              <td style={{ padding: "8px 10px", color: "var(--muted)" }}>
-                {isEditable ? (
-                  <select value={item.unit || "kg"} onChange={e => updateOSUnit(item.id, e.target.value)} style={{ ...iSt, width: 70, padding: "2px 4px", fontSize: 12 }}>
-                    {["kg", "g", "L", "ml", "pcs", "pack", "bottle", "roll", "set", "cm"].map(u => <option key={u}>{u}</option>)}
-                  </select>
-                ) : (
-                  item.unit
-                )}
-              </td>
-              <td style={{ padding: "8px 10px", textAlign: "right" }}>
-                <input
-                  type="number"
-                  value={qty || ""}
-                  onChange={e => updateOSQty(item.id, e.target.value)}
-                  placeholder="0"
-                  disabled={isLocked}
-                  style={{
-                    ...iSt,
-                    width: 90,
-                    padding: "4px 8px",
-                    fontSize: 13,
-                    textAlign: "right",
-                    ...(isLocked ? { background: "#F5F5F5", color: "var(--muted)", cursor: "not-allowed" } : {})
-                  }}
-                />
-              </td>
-              <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--gold)", fontWeight: 500 }}>
-                {isEditable ? (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
-                    <button
-                      onClick={() => setCalcItem({ id: item.id, name: item.name, unit: item.unit, totalPaid: "", qtyBought: "" })}
-                      title="Calculate cost per unit"
-                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: 0, marginRight: 4 }}
-                    >
-                      🧮
-                    </button>
-                    <span>₦</span>
-                    <input type="number" value={item.cost || ""} onChange={e => updateOSCost(item.id, e.target.value)} placeholder="0" style={{ ...iSt, width: 75, padding: "4px 8px", fontSize: 13, textAlign: "right" }} />
-                  </div>
-                ) : (
-                  `${fmt(item.cost)}/${item.unit}`
-                )}
-              </td>
-              <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--muted)", fontSize: 12 }}>{fmt(qty * item.cost)}</td>
-              {!isLocked && (
-                <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                  <Btn
-                    small
-                    variant="danger"
-                    onClick={() => deleteOSItem(item.id)}
-                    title="Remove item from opening stock"
-                    style={{ padding: "2px 8px", minWidth: 24, fontSize: 14 }}
-                  >
-                    ×
-                  </Btn>
+          <tbody>
+            {filteredItems.length === 0 ? (
+              <tr>
+                <td colSpan={isLocked ? 5 : 6} style={{ padding: "16px 10px", textAlign: "center", color: "var(--muted)", fontStyle: "italic" }}>
+                  {items.length === 0 ? "No items in opening stock yet." : "No matching items found."}
                 </td>
-              )}
-            </tr>
-          })}</tbody>
+              </tr>
+            ) : (
+              filteredItems.map((item, i) => {
+                const qty = item.openingQty || 0
+                return <tr key={item.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
+                  <td style={{ padding: "8px 10px", fontWeight: 500 }}>{item.name}</td>
+                  <td style={{ padding: "8px 10px", color: "var(--muted)" }}>
+                    {isEditable ? (
+                      <select value={item.unit || "kg"} onChange={e => updateOSUnit(item.id, e.target.value)} style={{ ...iSt, width: 70, padding: "2px 4px", fontSize: 12 }}>
+                        {["kg", "g", "L", "ml", "pcs", "pack", "bottle", "roll", "set", "cm"].map(u => <option key={u}>{u}</option>)}
+                      </select>
+                    ) : (
+                      item.unit
+                    )}
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                    <input
+                      type="number"
+                      value={qty || ""}
+                      onChange={e => updateOSQty(item.id, e.target.value)}
+                      placeholder="0"
+                      disabled={isLocked}
+                      style={{
+                        ...iSt,
+                        width: 90,
+                        padding: "4px 8px",
+                        fontSize: 13,
+                        textAlign: "right",
+                        ...(isLocked ? { background: "#F5F5F5", color: "var(--muted)", cursor: "not-allowed" } : {})
+                      }}
+                    />
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--gold)", fontWeight: 500 }}>
+                    {isEditable ? (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
+                        <button
+                          onClick={() => setCalcItem({ id: item.id, name: item.name, unit: item.unit, totalPaid: "", qtyBought: "" })}
+                          title="Calculate cost per unit"
+                          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: 0, marginRight: 4 }}
+                        >
+                          🧮
+                        </button>
+                        <span>₦</span>
+                        <input type="number" value={item.cost || ""} onChange={e => updateOSCost(item.id, e.target.value)} placeholder="0" style={{ ...iSt, width: 75, padding: "4px 8px", fontSize: 13, textAlign: "right" }} />
+                      </div>
+                    ) : (
+                      `${fmt(item.cost)}/${item.unit}`
+                    )}
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--muted)", fontSize: 12 }}>{fmt(qty * item.cost)}</td>
+                  {!isLocked && (
+                    <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                      <Btn
+                        small
+                        variant="danger"
+                        onClick={() => deleteOSItem(item.id)}
+                        title="Remove item from opening stock"
+                        style={{ padding: "2px 8px", minWidth: 24, fontSize: 14 }}
+                      >
+                        ×
+                      </Btn>
+                    </td>
+                  )}
+                </tr>
+              })
+            )}
+          </tbody>
           <tfoot><tr>
             <td colSpan={4} style={{ padding: "10px", textAlign: "right", fontWeight: 600, fontSize: 13 }}>Total opening stock value</td>
             <td style={{ padding: "10px", textAlign: "right", fontWeight: 700, color: "var(--gold)", fontSize: 15 }}>{fmt(items.reduce((s, i) => s + (i.openingQty || 0) * i.cost, 0))}</td>
