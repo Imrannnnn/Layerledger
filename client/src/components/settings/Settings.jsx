@@ -234,7 +234,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
   const confirmImport = async () => {
     const approved = importItems.filter(x => x.on)
     let updatedItems = [...items]
-    const newMasterItems = []
+    let updatedInventory = [...inventory]
 
     for (const app of approved) {
       const idx = updatedItems.findIndex(it => it.id === app.id)
@@ -244,6 +244,15 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
           unit: app.unit,
           cost: app.cost,
           openingQty: app.openingQty
+        }
+        // Also update existing item in inventory
+        const invIdx = updatedInventory.findIndex(it => it.id === app.id)
+        if (invIdx >= 0) {
+          updatedInventory[invIdx] = {
+            ...updatedInventory[invIdx],
+            unit: app.unit,
+            cost: app.cost
+          }
         }
       } else {
         const osItem = {
@@ -255,7 +264,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
         }
         updatedItems.push(osItem)
 
-        newMasterItems.push({
+        updatedInventory.push({
           id: app.id,
           name: app.name,
           cat: "Dry Goods",
@@ -270,13 +279,10 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     setItems(updatedItems)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedItems })
 
-    if (newMasterItems.length > 0) {
-      const updatedInventory = [...inventory, ...newMasterItems]
-      if (setInventory) {
-        setInventory(updatedInventory)
-      }
-      await saveInventory(updatedInventory)
+    if (setInventory) {
+      setInventory(updatedInventory)
     }
+    await saveInventory(updatedInventory)
 
     setPasteN("")
     setPasteU("")
@@ -305,10 +311,18 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
   }
 
   const updateOSCost = async (id, val) => {
-    const updated = items.map(item => item.id === id ? { ...item, cost: parseFloat(val) || 0 } : item)
+    const costVal = parseFloat(val) || 0
+    const updated = items.map(item => item.id === id ? { ...item, cost: costVal } : item)
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
     setSaved(false)
+
+    // Update cost in inventory
+    const updatedInventory = inventory.map(item => item.id === id ? { ...item, cost: costVal } : item)
+    if (setInventory) {
+      setInventory(updatedInventory)
+    }
+    await saveInventory(updatedInventory)
   }
 
   const updateOSUnit = async (id, val) => {
@@ -316,6 +330,13 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
     setSaved(false)
+
+    // Update unit in inventory
+    const updatedInventory = inventory.map(item => item.id === id ? { ...item, unit: val } : item)
+    if (setInventory) {
+      setInventory(updatedInventory)
+    }
+    await saveInventory(updatedInventory)
   }
 
   const deleteOSItem = async (id) => {
