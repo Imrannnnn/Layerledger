@@ -859,6 +859,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 <button onClick={()=>{
                   const phone=clientPhone.replace(/[^0-9]/g,"").replace(/^0/,"234")
+                  const co=loadCompany()
                   const tierText=tiers.map((t,i)=>`Tier ${i+1}: ${t.size}" ${t.shape} - ${t.layers.map(l=>l.flavour||"?").join("/")}${t.coverings?.length?" - Covering: "+t.coverings.map(c=>c.type).join(", "):"" }`).join("\n")
                   const msg="Hello "+clientName+"! Cake quote:\n\n"+tierText+"\n\nQuote price: N"+suggestedPrice.toLocaleString()+"\n\n"+(clientNotes||"")+"\n\nPlease confirm to proceed. Deposit required. Thank you for choosing "+(co.name||"our bakery")+"!"
                   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`,"_blank")
