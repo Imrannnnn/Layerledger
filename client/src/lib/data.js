@@ -478,6 +478,46 @@ const calculateOrderUsages = (o, inventory, recipes) => {
     });
   }
 
+  if (o.pastryItems && o.pastryItems.length > 0) {
+    o.pastryItems.forEach(p => {
+      if (!p.flavour || !p.qty) return;
+      const recipe = recipes.find(r => r.name.toLowerCase().includes(p.flavour.toLowerCase()));
+      if (!recipe) return;
+      const batchSize = recipe.batchSize || 12;
+      const ratio = p.qty / batchSize;
+      recipe.ing?.forEach(ing => {
+        const needed = ing.qty * ratio;
+        const existing = usages.find(u => u.itemId === ing.iid);
+        if (existing) {
+          existing.qty += needed;
+        } else {
+          usages.push({ itemId: ing.iid, qty: needed });
+        }
+      });
+
+      if (p.filling && p.fillingGrams > 0) {
+        const fillRecipe = recipes.find(r => (r.type === "covering" || !r.type) && r.name.toLowerCase().includes(p.filling.toLowerCase()));
+        if (fillRecipe) {
+          const batchGrams = Number(fillRecipe.batchWeight) || fillRecipe.ing?.reduce((s, ing) => {
+            if (ing.unit === "kg") return s + ing.qty * 1000;
+            if (ing.unit === "g" || ing.unit === "L" || ing.unit === "l") return s + ing.qty;
+            return s;
+          }, 0) || 1000;
+          const ratio = p.fillingGrams / batchGrams;
+          fillRecipe.ing?.forEach(ing => {
+            const needed = ing.qty * ratio;
+            const existing = usages.find(u => u.itemId === ing.iid);
+            if (existing) {
+              existing.qty += needed;
+            } else {
+              usages.push({ itemId: ing.iid, qty: needed });
+            }
+          });
+        }
+      }
+    });
+  }
+
   if (o.loaves && o.loaves.length > 0) {
     o.loaves.forEach(l => {
       if (!l.flavour) return;

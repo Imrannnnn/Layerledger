@@ -802,6 +802,24 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
 
             const derivedProductType = (isCakeVisible && isPastryVisible) ? "Cake & Pastry" : (isCakeVisible ? "Cake" : "Pastry")
 
+            // Map unified pastryItems to legacy fields for backward compatibility
+            const donutGroups = pastryItems.map(p => ({
+              flavour: p.flavour,
+              qty: p.qty,
+              filling: p.filling,
+              fillingGrams: p.fillingGrams
+            }))
+            const loaves = pastryItems.map(p => ({
+              id: p.id,
+              flavour: p.flavour
+            }))
+            const tartQty = pastryItems.reduce((sum, p) => sum + (p.qty || 0), 0)
+            const tartFillings = pastryItems.map(p => ({
+              type: p.filling,
+              grams: p.fillingGrams
+            }))
+            const tartGarnish = ""
+
             const co=loadCompany()
             const quote={
               id:uid(),
@@ -809,7 +827,7 @@ export function OrderCalculator({inventory,recipes,settings,setView,company}){
               clientPhone,
               date:new Date().toISOString().slice(0,10),
               productType:isGS?orderPurpose:derivedProductType,tiers,accRows,topper,decQty,
-              donutGroups,loaves,tartQty,tartFillings,tartGarnish,
+              donutGroups,loaves,tartQty,tartFillings,tartGarnish,pastryItems,
               cakePhoto:cakePhoto||null,
               totalCost,quotePrice:suggestedPrice,
               salePrice:isGS?0:(+salePrice||suggestedPrice),

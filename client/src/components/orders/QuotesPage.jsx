@@ -183,6 +183,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
         tartQty: q.tartQty || 0,
         tartFillings: q.tartFillings || [],
         tartGarnish: q.tartGarnish || "",
+        pastryItems: q.pastryItems || [],
         decorations: q.decQty ? Object.keys(q.decQty).join(", ") : "",
         layers: q.tiers?.length || 1,
         accessoryPct: 10,
@@ -374,6 +375,35 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                             {t.coverings?.length ? " • " + t.coverings.map(c => c.type).join("+") : ""}
                           </div>
                         ))}
+                        {q.pastryItems?.length > 0 ? (
+                          q.pastryItems.map((p, i) => (
+                            <div key={i}>
+                              <span style={{ color: "var(--muted)" }}>Pastry {i + 1}: </span>
+                              {p.qty}× {p.flavour || "Plain"}{p.filling ? ` • Filling: ${p.filling}${p.fillingGrams ? ` (${p.fillingGrams}g)` : ""}` : ""}
+                            </div>
+                          ))
+                        ) : (
+                          <>
+                            {q.donutGroups?.map((g, i) => (
+                              <div key={i}>
+                                <span style={{ color: "var(--muted)" }}>Donuts Group {i + 1}: </span>
+                                {g.qty}× {g.flavour || "Plain"}{g.filling ? ` • Filling: ${g.filling}${g.fillingGrams ? ` (${g.fillingGrams}g)` : ""}` : ""}
+                              </div>
+                            ))}
+                            {q.loaves?.map((l, i) => (
+                              <div key={i}>
+                                <span style={{ color: "var(--muted)" }}>Loaf {i + 1}: </span>
+                                {l.flavour || "Classic"}
+                              </div>
+                            ))}
+                            {q.tartQty > 0 && (
+                              <div>
+                                <span style={{ color: "var(--muted)" }}>Tarts: </span>
+                                {q.tartQty} shells • {q.tartFillings?.map(f => f.type).join(", ") || "No filling"}
+                              </div>
+                            )}
+                          </>
+                        )}
                         {q.accRows?.length > 0 && <div><span style={{ color: "var(--muted)" }}>Boards & Packaging: </span>{q.accRows.map(a => a.name || a.type).join(", ")}</div>}
                         <div><span style={{ color: "var(--muted)" }}>Notes: </span>{q.notes || "—"}</div>
                       </div>
@@ -593,7 +623,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               + "<div style='margin-bottom:18px'>"
                               + "<div style='font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid " + gold + ";padding-bottom:4px;margin-bottom:10px'>Order details</div>"
                               // Cake/Cupcake tiers
-                              + ((!q.productType || q.productType === "Cake" || q.productType === "Cupcakes")
+                              + ((!q.productType || q.productType === "Cake" || q.productType === "Cupcakes" || q.productType === "Cake & Pastry")
                                 ? trs.map((t, i) => "<div class='tier'><strong>Cake " + (i + 1) + " — " + t.size + "\" " + (t.shape || "") + "</strong>"
                                   + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
                                   + "Flavours: " + (t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + l.flavour).filter(Boolean).join(", ") || "—") + "<br>"
@@ -603,7 +633,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                                 : "")
                               // Donuts
                               + (q.productType === "Donuts"
-                                ? (q.donutGroups || []).map((g, i) => "<div class='tier'><strong>Group " + (i + 1) + ": " + g.qty + donuts + "</strong>"
+                                ? (q.donutGroups || []).map((g, i) => "<div class='tier'><strong>Group " + (i + 1) + ": " + g.qty + " donuts</strong>"
                                   + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
                                   + "Base: " + (g.flavour || "—") + (g.filling ? "<br>Filling: " + g.filling + (g.fillingGrams ? " (" + g.fillingGrams + "g)" : "") : "")
                                   + "</div></div>").join("")
@@ -622,6 +652,13 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                                   + (q.tartFillings || []).filter(f => f.type).map(f => f.type + (f.grams ? " (" + f.grams + "g)" : "")).join("<br>")
                                   + (q.tartGarnish ? "<br>Garnish: " + q.tartGarnish : "")
                                   + "</div></div>"
+                                : "")
+                              // Unified Pastries
+                              + ((q.productType === "Pastry" || q.productType === "Cake & Pastry" || q.pastryItems?.length > 0)
+                                ? (q.pastryItems || []).map((p, i) => "<div class='tier'><strong>Pastry " + (i + 1) + ": " + p.qty + "× " + (p.flavour || "Plain") + "</strong>"
+                                  + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
+                                  + (p.filling ? "Filling: " + p.filling + (p.fillingGrams ? " (" + p.fillingGrams + "g)" : "") : "")
+                                  + "</div></div>").join("")
                                 : "")
 
                               + (q.topper?.enabled ? "<div class='row'><span>Custom topper</span><span>" + (q.topper.description || "Yes") + "</span></div>" : "")

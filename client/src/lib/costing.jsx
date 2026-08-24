@@ -41,6 +41,7 @@ export function loadQuoteRevenue(){
         donutGroups:q.donutGroups||[],
         loaves:q.loaves||[],
         tartQty:q.tartQty||0,
+        pastryItems:q.pastryItems||[],
         notes:q.notes||"",
         paymentType:isGS?q.orderPurpose:"full",
         status:"approved",

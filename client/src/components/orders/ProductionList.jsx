@@ -225,7 +225,7 @@ export function ProductionList({ productions, setProductions, company, setView }
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {(activeTab === "schedule" ? weekProds : unscheduledProds).map((p, i) => {
             const st = p.status || "pending"
-            const isCake = !p.productType || p.productType === "Cake" || p.productType === "Cupcakes"
+            const isCake = !p.productType || p.productType === "Cake" || p.productType === "Cupcakes" || p.productType === "Cake & Pastry"
             const isDonuts = p.productType === "Donuts"
             const isLoaf = p.productType === "Cake Loaf"
             const isTart = p.productType === "Tarts / Pastry"
@@ -320,8 +320,20 @@ export function ProductionList({ productions, setProductions, company, setView }
                       </div>
                     )}
 
+                    {/* Pastry details */}
+                    {p.pastryItems?.length > 0 && (
+                      <div style={{ marginBottom: 8 }}>
+                        {p.pastryItems.map((g, gi) => (
+                          <div key={gi} style={{ background: "#FDFBF7", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", marginBottom: 6, fontSize: 13 }}>
+                            <div style={{ fontWeight: 600 }}>{g.qty} × {g.flavour || "?"}</div>
+                            {g.filling && <div style={{ color: "var(--muted)", marginTop: 2 }}>Filling: {g.filling} {g.fillingGrams ? `(${g.fillingGrams}g)` : ""}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {/* Fallback for old records */}
-                    {!p.tiers && !p.donutGroups && !p.loaves && (
+                    {!p.tiers && !p.donutGroups && !p.loaves && !p.pastryItems && !isTart && (
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(100px,1fr))", gap: 8, fontSize: 13, marginBottom: 8 }}>
                         {[{ l: "Size", v: p.size || "—" }, { l: "Flavour", v: p.flavor || p.flavors || "—" }, { l: "Covering", v: p.covering || "—" }, { l: "Layers", v: p.layers || "—" }].map(f => (
                           <div key={f.l}>
