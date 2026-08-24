@@ -149,7 +149,7 @@ export async function callClaude(messages, system="") {
 }
 
 // Compress image before sending to API
-export async function compressImage(base64, maxWidth=800) {
+export async function compressImage(base64, maxWidth=800, quality=0.8) {
   return new Promise(resolve => {
     const img = new Image()
     img.onload = () => {
@@ -158,7 +158,7 @@ export async function compressImage(base64, maxWidth=800) {
       canvas.width = img.width * scale
       canvas.height = img.height * scale
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
-      resolve(canvas.toDataURL('image/jpeg', 0.7).split(',')[1])
+      resolve(canvas.toDataURL('image/jpeg', quality).split(',')[1])
     }
     img.src = `data:image/jpeg;base64,${base64}`
   })

@@ -111,7 +111,7 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
     setLoading(true)
     setError("")
     try {
-      const compressed = await compressImage(photoB64, 800)
+      const compressed = await compressImage(photoB64, 1600, 0.85)
       const invList = inventory.map(i => `${i.id}:${i.name}(${i.unit})`).join(", ")
       const raw = await callClaude([
         {
@@ -121,6 +121,7 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
             {
               type: "text",
               text: `This is a Nigerian bakery receipt. Read every item carefully.
+Please extract EVERY SINGLE item listed on the receipt, even if it is not in the inventory list. If an item on the receipt does not match any item in the inventory list, set "matched_id" to "".
 
 Inventory list to match against:
 ${invList}
