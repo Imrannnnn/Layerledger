@@ -10,6 +10,7 @@ import React, { useState, useEffect, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Modal } from "../common/ui.jsx"
 import { fmt, uid, today, callClaude, compressImage } from "../../lib/helpers.js"
 import { saveInventory, saveExpenses, saveLocal, loadLocal, loadAliases, saveAliases } from "../../lib/data.js"
+import { EXP_CATS } from "../../constants.js"
 
 // Helper to extract and repair common LLM JSON syntax flaws (trailing commas, unquoted keys, comments)
 function extractAndRepairJson(rawText) {
@@ -48,9 +49,9 @@ function extractAndRepairJson(rawText) {
 }
 
 function normalizeItem(r) {
-  if (!r) return { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
+  if (!r) return { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", category: "Miscellaneous", approved: true, confidence: "high" }
   if (typeof r === "string") {
-    return { item_on_receipt: r, qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
+    return { item_on_receipt: r, qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", category: "Miscellaneous", approved: true, confidence: "high" }
   }
   const qty = Number(r.qty || r.quantity || 1) || 1
   const price = Number(r.unit_price || r.price || r.cost || 0) || 0
@@ -63,8 +64,9 @@ function normalizeItem(r) {
     unit_size: Number(r.unit_size || r.size || 1) || 1,
     unit_price: price,
     line_total: total,
-    type: "purchase",
+    type: r.type === "expense" ? "expense" : "purchase",
     overrideId: String(r.matched_id || r.overrideId || ""),
+    category: String(r.category || r.matched_name || "Miscellaneous"),
     approved: r.approved !== undefined ? Boolean(r.approved) : r.confidence !== "low",
     confidence: String(r.confidence || "high")
   }
@@ -76,6 +78,7 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [saved, setSaved] = useState(false)
+  const [savedMonth, setSavedMonth] = useState("")
   const [parsed, setParsed] = useState(null) // { supplier, receipt_date, items: [...] }
   const [totalAmount, setTotalAmount] = useState("")
   const [saving, setSaving] = useState(false)
@@ -211,6 +214,15 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
         if (i !== idx) return r
         const updatedRow = { ...r, [field]: val }
 
+        if (field === "type") {
+          if (val === "expense") {
+            updatedRow.overrideId = ""
+            updatedRow.category = "Miscellaneous"
+          } else {
+            updatedRow.category = ""
+          }
+        }
+
         if (field === "item_on_receipt") {
           const key = (val || "").trim().toLowerCase()
           const matchedId = aliases[key]
@@ -267,9 +279,9 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
   const applyUpdates = async () => {
     setSaving(true)
     try {
+      const monthStr = parsed.receipt_date || today()
       const approved = parsed.items.filter(r => r.approved)
       const purchases = approved.filter(r => r.type === "purchase" && r.overrideId)
-      const expItems = approved.filter(r => r.type === "expense" || !r.overrideId)
 
       // Update inventory: stock + cost/unit for purchases
       let updInv = [...inventory]
@@ -312,54 +324,62 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
         await saveLocal("ll_purchases", [...purchaseLog, ...existing])
       }
 
-      // Log expense record
+      // Log expense records grouped by category
       const totalCalc = parsed.items.reduce((s, r) => s + (r.approved ? (+r.line_total || 0) : 0), 0)
       const amt = +totalAmount || totalCalc
       if (amt > 0) {
-        const purchaseNames = purchases.map(r => r.matched_name || r.item_on_receipt)
-        const expNames = expItems.map(r => r.item_on_receipt)
+        const categoriesMap = {}
+        approved.forEach(r => {
+          let cat = "Miscellaneous"
+          let source = "receipt"
+          if (r.type === "purchase") {
+            cat = "Ingredients / Supplies"
+            source = "purchase"
+          } else {
+            cat = r.category || "Miscellaneous"
+            if (cat === "Ingredients" || cat === "Ingredients/Supplies") {
+              cat = "Ingredients / Supplies"
+            }
+            source = "receipt"
+          }
+          const key = `${cat}::${source}`
+          if (!categoriesMap[key]) {
+            categoriesMap[key] = { cat, source, amount: 0, items: [] }
+          }
+          categoriesMap[key].amount += (+r.line_total || 0)
+          categoriesMap[key].items.push(r.item_on_receipt || "Item")
+        })
 
-        const purchaseCalc = purchases.reduce((s, r) => s + (+r.line_total || 0), 0)
-        const expCalc = expItems.reduce((s, r) => s + (+r.line_total || 0), 0)
+        const scaleFactor = totalCalc > 0 ? amt / totalCalc : 1
+        const newExps = []
 
-        const purchaseAmt = totalCalc > 0 ? (purchaseCalc / totalCalc) * amt : (purchases.length > 0 && expItems.length === 0 ? amt : 0)
-        const expAmt = totalCalc > 0 ? (expCalc / totalCalc) * amt : (expItems.length > 0 && purchases.length === 0 ? amt : 0)
-
-        let newExps = []
-
-        if (purchaseAmt > 0) {
-          newExps.push({
-            id: uid(),
-            date: parsed.receipt_date || today(),
-            description: `${parsed.supplier || "Receipt"} — Ingredients/Supplies`,
-            amount: Math.round(purchaseAmt),
-            category: "Ingredients",
-            paymentMethod: "cash",
-            source: "purchase",
-            notes: `Purchases: ${purchaseNames.join(", ")}`
-          })
-        }
-
-        if (expAmt > 0) {
-          newExps.push({
-            id: uid(),
-            date: parsed.receipt_date || today(),
-            description: `${parsed.supplier || "Receipt"} — Operations`,
-            amount: Math.round(expAmt),
-            category: "Operations",
-            paymentMethod: "cash",
-            source: "receipt",
-            notes: `Expenses: ${expNames.join(", ")}`
-          })
-        }
+        Object.values(categoriesMap).forEach(data => {
+          const scaledAmt = Math.round(data.amount * scaleFactor)
+          if (scaledAmt > 0) {
+            newExps.push({
+              id: uid(),
+              date: parsed.receipt_date || today(),
+              description: `${parsed.supplier || "Receipt"} — ${data.cat}`,
+              amount: scaledAmt,
+              category: data.cat,
+              paymentMethod: "cash",
+              source: data.source,
+              notes: `Items: ${data.items.join(", ")}`
+            })
+          }
+        })
 
         if (newExps.length > 0) {
           const updExp = [...newExps, ...expenses]
           setExpenses(updExp)
           await saveExpenses(updExp)
+          alert(`Logged ${newExps.length} expense(s) to ${monthStr.slice(0, 7)}: ` + newExps.map(ne => `${ne.category} (source: ${ne.source}): ₦${ne.amount}`).join(', '));
+        } else {
+          alert("Info: No overhead expenses were logged from this receipt.");
         }
       }
 
+      setSavedMonth(monthStr.slice(0, 7))
       setParsed(null)
       setPhoto(null)
       setPhotoB64(null)
@@ -530,8 +550,8 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
           )}
 
           {saved && (
-            <div style={{ background: "#EEF8F3", borderRadius: 8, padding: 12, border: "1px solid #C2E0CF" }}>
-              <div style={{ fontWeight: 600, color: "#357A52", marginBottom: 4 }}>✓ Done! Purchases updated inventory · expenses logged · cost/unit recalculated.</div>
+            <div style={{ background: "#EEF8F3", borderRadius: 8, padding: 12, border: "1px solid #C2E0CF", marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, color: "#357A52", marginBottom: 4 }}>✓ Done! Purchases updated inventory and expenses logged to the {savedMonth} ledger.</div>
               <Btn small variant="outline" onClick={() => setSaved(false)}>Log Another</Btn>
             </div>
           )}
@@ -613,27 +633,49 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
                   )}
 
                   {/* Linking / Add New item dropdown */}
-                  {r.approved && r.type === "purchase" && (
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  {r.approved && (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                      {/* Selection: Link to Inventory vs Link to Expense */}
                       <select
-                        value={r.overrideId || ""}
-                        onChange={e => setMatch(idx, e.target.value)}
-                        style={{ ...iSt, fontSize: 12, padding: "5px 8px", flex: 1 }}
+                        value={r.type || "purchase"}
+                        onChange={e => updateRow(idx, "type", e.target.value)}
+                        style={{ ...iSt, fontSize: 12, padding: "5px 8px", width: 150 }}
                       >
-                        <option value="">— Link to inventory ingredient —</option>
-                        {inventory.map(i => (
-                          <option key={i.id} value={i.id}>{i.name} ({i.unit}) | stock: {i.stock}</option>
-                        ))}
+                        <option value="purchase"> Link to Inventory</option>
+                        <option value="expense"> Link to Expense</option>
                       </select>
-                      {!r.overrideId && (
-                        <Btn small variant="outline" onClick={() => openNewItemModal(idx)}>+ Add As New</Btn>
-                      )}
-                    </div>
-                  )}
 
-                  {r.approved && r.type === "expense" && (
-                    <div style={{ fontSize: 11, color: "var(--muted)", background: "#FFF9EE", padding: "4px 8px", borderRadius: 4 }}>
-                      → Logs directly to Expenses
+                      {/* Render based on selection */}
+                      {r.type === "purchase" ? (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1 }}>
+                          <select
+                            value={r.overrideId || ""}
+                            onChange={e => setMatch(idx, e.target.value)}
+                            style={{ ...iSt, fontSize: 12, padding: "5px 8px", flex: 1 }}
+                          >
+                            <option value="">— Link to ingredient —</option>
+                            {inventory.map(i => (
+                              <option key={i.id} value={i.id}>{i.name} ({i.unit}) | stock: {i.stock}</option>
+                            ))}
+                          </select>
+                          {!r.overrideId && (
+                            <Btn small variant="outline" onClick={() => openNewItemModal(idx)}>+ Add As New</Btn>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1 }}>
+                          <select
+                            value={r.category || ""}
+                            onChange={e => updateRow(idx, "category", e.target.value)}
+                            style={{ ...iSt, fontSize: 12, padding: "5px 8px", flex: 1 }}
+                          >
+                            <option value="">— Select expense category —</option>
+                            {EXP_CATS.map(c => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -664,7 +706,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
             <Inp label="Unit (e.g. kg, L, pcs) *" value={newFields.unit} onChange={v => setNewFields({ ...newFields, unit: v })} />
 
             <div>
-              <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Cost Per Unit Setting</label>
+              <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 500 }}>Cost Per Unit Setting</label>
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   type="button"

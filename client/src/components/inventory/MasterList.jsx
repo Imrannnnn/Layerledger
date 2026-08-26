@@ -816,6 +816,9 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     {/* COLLAPSIBLE CATEGORIES */}
     <div>
       {Object.entries(categories).map(([catName, items]) => {
+        const filteredItems = items.filter(i => (i.name || "").toLowerCase().includes(searchQuery.toLowerCase()))
+        if (searchQuery.trim() && filteredItems.length === 0) return null
+        const displayItems = searchQuery.trim() ? filteredItems : items
         const isCollapsed = collapsedCats[catName]
         return (
           <div key={catName} style={{ marginBottom: 14 }}>
@@ -838,8 +841,8 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span>📁 {catName} ({items.length} item{items.length !== 1 ? "s" : ""})</span>
-
+                <span>📁 {catName} ({displayItems.length} item{displayItems.length !== 1 ? "s" : ""})</span>
+ 
                 {catName === "Decoration Extras" && (
                   <span 
                     onClick={(e) => {
@@ -879,17 +882,17 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
               </div>
               <span style={{ fontSize: 12, color: "var(--muted)" }}>{isCollapsed ? "▼ Click to expand" : "▲ Click to collapse"}</span>
             </div>
-
+ 
             {/* Section Content */}
             {!isCollapsed && (
               <div style={{ marginTop: 8, overflowX: "auto" }}>
                 <table style={{width:"100%",borderCollapse:"collapse",background:"var(--panel)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
                   <TH cols={[...(isOwner ? [""] : []), "Item", "Unit", "Stock qty", "Cost/Unit", "Min Alert", "Status", ...(isOwner ? ["Category / Move", "Actions"] : [])]}/>
                   <tbody>
-                    {items.length === 0 ? (
+                    {displayItems.length === 0 ? (
                       <tr><td colSpan={isOwner ? 9 : 6} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No items in this category yet.</td></tr>
                     ) : (
-                      items.filter(i => (i.name || "").toLowerCase().includes(searchQuery.toLowerCase())).map((item, idx) => {
+                      displayItems.map((item, idx) => {
                         const isLow = item.stock <= (item.minStock || 5)
                         const editing = editId === item.id
                         const isSelected = selectedItemIds.has(item.id)

@@ -127,6 +127,7 @@ describe("ReceiptScanner Alias System", () => {
     container = document.createElement("div")
     document.body.appendChild(container)
     jest.clearAllMocks()
+    window.alert = jest.fn()
   })
 
   afterEach(() => {
@@ -196,7 +197,8 @@ describe("ReceiptScanner Alias System", () => {
     })
 
     // Wait for the dropdown match
-    const dropdown = container.querySelector("select")
+    const selects = container.querySelectorAll("select")
+    const dropdown = selects[1]
     expect(dropdown.value).toBe("ing-1")
   })
 
@@ -230,7 +232,8 @@ describe("ReceiptScanner Alias System", () => {
     })
 
     // Select match
-    const dropdown = container.querySelector("select")
+    const selects = container.querySelectorAll("select")
+    const dropdown = selects[1]
     await act(async () => {
       selectOption(dropdown, "ing-1")
     })
@@ -281,7 +284,79 @@ describe("ReceiptScanner Alias System", () => {
     })
 
     // Should stay empty because "ing-deleted" is not in inventory list
-    const dropdown = container.querySelector("select")
+    const selects = container.querySelectorAll("select")
+    const dropdown = selects[1]
     expect(dropdown.value).toBe("")
+  })
+
+  it("should allow linking item as an expense and logging to the correct expense category", async () => {
+    dataLib.loadAliases.mockReturnValue({})
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <ReceiptScanner
+          inventory={mockInventory}
+          setInventory={mockSetInventory}
+          expenses={mockExpenses}
+          setExpenses={mockSetExpenses}
+        />
+      )
+    })
+
+    // Start manual entry
+    const manualBtn = Array.from(container.querySelectorAll("button")).find(
+      el => el.textContent.includes("Enter Manually")
+    )
+    await act(async () => {
+      manualBtn.click()
+    })
+
+    // Set item name
+    const nameInput = container.querySelector('input[placeholder="Item name..."]')
+    await act(async () => {
+      typeIntoInput(nameInput, "Delivery Fee")
+    })
+
+    // Change type dropdown from "purchase" to "expense"
+    const selects = container.querySelectorAll("select")
+    const typeSelect = selects[0]
+    await act(async () => {
+      selectOption(typeSelect, "expense")
+    })
+
+    // Expect the second select to show expense categories. Set it to "Delivery"
+    const updatedSelects = container.querySelectorAll("select")
+    const categorySelect = updatedSelects[1]
+    await act(async () => {
+      selectOption(categorySelect, "Delivery")
+    })
+
+    // Fill in cost
+    const numberInputs = container.querySelectorAll('input[type="number"]')
+    await act(async () => {
+      typeIntoInput(numberInputs[2], "2500") // unit_price input
+    })
+
+    // Click Save & Restock
+    const saveBtn = Array.from(container.querySelectorAll("button")).find(
+      el => el.textContent.includes("Save & Restock")
+    )
+    await act(async () => {
+      saveBtn.click()
+    })
+
+    // Verify expense was saved with "Delivery" category and amount 2500
+    expect(mockSetExpenses).toHaveBeenCalledWith([
+      expect.objectContaining({
+        description: "Receipt — Delivery",
+        amount: 2500,
+        category: "Delivery",
+        source: "receipt"
+      })
+    ])
+
+    // Verify inventory set was NOT called
+    expect(mockSetInventory).not.toHaveBeenCalled()
   })
 })

@@ -49,36 +49,36 @@ export const mapCategory = (cat, name = "") => {
 
 
 
-export const fmt  = n => `₦${Math.round(n||0).toLocaleString("en")}`
-export const uid  = () => "_"+Math.random().toString(36).slice(2,9)
-export const today= () => new Date().toISOString().slice(0,10)
+export const fmt = n => `₦${Math.round(n || 0).toLocaleString("en")}`
+export const uid = () => "_" + Math.random().toString(36).slice(2, 9)
+export const today = () => new Date().toISOString().slice(0, 10)
 
-export const recipeCost = (r, inv) => !r ? 0 : r.ing.reduce((s,i)=>{ const it=inv.find(x=>x.id===i.iid); return s+(it?it.cost*i.qty:0) },0)
+export const recipeCost = (r, inv) => !r ? 0 : r.ing.reduce((s, i) => { const it = inv.find(x => x.id === i.iid); return s + (it ? it.cost * i.qty : 0) }, 0)
 
 export const calcFullCost = (recipe, inv, flavors, decorationIds, accessoryPct, miscPct = 0) => {
   if (!recipe) return 0
   let cost = recipeCost(recipe, inv)
   // flavor extras
-  const fl = (flavors||"").toLowerCase().split(/[,+&]/).map(f=>f.trim()).filter(Boolean)
-  fl.forEach(f => (FLAVOR_EXTRAS[f]||[]).forEach(e=>{ const it=inv.find(x=>x.id===e.iid); if(it) cost+=it.cost*e.qty }))
+  const fl = (flavors || "").toLowerCase().split(/[,+&]/).map(f => f.trim()).filter(Boolean)
+  fl.forEach(f => (FLAVOR_EXTRAS[f] || []).forEach(e => { const it = inv.find(x => x.id === e.iid); if (it) cost += it.cost * e.qty }))
   // decoration extras
   const localDecors = loadLocal("ll_decorations", null)
   const storedDecorations = (Array.isArray(localDecors) && localDecors.length > 0) ? localDecors : DECORATION_ITEMS
-  ;(decorationIds||[]).forEach(did => {
-    const decor = storedDecorations.find(d=>d.id===did) || DECORATION_ITEMS.find(d=>d.id===did)
-    if (decor) { const it=inv.find(x=>x.id===decor.iid); if(it) cost+=it.cost*decor.qty }
-  })
+    ; (decorationIds || []).forEach(did => {
+      const decor = storedDecorations.find(d => d.id === did) || DECORATION_ITEMS.find(d => d.id === did)
+      if (decor) { const it = inv.find(x => x.id === decor.iid); if (it) cost += it.cost * decor.qty }
+    })
 
-  return cost * (1 + (accessoryPct||10)/100 + (miscPct||0)/100)
+  return cost * (1 + (accessoryPct || 10) / 100 + (miscPct || 0) / 100)
 }
 
 
 
-export async function callClaude(messages, system="") {
+export async function callClaude(messages, system = "") {
   const headers = getAuthHeaders() || {}
   const apiUrl = import.meta.env.VITE_API_URL || ""
   const endpoint = `${apiUrl}/api/claude`
-  
+
   let res;
   try {
     res = await fetch(endpoint, {
@@ -137,7 +137,7 @@ export async function callClaude(messages, system="") {
   if (data.error) {
     throw new Error("API error: " + (data.error.message || JSON.stringify(data.error)))
   }
-  
+
   if (Array.isArray(data.content)) {
     const textBlock = data.content.find(c => c.type === "text" && c.text)
     if (textBlock && textBlock.text) {
@@ -149,7 +149,7 @@ export async function callClaude(messages, system="") {
 }
 
 // Compress image before sending to API
-export async function compressImage(base64, maxWidth=800, quality=0.8) {
+export async function compressImage(base64, maxWidth = 800, quality = 0.8) {
   return new Promise(resolve => {
     const img = new Image()
     img.onload = () => {
@@ -171,28 +171,28 @@ export function parseCSV(text) {
   if (lines.length < 2) return []
   const firstLine = lines[0]
   const delim = firstLine.includes(';') ? ';' : firstLine.includes('\t') ? '\t' : ','
-  const headers = firstLine.split(delim).map(h => h.trim().toLowerCase().replace(/['"]/g,'').replace(/[^a-z0-9]/g,' ').trim())
+  const headers = firstLine.split(delim).map(h => h.trim().toLowerCase().replace(/['"]/g, '').replace(/[^a-z0-9]/g, ' ').trim())
 
   const findCol = (row, ...keys) => {
     for (const k of keys) {
       const idx = headers.findIndex(h => h.includes(k))
-      if (idx >= 0 && row[idx] !== undefined) return row[idx].trim().replace(/['"]/g,'')
+      if (idx >= 0 && row[idx] !== undefined) return row[idx].trim().replace(/['"]/g, '')
     }
     return ''
   }
 
   return lines.slice(1).map(line => {
     const row = line.split(delim)
-    const name = findCol(row,'name','item','ingredient','product','description')
+    const name = findCol(row, 'name', 'item', 'ingredient', 'product', 'description')
     if (!name) return null
     return {
       id: uid(),
       name,
-      cat:      findCol(row,'cat','category','type','group','class') || 'General',
-      unit:     findCol(row,'unit','measure','uom','per') || 'kg',
-      cost:   +(findCol(row,'cost','price','rate','unit cost','price unit','price/unit','per unit') || '0').replace(/[,₦]/g,'') || 0,
-      stock:  +(findCol(row,'stock','quantity','qty','current stock','on hand','balance') || '0').replace(/[,]/g,'') || 0,
-      minStock:+(findCol(row,'min','minimum','minstock','reorder','alert') || '2').replace(/[,]/g,'') || 2,
+      cat: findCol(row, 'cat', 'category', 'type', 'group', 'class') || 'General',
+      unit: findCol(row, 'unit', 'measure', 'uom', 'per') || 'kg',
+      cost: +(findCol(row, 'cost', 'price', 'rate', 'unit cost', 'price unit', 'price/unit', 'per unit') || '0').replace(/[,₦]/g, '') || 0,
+      stock: +(findCol(row, 'stock', 'quantity', 'qty', 'current stock', 'on hand', 'balance') || '0').replace(/[,]/g, '') || 0,
+      minStock: +(findCol(row, 'min', 'minimum', 'minstock', 'reorder', 'alert') || '2').replace(/[,]/g, '') || 2,
     }
   }).filter(Boolean).filter(i => i.name)
 }

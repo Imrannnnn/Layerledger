@@ -14,62 +14,130 @@ import { saveExpenses } from "../../lib/data.js"
 export function Expenses({ expenses, setExpenses, isOwner }) {
   const [tab, setTab] = useState("monthly")
   const [adding, setAdding] = useState(false)
-  const [editId, setEditId] = useState(null)
-  const [editData, setEditData] = useState({})
+  const [editingRows, setEditingRows] = useState({}) // { [id]: editData }
+  const [selectedIds, setSelectedIds] = useState(new Set())
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [deletingAll, setDeletingAll] = useState(false)
-  
-  const [ne, setNe] = useState({
-    date: today(),
-    description: "",
-    amount: "",
-    category: "Utilities",
-    paymentMethod: "cash",
-    notes: ""
-  })
-  
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(EXP_CATS[0])
 
-  // Save manual Cash Expense
-  const saveExp = async () => {
-    if (!ne.description.trim() || !ne.amount) {
-      alert("Description and Amount are required")
-      return
-    }
-    const updated = [
-      {
-        ...ne,
-        id: uid(),
-        amount: Number(ne.amount),
-        source: "manual"
-      },
-      ...expenses
-    ]
-    setExpenses(updated)
-    await saveExpenses(updated)
-    
-    setNe({
+  const [draftExpenses, setDraftExpenses] = useState([
+    {
       date: today(),
       description: "",
       amount: "",
       category: "Utilities",
       paymentMethod: "cash",
       notes: ""
+    }
+  ])
+
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(EXP_CATS[0])
+
+  const updateDraftExpense = (idx, field, value) => {
+    setDraftExpenses(prev => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], [field]: value }
+      return copy
     })
+  }
+
+  const addDraftRow = () => {
+    const lastRow = draftExpenses[draftExpenses.length - 1]
+    setDraftExpenses(p => [
+      ...p,
+      {
+        date: lastRow?.date || today(),
+        description: "",
+        amount: "",
+        category: lastRow?.category || "Utilities",
+        paymentMethod: lastRow?.paymentMethod || "cash",
+        notes: ""
+      }
+    ])
+  }
+
+  const removeDraftExpense = (idx) => {
+    setDraftExpenses(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  // Save manual Cash Expenses
+  const saveExp = async () => {
+    const invalid = draftExpenses.some(de => !de.description.trim() || !de.amount)
+    if (invalid) {
+      alert("Description and Amount are required for all entries")
+      return
+    }
+    const newExpenses = draftExpenses.map(de => ({
+      ...de,
+      id: uid(),
+      amount: Number(de.amount),
+      source: "manual"
+    }))
+    const updated = [...newExpenses, ...expenses]
+    setExpenses(updated)
+    await saveExpenses(updated)
+
+    setDraftExpenses([
+      {
+        date: today(),
+        description: "",
+        amount: "",
+        category: "Utilities",
+        paymentMethod: "cash",
+        notes: ""
+      }
+    ])
     setAdding(false)
   }
 
   // Inline editor functions
   const startEdit = (e) => {
-    setEditId(e.id)
-    setEditData({ ...e })
+    setEditingRows(p => ({ ...p, [e.id]: { ...e } }))
   }
-  
-  const saveEdit = async () => {
-    const updated = expenses.map(e => e.id === editId ? { ...editData, amount: Number(editData.amount) } : e)
+
+  const saveEdit = async (id) => {
+    const editRowData = editingRows[id]
+    if (!editRowData.description?.trim() || !editRowData.amount) {
+      alert("Description and Amount are required")
+      return
+    }
+    const updated = expenses.map(e => e.id === id ? { ...editRowData, amount: Number(editRowData.amount) } : e)
     setExpenses(updated)
     await saveExpenses(updated)
-    setEditId(null)
+    setEditingRows(p => {
+      const copy = { ...p }
+      delete copy[id]
+      return copy
+    })
+  }
+
+  const cancelEdit = (id) => {
+    setEditingRows(p => {
+      const copy = { ...p }
+      delete copy[id]
+      return copy
+    })
+  }
+
+  const saveAllEdits = async () => {
+    const rows = Object.values(editingRows)
+    const invalid = rows.some(r => !r.description?.trim() || !r.amount)
+    if (invalid) {
+      alert("Description and Amount are required for all editing entries")
+      return
+    }
+    const updated = expenses.map(e => {
+      if (editingRows[e.id]) {
+        return { ...editingRows[e.id], amount: Number(editingRows[e.id].amount) }
+      }
+      return e
+    })
+    setExpenses(updated)
+    await saveExpenses(updated)
+    setEditingRows({})
+  }
+
+  const cancelAllEdits = () => {
+    setEditingRows({})
   }
 
   const handleDelete = async (id) => {
@@ -77,6 +145,68 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
       const updated = expenses.filter(e => e.id !== id)
       setExpenses(updated)
       await saveExpenses(updated)
+      setSelectedIds(p => {
+        const copy = new Set(p)
+        copy.delete(id)
+        return copy
+      })
+    }
+  }
+
+  // Bulk Actions
+  const handleSelectRowToggle = (id) => {
+    setSelectedIds(p => {
+      const copy = new Set(p)
+      if (copy.has(id)) {
+        copy.delete(id)
+      } else {
+        copy.add(id)
+      }
+      return copy
+    })
+  }
+
+  const handleSelectAllToggle = () => {
+    const allFilteredSelected = filtered.length > 0 && filtered.every(e => selectedIds.has(e.id))
+    setSelectedIds(p => {
+      const copy = new Set(p)
+      if (allFilteredSelected) {
+        filtered.forEach(e => copy.delete(e.id))
+      } else {
+        filtered.forEach(e => copy.add(e.id))
+      }
+      return copy
+    })
+  }
+
+  const handleBulkDelete = async () => {
+    if (window.confirm(`Are you sure you want to delete the ${selectedIds.size} selected expenses?`)) {
+      const updated = expenses.filter(e => !selectedIds.has(e.id))
+      setExpenses(updated)
+      await saveExpenses(updated)
+      setSelectedIds(new Set())
+    }
+  }
+
+  const startBulkEdit = () => {
+    setEditingRows(p => {
+      const copy = { ...p }
+      filtered.forEach(e => {
+        if (selectedIds.has(e.id)) {
+          copy[e.id] = { ...e }
+        }
+      })
+      return copy
+    })
+    setSelectedIds(new Set())
+  }
+
+  const handleBulkChangeField = async (field, value) => {
+    if (window.confirm(`Are you sure you want to change the ${field} of the ${selectedIds.size} selected expenses to "${value}"?`)) {
+      const updated = expenses.map(e => selectedIds.has(e.id) ? { ...e, [field]: value } : e)
+      setExpenses(updated)
+      await saveExpenses(updated)
+      setSelectedIds(new Set())
     }
   }
 
@@ -92,7 +222,7 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
       return e.category === selectedCategoryFilter
     }
     if (tab === "manual") {
-      return e.source === "manual" || !e.source
+      return e.source === "manual" || e.source === "receipt" || !e.source
     }
     if (tab === "bank") {
       return e.source === "bank"
@@ -190,32 +320,73 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
       {/* New Expense Form */}
       {adding && (
         <Card style={{ marginBottom: 14, background: "#FFF9EE", borderColor: "var(--gold)" }}>
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>New Manual Expense (Cash / No Receipt)</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 12 }}>
-            <Inp label="Date *" type="date" value={ne.date} onChange={v => setNe(p => ({ ...p, date: v }))} />
-            <Inp label="Description *" value={ne.description} onChange={v => setNe(p => ({ ...p, description: v }))} placeholder="e.g. Electricity bill" />
-            <Inp label="Amount (₦) *" type="number" value={ne.amount} onChange={v => setNe(p => ({ ...p, amount: v }))} />
-            <Sel
-              label="Category"
-              value={ne.category}
-              onChange={v => setNe(p => ({ ...p, category: v }))}
-              options={EXP_CATS.map(c => ({ value: c, label: c }))}
-            />
-            <Sel
-              label="Payment Method"
-              value={ne.paymentMethod}
-              onChange={v => setNe(p => ({ ...p, paymentMethod: v }))}
-              options={[
-                { value: "cash", label: "Cash" },
-                { value: "transfer", label: "Bank Transfer" },
-                { value: "pos", label: "POS/Card" }
-              ]}
-            />
-            <Inp label="Notes" value={ne.notes} onChange={v => setNe(p => ({ ...p, notes: v }))} placeholder="Optional notes" />
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>New Manual Expenses (Cash / No Receipt)</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 12 }}>
+            {draftExpenses.map((de, idx) => (
+              <div key={idx} style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: 12,
+                background: "var(--panel)",
+                position: "relative"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--gold)" }}>Entry #{idx + 1}</span>
+                  {draftExpenses.length > 1 && (
+                    <button
+                      onClick={() => removeDraftExpense(idx)}
+                      style={{ background: "none", border: "none", color: "#B03A2E", cursor: "pointer", fontSize: 11, fontWeight: 600 }}
+                    >
+                      🗑 Remove Entry
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8 }}>
+                  <Inp label="Date *" type="date" value={de.date} onChange={v => updateDraftExpense(idx, "date", v)} small />
+                  <Inp label="Description *" value={de.description} onChange={v => updateDraftExpense(idx, "description", v)} placeholder="e.g. Electricity bill" small />
+                  <Inp label="Amount (₦) *" type="number" value={de.amount} onChange={v => updateDraftExpense(idx, "amount", v)} placeholder="0" small />
+                  <Sel
+                    label="Category"
+                    value={de.category}
+                    onChange={v => updateDraftExpense(idx, "category", v)}
+                    options={EXP_CATS.map(c => ({ value: c, label: c }))}
+                  />
+                  <Sel
+                    label="Payment Method"
+                    value={de.paymentMethod}
+                    onChange={v => updateDraftExpense(idx, "paymentMethod", v)}
+                    options={[
+                      { value: "cash", label: "Cash" },
+                      { value: "transfer", label: "Bank Transfer" },
+                      { value: "pos", label: "POS/Card" }
+                    ]}
+                  />
+                  <Inp label="Notes" value={de.notes} onChange={v => updateDraftExpense(idx, "notes", v)} placeholder="Optional notes" small />
+                </div>
+              </div>
+            ))}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Btn variant="success" onClick={saveExp}>Save Expense</Btn>
-            <Btn variant="ghost" onClick={() => setAdding(false)}>Cancel</Btn>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
+            <Btn variant="outline" onClick={addDraftRow}>+ Add Another Entry</Btn>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="success" onClick={saveExp}>Save {draftExpenses.length} {draftExpenses.length === 1 ? "Expense" : "Expenses"}</Btn>
+              <Btn variant="ghost" onClick={() => {
+                setAdding(false)
+                setDraftExpenses([{
+                  date: today(),
+                  description: "",
+                  amount: "",
+                  category: "Utilities",
+                  paymentMethod: "cash",
+                  notes: ""
+                }])
+              }}>Cancel</Btn>
+            </div>
           </div>
         </Card>
       )}
@@ -243,41 +414,147 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
             )}
           </div>
         </Card>
-      </div>
+      </div>      {/* Bulk Actions Bar */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          background: "#FFF9EE",
+          border: "1px solid var(--gold)",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: 12,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 600, fontSize: 13.5 }}>
+              ⚡ {selectedIds.size} {selectedIds.size === 1 ? "expense" : "expenses"} selected
+            </span>
+            <Btn small variant="ghost" onClick={startBulkEdit}> Edit Selected</Btn>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Category:</span>
+              <select
+                defaultValue=""
+                onChange={e => {
+                  if (e.target.value) {
+                    handleBulkChangeField("category", e.target.value)
+                    e.target.value = "" // reset select
+                  }
+                }}
+                style={{ ...iSt, width: 140, padding: "3px 6px", fontSize: 12, marginTop: 0 }}
+              >
+                <option value="" disabled>— Bulk Set —</option>
+                {EXP_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Payment:</span>
+              <select
+                defaultValue=""
+                onChange={e => {
+                  if (e.target.value) {
+                    handleBulkChangeField("paymentMethod", e.target.value)
+                    e.target.value = "" // reset select
+                  }
+                }}
+                style={{ ...iSt, width: 140, padding: "3px 6px", fontSize: 12, marginTop: 0 }}
+              >
+                <option value="" disabled>— Bulk Set —</option>
+                <option value="cash">Cash</option>
+                <option value="transfer">Bank Transfer</option>
+                <option value="pos">POS/Card</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn small variant="danger" onClick={handleBulkDelete}>🗑 Delete Selected</Btn>
+            <Btn small variant="ghost" style={{ borderColor: "transparent" }} onClick={() => setSelectedIds(new Set())}>Clear</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Editing Summary Bar */}
+      {Object.keys(editingRows).length > 0 && (
+        <div style={{
+          background: "#E8EFFC",
+          border: "1px solid #B5D4F4",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: 12,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap"
+        }}>
+          <span style={{ fontWeight: 600, fontSize: 13.5, color: "#2355A0" }}>
+            📝 Editing {Object.keys(editingRows).length} {Object.keys(editingRows).length === 1 ? "expense" : "expenses"}
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn small variant="success" onClick={saveAllEdits}>✓ Save All Changes</Btn>
+            <Btn small variant="ghost" onClick={cancelAllEdits}>✕ Cancel All</Btn>
+          </div>
+        </div>
+      )}
 
       {/* Expenses Table */}
       <Card style={{ padding: 0, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <TH cols={["Date", "Description", "Category", "Amount", "Source", "Actions"]} />
+          <TH cols={[
+            <input
+              key="select-all-cb"
+              type="checkbox"
+              checked={filtered.length > 0 && filtered.every(e => selectedIds.has(e.id))}
+              onChange={handleSelectAllToggle}
+              style={{ cursor: "pointer" }}
+            />,
+            "Date", "Description", "Category", "Amount", "Source", "Actions"
+          ]} />
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>
+                <td colSpan={7} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>
                   No expenses matching current filters.
                 </td>
               </tr>
             ) : (
-              filtered.map((e, i) => editId === e.id ? (
+              filtered.map((e, i) => editingRows[e.id] ? (
                 <tr key={e.id} style={{ background: "#FEF9EE" }}>
+                  <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
+                    {/* Checkbox column alignment placeholder */}
+                  </td>
                   <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                     <input
                       type="date"
-                      value={editData.date || ""}
-                      onChange={ev => setEditData(p => ({ ...p, date: ev.target.value }))}
+                      value={editingRows[e.id].date || ""}
+                      onChange={ev => setEditingRows(p => ({
+                        ...p,
+                        [e.id]: { ...p[e.id], date: ev.target.value }
+                      }))}
                       style={{ padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 5, fontSize: 12, fontFamily: "inherit", width: 130 }}
                     />
                   </td>
                   <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                     <input
-                      value={editData.description || ""}
-                      onChange={ev => setEditData(p => ({ ...p, description: ev.target.value }))}
+                      value={editingRows[e.id].description || ""}
+                      onChange={ev => setEditingRows(p => ({
+                        ...p,
+                        [e.id]: { ...p[e.id], description: ev.target.value }
+                      }))}
                       style={{ padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 5, fontSize: 12, fontFamily: "inherit", width: "100%", minWidth: 140 }}
                     />
                   </td>
                   <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                     <select
-                      value={editData.category || ""}
-                      onChange={ev => setEditData(p => ({ ...p, category: ev.target.value }))}
+                      value={editingRows[e.id].category || ""}
+                      onChange={ev => setEditingRows(p => ({
+                        ...p,
+                        [e.id]: { ...p[e.id], category: ev.target.value }
+                      }))}
                       style={{ padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 5, fontSize: 11, fontFamily: "inherit" }}
                     >
                       {EXP_CATS.map(c => <option key={c} value={c}>{c}</option>)}
@@ -286,8 +563,11 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                   <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                     <input
                       type="number"
-                      value={editData.amount || ""}
-                      onChange={ev => setEditData(p => ({ ...p, amount: ev.target.value }))}
+                      value={editingRows[e.id].amount || ""}
+                      onChange={ev => setEditingRows(p => ({
+                        ...p,
+                        [e.id]: { ...p[e.id], amount: ev.target.value }
+                      }))}
                       style={{ padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 5, fontSize: 12, fontFamily: "inherit", width: 90 }}
                     />
                   </td>
@@ -296,8 +576,8 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                   </td>
                   <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                     <div style={{ display: "flex", gap: 4 }}>
-                      <Btn small variant="success" onClick={saveEdit}>✓</Btn>
-                      <Btn small variant="ghost" onClick={() => setEditId(null)}>✕</Btn>
+                      <Btn small variant="success" onClick={() => saveEdit(e.id)}>✓</Btn>
+                      <Btn small variant="ghost" onClick={() => cancelEdit(e.id)}>✕</Btn>
                     </div>
                   </td>
                 </tr>
@@ -306,6 +586,12 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                   key={e.id}
                   i={i}
                   row={[
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(e.id)}
+                      onChange={() => handleSelectRowToggle(e.id)}
+                      style={{ cursor: "pointer" }}
+                    />,
                     <span style={{ color: "var(--muted)", fontSize: 12 }}>{e.date}</span>,
                     <span style={{ fontWeight: 500 }}>{e.description}</span>,
                     <Badge>{e.category}</Badge>,
