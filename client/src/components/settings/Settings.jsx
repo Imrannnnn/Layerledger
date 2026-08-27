@@ -147,7 +147,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
   const [items, setItems] = useState(loadOS)
   const [saved, setSaved] = useState(() => {
     const os = loadLocal("ll_os_" + currentMonthStr, null)
-    return !!(os && os.items)
+    return !!(os && os.items && os.locked === true)
   })
   const [showSavedMsg, setShowSavedMsg] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
@@ -279,7 +279,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
 
     setItems(updatedItems)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedItems })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedItems })
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedItems, locked: saved })
 
     if (setInventory) {
       setInventory(updatedInventory)
@@ -309,8 +309,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updated = items.map(item => item.id === id ? { ...item, openingQty: parseFloat(val) || 0 } : item)
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated })
-    setSaved(false)
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
   }
 
   const updateOSCost = async (id, val) => {
@@ -318,8 +317,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updated = items.map(item => item.id === id ? { ...item, cost: costVal } : item)
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated })
-    setSaved(false)
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
 
     // Update cost in inventory
     const updatedInventory = inventory.map(item => item.id === id ? { ...item, cost: costVal } : item)
@@ -333,8 +331,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updated = items.map(item => item.id === id ? { ...item, unit: val } : item)
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated })
-    setSaved(false)
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
 
     // Update unit in inventory
     const updatedInventory = inventory.map(item => item.id === id ? { ...item, unit: val } : item)
@@ -349,8 +346,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updated = items.filter(item => item.id !== id)
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated })
-    setSaved(false)
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
   }
 
   const lockStock = async () => {
@@ -364,7 +360,8 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
         unit: item.unit,
         openingQty: item.openingQty,
         cost: item.cost
-      }))
+      })),
+      locked: true
     }
     await saveLocal(monthKey, snapshot)
     setSaved(true)
@@ -381,7 +378,8 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
         unit: item.unit,
         openingQty: item.openingQty,
         cost: item.cost
-      }))
+      })),
+      locked: saved
     }
     await saveLocal(monthKey, snapshot)
   }
@@ -397,9 +395,11 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
         unit: item.unit,
         openingQty: item.openingQty,
         cost: item.cost
-      }))
+      })),
+      locked: false
     }
     await saveLocal(monthKey, snapshot)
+    setSaved(false)
     setShowSavedMsg(true)
     setTimeout(() => setShowSavedMsg(false), 3000)
   }
@@ -407,7 +407,18 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
   const unlockStock = async () => {
     if (!confirm("Are you sure you want to unlock the opening stock for this month?")) return
     const monthKey = "ll_os_" + currentMonthStr
-    await saveLocal(monthKey, {})
+    const snapshot = {
+      date: new Date().toISOString(),
+      items: items.map(item => ({
+        id: item.id,
+        name: item.name,
+        unit: item.unit,
+        openingQty: item.openingQty,
+        cost: item.cost
+      })),
+      locked: false
+    }
+    await saveLocal(monthKey, snapshot)
     setSaved(false)
   }
 
@@ -442,7 +453,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updatedOSItems = [...items, osItem]
     setItems(updatedOSItems)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedOSItems })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedOSItems })
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedOSItems, locked: saved })
 
     const masterItem = {
       id,
@@ -597,16 +608,62 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
           </tr></tfoot>
         </table>
       </div>
-      <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+      <style>{`
+        .os-btn-row {
+          margin-top: 14px;
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+        }
+        .os-btn-group-left {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        .os-btn-group-right {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        @media (max-width: 600px) {
+          .os-btn-row {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+          }
+          .os-btn-group-left, .os-btn-group-right {
+            flex-direction: column;
+            align-items: stretch;
+            width: 100%;
+            gap: 8px;
+          }
+          .os-btn-group-left > button, .os-btn-group-right > button, .os-btn-group-left > div, .os-btn-group-right > div {
+            width: 100% !important;
+            text-align: center;
+            justify-content: center;
+          }
+          .os-saved-msg {
+            display: block;
+            text-align: center;
+            width: 100%;
+            margin-top: 4px;
+          }
+        }
+      `}</style>
+      <div className="os-btn-row">
+        <div className="os-btn-group-left">
           {!isLocked ? (
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div className="os-btn-group-left">
               <Btn variant="success" onClick={lockStock}>🔒 Lock Open Stock for {curMonth}</Btn>
               <Btn variant="outline" onClick={saveToDatabase} style={{ borderColor: "#28B463", color: "#28B463" }}>💾 Save Setup</Btn>
-              {showSavedMsg && <span style={{ fontSize: 13, color: "#28B463", fontWeight: 600 }}>✓ Saved Setup</span>}
+              {showSavedMsg && <span className="os-saved-msg" style={{ fontSize: 13, color: "#28B463", fontWeight: 600 }}>✓ Saved Setup</span>}
             </div>
           ) : (
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div className="os-btn-group-left">
               <span style={{ fontSize: 13, color: "#357A52", fontWeight: 600, background: "#EEF8F3", padding: "6px 12px", borderRadius: 8, border: "1px solid #C2E0CF" }}>🔒 Opening Stock is locked for {curMonth}</span>
               {user?.role === "owner" && (
                 <Btn variant="outline" onClick={unlockStock} style={{ padding: "4px 10px", fontSize: 12 }}>🔓 Unlock</Btn>
@@ -615,7 +672,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
           )}
         </div>
         {!isLocked && (
-          <div style={{ display: "flex", gap: 10 }}>
+          <div className="os-btn-group-right">
             <Btn variant={editCosts ? "outline" : "outline"} onClick={() => { if (editCosts) { handleSaveCosts() } else { setEditCosts(true) } }} style={editCosts ? { borderColor: "var(--gold)", background: "rgba(200,145,42,0.1)", color: "var(--gold)", fontWeight: "600" } : {}}>
               {editCosts ? "✓ Save" : "✏ Edit"}
             </Btn>
