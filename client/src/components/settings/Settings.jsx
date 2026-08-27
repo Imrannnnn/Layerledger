@@ -149,6 +149,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const os = loadLocal("ll_os_" + currentMonthStr, null)
     return !!(os && os.items)
   })
+  const [showSavedMsg, setShowSavedMsg] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
   const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
   const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
@@ -385,6 +386,24 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     await saveLocal(monthKey, snapshot)
   }
 
+  const saveToDatabase = async () => {
+    await saveLocal(LS_KEY, { month: currentMonthStr, items })
+    const monthKey = "ll_os_" + currentMonthStr
+    const snapshot = {
+      date: new Date().toISOString(),
+      items: items.map(item => ({
+        id: item.id,
+        name: item.name,
+        unit: item.unit,
+        openingQty: item.openingQty,
+        cost: item.cost
+      }))
+    }
+    await saveLocal(monthKey, snapshot)
+    setShowSavedMsg(true)
+    setTimeout(() => setShowSavedMsg(false), 3000)
+  }
+
   const unlockStock = async () => {
     if (!confirm("Are you sure you want to unlock the opening stock for this month?")) return
     const monthKey = "ll_os_" + currentMonthStr
@@ -581,7 +600,11 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
       <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {!isLocked ? (
-            <Btn variant="success" onClick={lockStock}>🔒 Lock Open Stock for {curMonth}</Btn>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <Btn variant="success" onClick={lockStock}>🔒 Lock Open Stock for {curMonth}</Btn>
+              <Btn variant="outline" onClick={saveToDatabase} style={{ borderColor: "#28B463", color: "#28B463" }}>💾 Save Setup</Btn>
+              {showSavedMsg && <span style={{ fontSize: 13, color: "#28B463", fontWeight: 600 }}>✓ Saved Setup</span>}
+            </div>
           ) : (
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <span style={{ fontSize: 13, color: "#357A52", fontWeight: 600, background: "#EEF8F3", padding: "6px 12px", borderRadius: 8, border: "1px solid #C2E0CF" }}>🔒 Opening Stock is locked for {curMonth}</span>

@@ -163,7 +163,9 @@ const syncTenantSettingsOnly = async (headers) => {
     const res = await fetch(`${apiUrl}/api/tenant`, { headers })
     if (res.ok) {
       const tenant = await res.json()
-      const data = {}
+      const data = {
+        ...(tenant.settings?.localState || {})
+      }
       Object.entries(cache).forEach(([k, v]) => {
         const keysToStoreInLocalState = [
           "ll_co", "ll_multipliers", "ll_coverings", "ll_decorations", "ll_packaging", "ll_opening_stock", 
