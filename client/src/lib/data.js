@@ -167,9 +167,9 @@ const syncTenantSettingsOnly = async (headers) => {
       Object.entries(cache).forEach(([k, v]) => {
         const keysToStoreInLocalState = [
           "ll_co", "ll_multipliers", "ll_coverings", "ll_decorations", "ll_packaging", "ll_opening_stock", 
-          "ll_onboarded", "ll_anthropic_key", "ll_users", "ll_clients", "ll_txns"
+          "ll_onboarded", "ll_anthropic_key", "ll_users", "ll_clients", "ll_txns", "ll_aliases"
         ]
-        if (keysToStoreInLocalState.includes(k) || k.startsWith("ll_setting_")) {
+        if (keysToStoreInLocalState.includes(k) || k.startsWith("ll_setting_") || k.startsWith("ll_os_")) {
           data[k] = typeof v === "string" ? v : JSON.stringify(v)
         }
       })

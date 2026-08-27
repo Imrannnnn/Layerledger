@@ -278,6 +278,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
 
     setItems(updatedItems)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedItems })
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedItems })
 
     if (setInventory) {
       setInventory(updatedInventory)
@@ -307,6 +308,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updated = items.map(item => item.id === id ? { ...item, openingQty: parseFloat(val) || 0 } : item)
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated })
     setSaved(false)
   }
 
@@ -315,6 +317,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updated = items.map(item => item.id === id ? { ...item, cost: costVal } : item)
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated })
     setSaved(false)
 
     // Update cost in inventory
@@ -329,6 +332,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updated = items.map(item => item.id === id ? { ...item, unit: val } : item)
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated })
     setSaved(false)
 
     // Update unit in inventory
@@ -344,6 +348,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updated = items.filter(item => item.id !== id)
     setItems(updated)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated })
     setSaved(false)
   }
 
@@ -362,6 +367,22 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     }
     await saveLocal(monthKey, snapshot)
     setSaved(true)
+  }
+
+  const handleSaveCosts = async () => {
+    setEditCosts(false)
+    const monthKey = "ll_os_" + currentMonthStr
+    const snapshot = {
+      date: new Date().toISOString(),
+      items: items.map(item => ({
+        id: item.id,
+        name: item.name,
+        unit: item.unit,
+        openingQty: item.openingQty,
+        cost: item.cost
+      }))
+    }
+    await saveLocal(monthKey, snapshot)
   }
 
   const unlockStock = async () => {
@@ -402,6 +423,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const updatedOSItems = [...items, osItem]
     setItems(updatedOSItems)
     await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedOSItems })
+    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedOSItems })
 
     const masterItem = {
       id,
@@ -571,7 +593,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
         </div>
         {!isLocked && (
           <div style={{ display: "flex", gap: 10 }}>
-            <Btn variant={editCosts ? "outline" : "outline"} onClick={() => setEditCosts(!editCosts)} style={editCosts ? { borderColor: "var(--gold)", background: "rgba(200,145,42,0.1)", color: "var(--gold)", fontWeight: "600" } : {}}>
+            <Btn variant={editCosts ? "outline" : "outline"} onClick={() => { if (editCosts) { handleSaveCosts() } else { setEditCosts(true) } }} style={editCosts ? { borderColor: "var(--gold)", background: "rgba(200,145,42,0.1)", color: "var(--gold)", fontWeight: "600" } : {}}>
               {editCosts ? "✓ Save" : "✏ Edit"}
             </Btn>
             <Btn variant="outline" onClick={() => { setShowImport(true); setImportStep(1); }}>📁 Import from Excel</Btn>
