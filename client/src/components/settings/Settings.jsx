@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert, Modal } from "../common/ui.jsx"
 import { fmt, uid, callClaude } from "../../lib/helpers.js"
 import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, PRICING_SIZES } from "../../constants.js"
-import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, clearAllDataOnServer, logout, loadLocal, saveInventory } from "../../lib/data.js"
+import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, logout, loadLocal, saveInventory } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
 
 // ═══════════════════════════════════════════════════════════
@@ -149,6 +149,21 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     const os = loadLocal("ll_os_" + currentMonthStr, null)
     return !!(os && os.items && os.locked === true)
   })
+
+  useEffect(() => {
+    async function syncAndRefresh() {
+      await syncFromBackend()
+      const savedOS = loadLocal(LS_KEY, null)
+      if (savedOS && savedOS.month === currentMonthStr && Array.isArray(savedOS.items)) {
+        setItems(savedOS.items)
+      }
+      const lockedOS = loadLocal("ll_os_" + currentMonthStr, null)
+      if (lockedOS && lockedOS.items && lockedOS.locked === true) {
+        setSaved(true)
+      }
+    }
+    syncAndRefresh()
+  }, [currentMonthStr])
   const [showSavedMsg, setShowSavedMsg] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
   const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"

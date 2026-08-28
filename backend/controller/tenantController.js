@@ -34,9 +34,35 @@ const updateTenantDetails = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
     const { name, contactEmail, contactPhone, settings } = req.body;
 
+    const existingTenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!existingTenant) {
+        res.status(404);
+        throw new Error('Tenant not found');
+    }
+
+    let mergedSettings = existingTenant.settings || {};
+    if (settings) {
+        const existingLocal = (existingTenant.settings && existingTenant.settings.localState) || {};
+        const incomingLocal = settings.localState || {};
+
+        mergedSettings = {
+            ...existingTenant.settings,
+            ...settings,
+            localState: {
+                ...existingLocal,
+                ...incomingLocal
+            }
+        };
+    }
+
     const updatedTenant = await prisma.tenant.update({
         where: { id: tenantId },
-        data: { name, contactEmail, contactPhone, settings }
+        data: {
+            name: name !== undefined ? name : existingTenant.name,
+            contactEmail: contactEmail !== undefined ? contactEmail : existingTenant.contactEmail,
+            contactPhone: contactPhone !== undefined ? contactPhone : existingTenant.contactPhone,
+            settings: mergedSettings
+        }
     });
 
     res.json(updatedTenant);

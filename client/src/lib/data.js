@@ -156,7 +156,7 @@ const syncTenantSettingsOnly = async (headers) => {
         ...(tenant.settings || {}),
         localState: data
       }
-      await fetch(`${apiUrl}/api/tenant`, {
+      const putRes = await fetch(`${apiUrl}/api/tenant`, {
         method: "PUT",
         headers,
         body: JSON.stringify({
@@ -166,6 +166,18 @@ const syncTenantSettingsOnly = async (headers) => {
           settings: updatedSettings
         })
       })
+      if (putRes.ok) {
+        const serverTenant = await putRes.json()
+        if (serverTenant.settings && serverTenant.settings.localState) {
+          Object.entries(serverTenant.settings.localState).forEach(([k, v]) => {
+            try {
+              cache[k] = typeof v === "string" ? JSON.parse(v) : v
+            } catch {
+              cache[k] = v
+            }
+          })
+        }
+      }
     }
   } catch (e) {
     console.error("Failed to sync tenant settings:", e)
