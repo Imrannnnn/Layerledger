@@ -82,14 +82,6 @@ const mapServerOrderToLocal = (o) => {
   }
 }
 
-const setSessionItem = (key, value) => {
-  try {
-    sessionStorage.setItem(key, value)
-  } catch (e) {
-    console.warn(`Failed to set item in sessionStorage for key ${key}:`, e)
-  }
-}
-
 const load = (key, fallback) => {
   if (cache[key] !== undefined && cache[key] !== null) {
     try {
@@ -98,21 +90,6 @@ const load = (key, fallback) => {
     } catch {
       return cache[key]
     }
-  }
-  try {
-    const localVal = sessionStorage.getItem(key)
-    if (localVal !== null && localVal !== undefined) {
-      try {
-        const parsed = JSON.parse(localVal)
-        cache[key] = parsed
-        return parsed
-      } catch {
-        cache[key] = localVal
-        return localVal
-      }
-    }
-  } catch (e) {
-    // Ignored
   }
   return fallback
 }
@@ -125,11 +102,9 @@ export const loadLocal = (key, fallback) => {
   return val
 }
 
-
 const save = async (key, val) => {
   try {
     cache[key] = val
-    setSessionItem(key, typeof val === "string" ? val : JSON.stringify(val))
 
     const headers = getAuthHeaders()
     if (!headers) return
@@ -148,6 +123,8 @@ const save = async (key, val) => {
       await syncExpensesList(headers, val)
     } else if (key === "ll_purchases") {
       await syncPurchasesList(headers, val)
+    } else if (key === "ll_txns") {
+      await syncTransactionsList(headers, val)
     } else {
       await syncTenantSettingsOnly(headers)
     }
@@ -169,7 +146,7 @@ const syncTenantSettingsOnly = async (headers) => {
       Object.entries(cache).forEach(([k, v]) => {
         const keysToStoreInLocalState = [
           "ll_co", "ll_multipliers", "ll_coverings", "ll_decorations", "ll_packaging", "ll_opening_stock", 
-          "ll_onboarded", "ll_anthropic_key", "ll_users", "ll_clients", "ll_txns", "ll_aliases"
+          "ll_onboarded", "ll_anthropic_key", "ll_users", "ll_clients", "ll_aliases"
         ]
         if (keysToStoreInLocalState.includes(k) || k.startsWith("ll_setting_") || k.startsWith("ll_os_")) {
           data[k] = typeof v === "string" ? v : JSON.stringify(v)
@@ -295,7 +272,6 @@ const syncInventoryItems = async (headers, localInv) => {
 
   if (localChanged) {
     cache["ll_inv"] = updatedLocalInv
-    sessionStorage.setItem("ll_inv", JSON.stringify(updatedLocalInv))
   }
 }
 
@@ -727,6 +703,117 @@ const syncPurchasesList = async (headers, localPurchases) => {
   }
 }
 
+const mapServerTransactionToLocal = (txn) => ({
+  id: txn.id,
+  date: txn.date ? txn.date.split("T")[0] : new Date().toISOString().split("T")[0],
+  description: txn.description || "",
+  amount: txn.amount,
+  type: txn.type,
+  category: txn.category || "",
+  reference: txn.reference || ""
+})
+
+const syncTransactionsList = async (headers, localTxns) => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) return
+  const res = await fetch(`${apiUrl}/api/transactions`, { headers })
+  if (!res.ok) return
+  const serverTxns = await res.json()
+
+  // Delete
+  for (const sTxn of serverTxns) {
+    if (!localTxns.find(t => t.id === sTxn.id)) {
+      await fetch(`${apiUrl}/api/transactions/${sTxn.id}`, { method: "DELETE", headers })
+    }
+  }
+
+  // Create/Update
+  for (const txn of localTxns) {
+    const sTxn = serverTxns.find(st => st.id === txn.id)
+    let parsedDate = new Date().toISOString()
+    try { if (txn.date) parsedDate = new Date(txn.date).toISOString() } catch (e) { /* ignore invalid date format */ }
+
+    const body = {
+      id: txn.id,
+      date: parsedDate,
+      description: txn.description || "Transaction",
+      amount: Number(txn.amount) || 0,
+      type: txn.type || "expense",
+      category: txn.category || null,
+      reference: txn.reference || null
+    }
+
+    if (sTxn) {
+      await fetch(`${apiUrl}/api/transactions/${txn.id}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify(body)
+      })
+    } else {
+      await fetch(`${apiUrl}/api/transactions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body)
+      })
+    }
+  }
+}
+
+export const migrateLegacyLocalStorage = async () => {
+  const headers = getAuthHeaders()
+  if (!headers) return
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) return
+
+  try {
+    let hasLocalData = false
+    const payload = {
+      inventory: [],
+      recipes: [],
+      orders: [],
+      expenses: [],
+      purchases: [],
+      transactions: [],
+      settings: {}
+    }
+
+    const keysToRemove = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k && k.startsWith("ll_")) {
+        hasLocalData = true
+        keysToRemove.push(k)
+        const valStr = localStorage.getItem(k)
+        try {
+          const val = JSON.parse(valStr)
+          if (k === "ll_inv" && Array.isArray(val)) payload.inventory = val
+          else if (k === "ll_recipes" && Array.isArray(val)) payload.recipes = val
+          else if ((k === "ll_prods" || k === "ll_quotes") && Array.isArray(val)) payload.orders.push(...val)
+          else if (k === "ll_exp" && Array.isArray(val)) payload.expenses = val
+          else if (k === "ll_purchases" && Array.isArray(val)) payload.purchases = val
+          else if (k === "ll_txns" && Array.isArray(val)) payload.transactions = val
+          else payload.settings[k] = valStr
+        } catch (e) {
+          payload.settings[k] = valStr
+        }
+      }
+    }
+
+    if (hasLocalData) {
+      const res = await fetch(`${apiUrl}/api/migrate-legacy`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+      })
+      if (res.ok) {
+        keysToRemove.forEach(k => localStorage.removeItem(k))
+      }
+    }
+  } catch (e) {
+    console.error("Migration error:", e)
+  }
+}
+
 export const syncFromBackend = async () => {
   const headers = getAuthHeaders()
   if (!headers) return false
@@ -734,6 +821,8 @@ export const syncFromBackend = async () => {
   if (!apiUrl) return false
 
   try {
+    await migrateLegacyLocalStorage()
+
     const tenantRes = await fetch(`${apiUrl}/api/tenant`, { headers })
     if (!tenantRes.ok) return false
     const tenant = await tenantRes.json()
@@ -748,11 +837,10 @@ export const syncFromBackend = async () => {
         status: tenant.settings?.status || "Active"
       }
     }
-    setSessionItem("ll_tenant_info", JSON.stringify(tenantInfo))
+    cache["ll_tenant_info"] = tenantInfo
 
     const keysToIgnoreOnLogin = ["ll_calc_state", "ll_calc_edit", "ll_calc_prefill", "ll_quote_prefill"]
     keysToIgnoreOnLogin.forEach(k => {
-      try { sessionStorage.removeItem(k) } catch (e) { /* ignore */ }
       delete cache[k]
     })
 
@@ -771,7 +859,6 @@ export const syncFromBackend = async () => {
             parsed = v
           }
           cache[k] = parsed
-          setSessionItem(k, typeof v === "string" ? v : JSON.stringify(v))
           if (k === "ll_anthropic_key") {
             window.__anthropic_key = parsed
           }
@@ -779,13 +866,14 @@ export const syncFromBackend = async () => {
       })
     }
 
-    const [invRes, recipesRes, ordersRes, expensesRes, purchasesRes, invoicesRes] = await Promise.all([
+    const [invRes, recipesRes, ordersRes, expensesRes, purchasesRes, invoicesRes, txnsRes] = await Promise.all([
       fetch(`${apiUrl}/api/inventory`, { headers }),
       fetch(`${apiUrl}/api/recipes`, { headers }),
       fetch(`${apiUrl}/api/orders`, { headers }),
       fetch(`${apiUrl}/api/expenses`, { headers }),
       fetch(`${apiUrl}/api/purchases`, { headers }),
-      fetch(`${apiUrl}/api/invoices`, { headers })
+      fetch(`${apiUrl}/api/invoices`, { headers }),
+      fetch(`${apiUrl}/api/transactions`, { headers })
     ])
 
     if (invRes.ok) {
@@ -793,7 +881,6 @@ export const syncFromBackend = async () => {
       if (serverInv.length > 0) isAlreadyOnboarded = true
       const localInv = serverInv.map(mapServerInventoryToLocal)
       cache["ll_inv"] = localInv
-      setSessionItem("ll_inv", JSON.stringify(localInv))
       lastSyncedValues["ll_inv"] = JSON.stringify(localInv)
     }
 
@@ -802,7 +889,6 @@ export const syncFromBackend = async () => {
       if (serverRecipes.length > 0) isAlreadyOnboarded = true
       const localRecipes = serverRecipes.map(mapServerRecipeToLocal)
       cache["ll_recipes"] = localRecipes
-      setSessionItem("ll_recipes", JSON.stringify(localRecipes))
       lastSyncedValues["ll_recipes"] = JSON.stringify(localRecipes)
     }
 
@@ -820,11 +906,9 @@ export const syncFromBackend = async () => {
         }
       })
       cache["ll_prods"] = localProds
-      setSessionItem("ll_prods", JSON.stringify(localProds))
       lastSyncedValues["ll_prods"] = JSON.stringify(localProds)
 
       cache["ll_quotes"] = localQuotes
-      setSessionItem("ll_quotes", JSON.stringify(localQuotes))
       lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
     }
 
@@ -832,7 +916,6 @@ export const syncFromBackend = async () => {
       const serverExpenses = await expensesRes.json()
       const localExpenses = serverExpenses.map(mapServerExpenseToLocal)
       cache["ll_exp"] = localExpenses
-      setSessionItem("ll_exp", JSON.stringify(localExpenses))
       lastSyncedValues["ll_exp"] = JSON.stringify(localExpenses)
     }
 
@@ -840,7 +923,6 @@ export const syncFromBackend = async () => {
       const serverPurchases = await purchasesRes.json()
       const localPurchases = serverPurchases.map(mapServerPurchaseToLocal)
       cache["ll_purchases"] = localPurchases
-      setSessionItem("ll_purchases", JSON.stringify(localPurchases))
       lastSyncedValues["ll_purchases"] = JSON.stringify(localPurchases)
     }
 
@@ -848,13 +930,18 @@ export const syncFromBackend = async () => {
       const serverInvoices = await invoicesRes.json()
       const localInvoices = serverInvoices.map(mapServerInvoiceToLocal)
       cache["ll_quote_invoices"] = localInvoices
-      setSessionItem("ll_quote_invoices", JSON.stringify(localInvoices))
       lastSyncedValues["ll_quote_invoices"] = JSON.stringify(localInvoices)
+    }
+
+    if (txnsRes && txnsRes.ok) {
+      const serverTxns = await txnsRes.json()
+      const localTxns = serverTxns.map(mapServerTransactionToLocal)
+      cache["ll_txns"] = localTxns
+      lastSyncedValues["ll_txns"] = JSON.stringify(localTxns)
     }
 
     if (isAlreadyOnboarded) {
       cache["ll_onboarded"] = "1"
-      setSessionItem("ll_onboarded", "1")
       if (!tenant.settings?.localState?.ll_onboarded) {
         setTimeout(() => syncTenantSettingsOnly(headers), 100)
       }
@@ -960,7 +1047,6 @@ export const loadInventory = (def = []) => {
 }
 export const saveInventory = async (data) => {
   cache["ll_inv"] = data
-  setSessionItem("ll_inv", JSON.stringify(data))
   const headers = getAuthHeaders()
   if (!headers) return
   await syncInventoryItems(headers, data)
@@ -970,7 +1056,6 @@ export const saveInventory = async (data) => {
 export const loadProductions = (def = []) => load("ll_prods", def)
 export const saveProductionsList = async (data) => {
   cache["ll_prods"] = data
-  setSessionItem("ll_prods", JSON.stringify(data))
   const headers = getAuthHeaders()
   if (!headers) return
   await syncOrdersList(headers, data, load("ll_quotes", []), load("ll_inv", []), load("ll_recipes", []))
@@ -995,7 +1080,6 @@ export const saveTxns = async (data) => await save("ll_txns", data)
 export const loadExpenses = (def = []) => load("ll_exp", def)
 export const saveExpenses = async (data) => {
   cache["ll_exp"] = data
-  setSessionItem("ll_exp", JSON.stringify(data))
   const headers = getAuthHeaders()
   if (!headers) return
   await syncExpensesList(headers, data)
@@ -1021,7 +1105,6 @@ export const saveCompany = async (data) => await save("ll_co", data)
 export const loadQuotes = (def = []) => load("ll_quotes", def)
 export const saveQuotes = async (data) => {
   cache["ll_quotes"] = data
-  setSessionItem("ll_quotes", JSON.stringify(data))
   const headers = getAuthHeaders()
   if (!headers) return
   await syncOrdersList(headers, load("ll_prods", []), data, load("ll_inv", []), load("ll_recipes", []))
@@ -1039,7 +1122,6 @@ export const saveUsers = async (data) => await save("ll_users", data)
 export const loadRecipes = () => load("ll_recipes", null)
 export const saveRecipes = async (data) => {
   cache["ll_recipes"] = data
-  setSessionItem("ll_recipes", JSON.stringify(data))
   const headers = getAuthHeaders()
   if (!headers) return
   await syncRecipesList(headers, data)

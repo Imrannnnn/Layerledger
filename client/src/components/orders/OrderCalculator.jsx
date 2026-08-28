@@ -850,7 +850,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
               ? existing.map(q => q.id === editId ? { ...quote, id: editId, status: q.status } : q)
               : [quote, ...existing]
             saveQuotes(updated)
-            sessionStorage.removeItem("ll_calc_state")
+            clearTempCalculatorState()
             setQuoteSaved(true)
           }}>{isEdit ? " Update quote" : "  Generate & save quote"}</Btn>
           {quoteSaved
@@ -866,7 +866,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 }} style={{ padding: "7px", borderRadius: 8, border: "none", background: "#25D366", color: "#fff", cursor: "pointer", fontSize: 12.5, fontFamily: "inherit", fontWeight: 500 }}>📱 Send quote via WhatsApp</button>
 
                 <button onClick={() => setView("quotes")} style={{ padding: "7px", borderRadius: 8, border: "none", background: "var(--gold)", color: "#fff", cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>📋 View all quotes</button>
-                <button onClick={() => { setQuoteSaved(false); setIsEdit(false); setEditId(null); setClientName(""); setClientPhone(""); setClientNotes(""); sessionStorage.removeItem("ll_calc_state") }} style={{ padding: "7px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--muted)", cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>🧮 Start new quote</button>
+                <button onClick={() => { setQuoteSaved(false); setIsEdit(false); setEditId(null); setClientName(""); setClientPhone(""); setClientNotes(""); clearTempCalculatorState() }} style={{ padding: "7px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--muted)", cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>🧮 Start new quote</button>
               </div>
             </div>
             : <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--muted)", textAlign: "center" }}>Quote will be saved under client name</div>

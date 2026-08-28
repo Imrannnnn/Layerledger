@@ -56,6 +56,7 @@ app.use('/api/purchases', require('./routes/purchaseRoutes'));
 app.use('/api/tokens', require('./routes/tokenRoutes'));
 app.use('/api/superadmin', require('./routes/superadminRoutes'));
 app.use('/api/claude', require('./routes/claudeRoutes'));
+app.use('/api/migrate-legacy', require('./routes/migrationRoutes'));
 
 // Global error handler
 app.use((err, req, res, _next) => {

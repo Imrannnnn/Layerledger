@@ -19,9 +19,12 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 
-export function Btn({children,onClick,variant="primary",small,full,disabled,style={}}){
+export function Btn({children,onClick,variant="primary",small,full,disabled,loading,loadingText,style={}}){
   const v={primary:{background:"var(--gold)",color:"#fff",border:"none"},ghost:{background:"transparent",color:"var(--muted)",border:"1px solid var(--border)"},success:{background:"#357A52",color:"#fff",border:"none"},danger:{background:"#B03A2E",color:"#fff",border:"none"},outline:{background:"transparent",color:"var(--gold)",border:"1px solid var(--gold)"},dark:{background:"var(--sidebar)",color:"var(--gold)",border:"none"}}[variant]||{}
-  return <button onClick={onClick} disabled={disabled} style={{...v,borderRadius:8,padding:small?"5px 11px":"8px 16px",fontSize:small?12:13.5,fontWeight:500,cursor:disabled?"not-allowed":"pointer",width:full?"100%":"auto",opacity:disabled?0.5:1,fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,...style}}>{children}</button>
+  return <button onClick={onClick} disabled={disabled || loading} style={{...v,borderRadius:8,padding:small?"5px 11px":"8px 16px",fontSize:small?12:13.5,fontWeight:500,cursor:(disabled || loading)?"not-allowed":"pointer",width:full?"100%":"auto",opacity:(disabled || loading)?0.65:1,fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,...style}}>
+    {loading && <span style={{display:"inline-block",width:small?11:13,height:small?11:13,border:"2px solid currentColor",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.6s linear infinite",flexShrink:0}} />}
+    {loading ? (loadingText || children) : children}
+  </button>
 }
 export const iSt = {width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",fontSize:13.5,color:"var(--text)",boxSizing:"border-box",outline:"none",fontFamily:"inherit"}
 export function Inp({label,value,onChange,type="text",placeholder,small,min}){return<div style={{marginBottom:11}}>{label&&<label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>{label}</label>}<input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} min={min} style={{...iSt,fontSize:small?12:13.5}}/></div>}

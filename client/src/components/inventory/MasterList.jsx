@@ -36,10 +36,10 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
   const isPastry=r.type==="pastry"
   const isCovering=r.type==="covering" || r.type==="filling"
 
-  // Load multipliers from sessionStorage (set in Settings → Pricing setup)
+  // Load multipliers from database/cache (set in Settings → Pricing setup)
   const getMult=()=>{
     try{
-      const all=JSON.parse(sessionStorage.getItem("ll_multipliers")||"null")||DEFAULT_MULTS
+      const all=loadLocal("ll_multipliers", DEFAULT_MULTS)
       const key=size.replace(" inch","").replace('"','').trim()+"-"+shape.toLowerCase()
       return all[key]||null
     }catch{return null}

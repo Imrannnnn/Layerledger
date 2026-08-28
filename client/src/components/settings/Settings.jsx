@@ -155,6 +155,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
   const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
   const [editCosts, setEditCosts] = useState(false)
   const [calcItem, setCalcItem] = useState(null)
+  const [loadingAction, setLoadingAction] = useState(null)
 
   const [showImport, setShowImport] = useState(false)
   const [importStep, setImportStep] = useState(1) // 1 = paste columns, 2 = preview, 3 = done
@@ -188,7 +189,28 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
     setWarnMsg(warnings.join(" | "))
   }
 
-  const doPreview = () => {
+  const handleOpenImportModal = async () => {
+    setLoadingAction("openImport")
+    try {
+      setShowImport(true)
+      setImportStep(1)
+      await new Promise(r => setTimeout(r, 250))
+    } finally {
+      setLoadingAction(null)
+    }
+  }
+
+  const handleOpenAddItemModal = async () => {
+    setLoadingAction("openAddItem")
+    try {
+      setAddingItem(true)
+      await new Promise(r => setTimeout(r, 250))
+    } finally {
+      setLoadingAction(null)
+    }
+  }
+
+  const doPreview = async () => {
     const ns = L(pasteN)
     const us = L(pasteU)
     const qs = L(pasteQ)
@@ -207,91 +229,102 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
       return
     }
 
-    const parsed = ns.map((name, i) => {
-      const qtyStr = qs[i] || "0"
-      const qty = parseFloat(qtyStr.replace(/[^0-9.]/g, "")) || 0
-      const costStr = cs[i] || ""
-      const cost = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0
+    setLoadingAction("doPreview")
+    try {
+      const parsed = ns.map((name, i) => {
+        const qtyStr = qs[i] || "0"
+        const qty = parseFloat(qtyStr.replace(/[^0-9.]/g, "")) || 0
+        const costStr = cs[i] || ""
+        const cost = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0
 
-      const match = items.find(it => it.name.trim().toLowerCase() === name.toLowerCase())
+        const match = items.find(it => it.name.trim().toLowerCase() === name.toLowerCase())
 
-      return {
-        id: match ? match.id : uid(),
-        name: match ? match.name : name,
-        unit: us[i] || (match ? match.unit : "kg"),
-        cost: cs.length > 0 ? cost : (match ? match.cost : 0),
-        openingQty: qs.length > 0 ? qty : (match ? match.openingQty : 0),
-        isNew: !match,
-        oldQty: match ? (match.openingQty || 0) : 0,
-        oldCost: match ? (match.cost || 0) : 0,
-        on: true
-      }
-    })
+        return {
+          id: match ? match.id : uid(),
+          name: match ? match.name : name,
+          unit: us[i] || (match ? match.unit : "kg"),
+          cost: cs.length > 0 ? cost : (match ? match.cost : 0),
+          openingQty: qs.length > 0 ? qty : (match ? match.openingQty : 0),
+          isNew: !match,
+          oldQty: match ? (match.openingQty || 0) : 0,
+          oldCost: match ? (match.cost || 0) : 0,
+          on: true
+        }
+      })
 
-    setImportItems(parsed)
-    setImportStep(2)
+      setImportItems(parsed)
+      setImportStep(2)
+      await new Promise(r => setTimeout(r, 300))
+    } finally {
+      setLoadingAction(null)
+    }
   }
 
   const confirmImport = async () => {
-    const approved = importItems.filter(x => x.on)
-    let updatedItems = [...items]
-    let updatedInventory = [...inventory]
+    setLoadingAction("confirmImport")
+    try {
+      const approved = importItems.filter(x => x.on)
+      let updatedItems = [...items]
+      let updatedInventory = [...inventory]
 
-    for (const app of approved) {
-      const idx = updatedItems.findIndex(it => it.id === app.id)
-      if (idx >= 0) {
-        updatedItems[idx] = {
-          ...updatedItems[idx],
-          unit: app.unit,
-          cost: app.cost,
-          openingQty: app.openingQty
-        }
-        // Also update existing item in inventory
-        const invIdx = updatedInventory.findIndex(it => it.id === app.id)
-        if (invIdx >= 0) {
-          updatedInventory[invIdx] = {
-            ...updatedInventory[invIdx],
+      for (const app of approved) {
+        const idx = updatedItems.findIndex(it => it.id === app.id)
+        if (idx >= 0) {
+          updatedItems[idx] = {
+            ...updatedItems[idx],
             unit: app.unit,
-            cost: app.cost
+            cost: app.cost,
+            openingQty: app.openingQty
           }
-        }
-      } else {
-        const osItem = {
-          id: app.id,
-          name: app.name,
-          unit: app.unit,
-          cost: app.cost,
-          openingQty: app.openingQty
-        }
-        updatedItems.push(osItem)
+          const invIdx = updatedInventory.findIndex(it => it.id === app.id)
+          if (invIdx >= 0) {
+            updatedInventory[invIdx] = {
+              ...updatedInventory[invIdx],
+              unit: app.unit,
+              cost: app.cost
+            }
+          }
+        } else {
+          const osItem = {
+            id: app.id,
+            name: app.name,
+            unit: app.unit,
+            cost: app.cost,
+            openingQty: app.openingQty
+          }
+          updatedItems.push(osItem)
 
-        updatedInventory.push({
-          id: app.id,
-          name: app.name,
-          cat: "Dry Goods",
-          unit: app.unit,
-          cost: app.cost,
-          stock: app.openingQty,
-          minStock: 5
-        })
+          updatedInventory.push({
+            id: app.id,
+            name: app.name,
+            cat: "Dry Goods",
+            unit: app.unit,
+            cost: app.cost,
+            stock: app.openingQty,
+            minStock: 5
+          })
+        }
       }
+
+      setItems(updatedItems)
+      await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedItems })
+      await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedItems, locked: saved })
+
+      if (setInventory) {
+        setInventory(updatedInventory)
+      }
+      await saveInventory(updatedInventory)
+      await new Promise(r => setTimeout(r, 350))
+
+      setPasteN("")
+      setPasteU("")
+      setPasteQ("")
+      setPasteC("")
+      setImportStep(3)
+      setSaved(false)
+    } finally {
+      setLoadingAction(null)
     }
-
-    setItems(updatedItems)
-    await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedItems })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedItems, locked: saved })
-
-    if (setInventory) {
-      setInventory(updatedInventory)
-    }
-    await saveInventory(updatedInventory)
-
-    setPasteN("")
-    setPasteU("")
-    setPasteQ("")
-    setPasteC("")
-    setImportStep(3)
-    setSaved(false)
   }
 
   // Check if today is the last day of the month
@@ -343,83 +376,122 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
 
   const deleteOSItem = async (id) => {
     if (!confirm("Are you sure you want to remove this item from opening stock?")) return
-    const updated = items.filter(item => item.id !== id)
-    setItems(updated)
-    await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
+    setLoadingAction("delete_" + id)
+    try {
+      const updated = items.filter(item => item.id !== id)
+      setItems(updated)
+      await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
+      await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
+      await new Promise(r => setTimeout(r, 250))
+    } finally {
+      setLoadingAction(null)
+    }
   }
 
   const lockStock = async () => {
-    // Save with month key so it's permanent for this month
-    const monthKey = "ll_os_" + currentMonthStr
-    const snapshot = {
-      date: new Date().toISOString(),
-      items: items.map(item => ({
-        id: item.id,
-        name: item.name,
-        unit: item.unit,
-        openingQty: item.openingQty,
-        cost: item.cost
-      })),
-      locked: true
+    setLoadingAction("lockStock")
+    try {
+      const monthKey = "ll_os_" + currentMonthStr
+      const snapshot = {
+        date: new Date().toISOString(),
+        items: items.map(item => ({
+          id: item.id,
+          name: item.name,
+          unit: item.unit,
+          openingQty: item.openingQty,
+          cost: item.cost
+        })),
+        locked: true
+      }
+      await saveLocal(monthKey, snapshot)
+      await new Promise(r => setTimeout(r, 350))
+      setSaved(true)
+    } finally {
+      setLoadingAction(null)
     }
-    await saveLocal(monthKey, snapshot)
-    setSaved(true)
   }
 
-  const handleSaveCosts = async () => {
-    setEditCosts(false)
-    const monthKey = "ll_os_" + currentMonthStr
-    const snapshot = {
-      date: new Date().toISOString(),
-      items: items.map(item => ({
-        id: item.id,
-        name: item.name,
-        unit: item.unit,
-        openingQty: item.openingQty,
-        cost: item.cost
-      })),
-      locked: saved
+  const handleEditCostsToggle = async () => {
+    if (editCosts) {
+      setLoadingAction("saveCosts")
+      try {
+        setEditCosts(false)
+        const monthKey = "ll_os_" + currentMonthStr
+        const snapshot = {
+          date: new Date().toISOString(),
+          items: items.map(item => ({
+            id: item.id,
+            name: item.name,
+            unit: item.unit,
+            openingQty: item.openingQty,
+            cost: item.cost
+          })),
+          locked: saved
+        }
+        await saveLocal(monthKey, snapshot)
+        await new Promise(r => setTimeout(r, 350))
+      } finally {
+        setLoadingAction(null)
+      }
+    } else {
+      setLoadingAction("editCosts")
+      try {
+        setEditCosts(true)
+        await new Promise(r => setTimeout(r, 250))
+      } finally {
+        setLoadingAction(null)
+      }
     }
-    await saveLocal(monthKey, snapshot)
   }
 
   const saveToDatabase = async () => {
-    await saveLocal(LS_KEY, { month: currentMonthStr, items })
-    const monthKey = "ll_os_" + currentMonthStr
-    const snapshot = {
-      date: new Date().toISOString(),
-      items: items.map(item => ({
-        id: item.id,
-        name: item.name,
-        unit: item.unit,
-        openingQty: item.openingQty,
-        cost: item.cost
-      })),
-      locked: false
+    setLoadingAction("saveSetup")
+    try {
+      await saveLocal(LS_KEY, { month: currentMonthStr, items })
+      const monthKey = "ll_os_" + currentMonthStr
+      const snapshot = {
+        date: new Date().toISOString(),
+        items: items.map(item => ({
+          id: item.id,
+          name: item.name,
+          unit: item.unit,
+          openingQty: item.openingQty,
+          cost: item.cost
+        })),
+        locked: false
+      }
+      await saveLocal(monthKey, snapshot)
+      await new Promise(r => setTimeout(r, 400))
+      setSaved(false)
+      setShowSavedMsg(true)
+      setTimeout(() => setShowSavedMsg(false), 3000)
+    } finally {
+      setLoadingAction(null)
     }
-    await saveLocal(monthKey, snapshot)
-    setSaved(false)
-    setShowSavedMsg(true)
-    setTimeout(() => setShowSavedMsg(false), 3000)
   }
 
   const unlockStock = async () => {
     if (!confirm("Are you sure you want to unlock the opening stock for this month?")) return
-    const monthKey = "ll_os_" + currentMonthStr
-    const snapshot = {
-      date: new Date().toISOString(),
-      items: items.map(item => ({
-        id: item.id,
-        name: item.name,
-        unit: item.unit,
-        openingQty: item.openingQty,
-        cost: item.cost
-      })),
-      locked: false
+    setLoadingAction("unlockStock")
+    try {
+      const monthKey = "ll_os_" + currentMonthStr
+      const snapshot = {
+        date: new Date().toISOString(),
+        items: items.map(item => ({
+          id: item.id,
+          name: item.name,
+          unit: item.unit,
+          openingQty: item.openingQty,
+          cost: item.cost
+        })),
+        locked: false
+      }
+      await saveLocal(monthKey, snapshot)
+      await new Promise(r => setTimeout(r, 350))
+      setSaved(false)
+    } finally {
+      setLoadingAction(null)
     }
-    await saveLocal(monthKey, snapshot)
-    setSaved(false)
   }
 
   const addNewItemToOS = async () => {
@@ -439,40 +511,48 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
       alert("Name and cost are required.")
       return
     }
-    const id = "_" + Math.random().toString(36).slice(2, 9)
-    const openingQty = parseFloat(newItem.openingQty) || 0
 
-    const osItem = {
-      id,
-      name: newItem.name.trim(),
-      unit: newItem.unit,
-      cost,
-      openingQty
+    setLoadingAction("addNewItem")
+    try {
+      const id = "_" + Math.random().toString(36).slice(2, 9)
+      const openingQty = parseFloat(newItem.openingQty) || 0
+
+      const osItem = {
+        id,
+        name: newItem.name.trim(),
+        unit: newItem.unit,
+        cost,
+        openingQty
+      }
+
+      const updatedOSItems = [...items, osItem]
+      setItems(updatedOSItems)
+      await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedOSItems })
+      await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedOSItems, locked: saved })
+
+      const masterItem = {
+        id,
+        name: newItem.name.trim(),
+        cat: "Dry Goods", // Default category
+        unit: newItem.unit,
+        cost,
+        stock: openingQty,
+        minStock: 5
+      }
+
+      const updatedInventory = [...inventory, masterItem]
+      if (setInventory) {
+        setInventory(updatedInventory)
+      }
+      await saveInventory(updatedInventory)
+      await new Promise(r => setTimeout(r, 350))
+
+      setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
+      setCalcMode("manual")
+      setAddingItem(false)
+    } finally {
+      setLoadingAction(null)
     }
-
-    const updatedOSItems = [...items, osItem]
-    setItems(updatedOSItems)
-    await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedOSItems })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedOSItems, locked: saved })
-
-    const masterItem = {
-      id,
-      name: newItem.name.trim(),
-      cat: "Dry Goods", // Default category
-      unit: newItem.unit,
-      cost,
-      stock: openingQty,
-      minStock: 5
-    }
-
-    const updatedInventory = [...inventory, masterItem]
-    if (setInventory) {
-      setInventory(updatedInventory)
-    }
-    await saveInventory(updatedInventory)
-    setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
-    setCalcMode("manual")
-    setAddingItem(false)
   }
 
   return <div style={{ maxWidth: 640 }}>
@@ -590,6 +670,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
                         small
                         variant="danger"
                         onClick={() => deleteOSItem(item.id)}
+                        loading={loadingAction === "delete_" + item.id}
                         title="Remove item from opening stock"
                         style={{ padding: "2px 8px", minWidth: 24, fontSize: 14 }}
                       >
@@ -658,26 +739,45 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
         <div className="os-btn-group-left">
           {!isLocked ? (
             <div className="os-btn-group-left">
-              <Btn variant="success" onClick={lockStock}>🔒 Lock Open Stock for {curMonth}</Btn>
-              <Btn variant="outline" onClick={saveToDatabase} style={{ borderColor: "#28B463", color: "#28B463" }}>💾 Save Setup</Btn>
+              <Btn variant="success" onClick={lockStock} loading={loadingAction === "lockStock"} loadingText="Locking...">🔒 Lock Open Stock for {curMonth}</Btn>
+              <Btn variant="outline" onClick={saveToDatabase} loading={loadingAction === "saveSetup"} loadingText="Saving Setup..." style={{ borderColor: "#28B463", color: "#28B463" }}>💾 Save Setup</Btn>
               {showSavedMsg && <span className="os-saved-msg" style={{ fontSize: 13, color: "#28B463", fontWeight: 600 }}>✓ Saved Setup</span>}
             </div>
           ) : (
             <div className="os-btn-group-left">
               <span style={{ fontSize: 13, color: "#357A52", fontWeight: 600, background: "#EEF8F3", padding: "6px 12px", borderRadius: 8, border: "1px solid #C2E0CF" }}>🔒 Opening Stock is locked for {curMonth}</span>
               {user?.role === "owner" && (
-                <Btn variant="outline" onClick={unlockStock} style={{ padding: "4px 10px", fontSize: 12 }}>🔓 Unlock</Btn>
+                <Btn variant="outline" onClick={unlockStock} loading={loadingAction === "unlockStock"} loadingText="Unlocking..." style={{ padding: "4px 10px", fontSize: 12 }}>🔓 Unlock</Btn>
               )}
             </div>
           )}
         </div>
         {!isLocked && (
           <div className="os-btn-group-right">
-            <Btn variant={editCosts ? "outline" : "outline"} onClick={() => { if (editCosts) { handleSaveCosts() } else { setEditCosts(true) } }} style={editCosts ? { borderColor: "var(--gold)", background: "rgba(200,145,42,0.1)", color: "var(--gold)", fontWeight: "600" } : {}}>
+            <Btn
+              variant="outline"
+              onClick={handleEditCostsToggle}
+              loading={loadingAction === "editCosts" || loadingAction === "saveCosts"}
+              loadingText={editCosts ? "Saving Edits..." : "Loading..."}
+              style={editCosts ? { borderColor: "var(--gold)", background: "rgba(200,145,42,0.1)", color: "var(--gold)", fontWeight: "600" } : {}}
+            >
               {editCosts ? "✓ Save" : "✏ Edit"}
             </Btn>
-            <Btn variant="outline" onClick={() => { setShowImport(true); setImportStep(1); }}>📁 Import from Excel</Btn>
-            <Btn onClick={() => setAddingItem(true)}>+ Add Item</Btn>
+            <Btn
+              variant="outline"
+              onClick={handleOpenImportModal}
+              loading={loadingAction === "openImport"}
+              loadingText="Loading..."
+            >
+              📁 Import from Excel
+            </Btn>
+            <Btn
+              onClick={handleOpenAddItemModal}
+              loading={loadingAction === "openAddItem"}
+              loadingText="Loading..."
+            >
+              + Add Item
+            </Btn>
           </div>
         )}
       </div>
@@ -758,8 +858,8 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
       )}
 
       <div style={{ display: "flex", gap: 8 }}>
-        <Btn variant="success" onClick={addNewItemToOS}>✓ Add Item</Btn>
-        <Btn variant="ghost" onClick={() => { setAddingItem(false); setCalcMode("manual"); setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" }) }}>Cancel</Btn>
+        <Btn variant="success" onClick={addNewItemToOS} loading={loadingAction === "addNewItem"} loadingText="Adding Item...">✓ Add Item</Btn>
+        <Btn variant="ghost" disabled={loadingAction === "addNewItem"} onClick={() => { setAddingItem(false); setCalcMode("manual"); setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" }) }}>Cancel</Btn>
       </div>
     </Modal>}
 
@@ -805,8 +905,8 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
           </div>
           {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10 }}>⚠ {warnMsg}</div>}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <Btn variant="ghost" onClick={() => setShowImport(false)}>Cancel</Btn>
-            <Btn onClick={doPreview} disabled={!pasteN.trim() || !pasteC.trim() || !!warnMsg}>Preview import →</Btn>
+            <Btn variant="ghost" disabled={loadingAction === "doPreview"} onClick={() => setShowImport(false)}>Cancel</Btn>
+            <Btn onClick={doPreview} disabled={!pasteN.trim() || !pasteC.trim() || !!warnMsg} loading={loadingAction === "doPreview"} loadingText="Processing...">Preview import →</Btn>
           </div>
         </div>}
 
@@ -829,8 +929,8 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
             </table>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <Btn variant="ghost" onClick={() => setImportStep(1)}>← Edit</Btn>
-            <Btn variant="success" onClick={confirmImport} disabled={!importItems.some(p => p.on)}>✓ Confirm & Import {importItems.filter(p => p.on).length} Items</Btn>
+            <Btn variant="ghost" disabled={loadingAction === "confirmImport"} onClick={() => setImportStep(1)}>← Edit</Btn>
+            <Btn variant="success" onClick={confirmImport} disabled={!importItems.some(p => p.on)} loading={loadingAction === "confirmImport"} loadingText="Importing...">✓ Confirm & Import {importItems.filter(p => p.on).length} Items</Btn>
           </div>
         </div>}
 
@@ -868,14 +968,22 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
           </div>
         )}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setCalcItem(null)}>Cancel</Btn>
+          <Btn variant="ghost" disabled={loadingAction === "applyCost"} onClick={() => setCalcItem(null)}>Cancel</Btn>
           <Btn
             variant="success"
             disabled={!calcItem.totalPaid || !calcItem.qtyBought || parseFloat(calcItem.qtyBought) <= 0}
-            onClick={() => {
-              const cost = Math.round(parseFloat(calcItem.totalPaid) / parseFloat(calcItem.qtyBought))
-              updateOSCost(calcItem.id, cost)
-              setCalcItem(null)
+            loading={loadingAction === "applyCost"}
+            loadingText="Applying..."
+            onClick={async () => {
+              setLoadingAction("applyCost")
+              try {
+                const cost = Math.round(parseFloat(calcItem.totalPaid) / parseFloat(calcItem.qtyBought))
+                await updateOSCost(calcItem.id, cost)
+                await new Promise(r => setTimeout(r, 250))
+                setCalcItem(null)
+              } finally {
+                setLoadingAction(null)
+              }
             }}
           >
             ✓ Apply Cost
