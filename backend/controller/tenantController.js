@@ -42,15 +42,15 @@ const updateTenantDetails = asyncHandler(async (req, res) => {
 
     let mergedSettings = existingTenant.settings || {};
     if (settings) {
-        const existingLocal = (existingTenant.settings && existingTenant.settings.localState) || {};
-        const incomingLocal = settings.localState || {};
+        const existingConfig = (existingTenant.settings && (existingTenant.settings.appConfig || existingTenant.settings.localState)) || {};
+        const incomingConfig = settings.appConfig || settings.localState || {};
 
         mergedSettings = {
             ...existingTenant.settings,
             ...settings,
-            localState: {
-                ...existingLocal,
-                ...incomingLocal
+            appConfig: {
+                ...existingConfig,
+                ...incomingConfig
             }
         };
     }

@@ -141,20 +141,20 @@ const syncTenantSettingsOnly = async (headers) => {
     if (res.ok) {
       const tenant = await res.json()
       const data = {
-        ...(tenant.settings?.localState || {})
+        ...(tenant.settings?.appConfig || tenant.settings?.localState || {})
       }
       Object.entries(cache).forEach(([k, v]) => {
-        const keysToStoreInLocalState = [
+        const keysToStoreInAppConfig = [
           "ll_co", "ll_multipliers", "ll_coverings", "ll_decorations", "ll_packaging", "ll_opening_stock", 
           "ll_onboarded", "ll_anthropic_key", "ll_users", "ll_clients", "ll_aliases"
         ]
-        if (keysToStoreInLocalState.includes(k) || k.startsWith("ll_setting_") || k.startsWith("ll_os_")) {
+        if (keysToStoreInAppConfig.includes(k) || k.startsWith("ll_setting_") || k.startsWith("ll_os_")) {
           data[k] = typeof v === "string" ? v : JSON.stringify(v)
         }
       })
       const updatedSettings = {
         ...(tenant.settings || {}),
-        localState: data
+        appConfig: data
       }
       const putRes = await fetch(`${apiUrl}/api/tenant`, {
         method: "PUT",
@@ -168,8 +168,9 @@ const syncTenantSettingsOnly = async (headers) => {
       })
       if (putRes.ok) {
         const serverTenant = await putRes.json()
-        if (serverTenant.settings && serverTenant.settings.localState) {
-          Object.entries(serverTenant.settings.localState).forEach(([k, v]) => {
+        const cfg = serverTenant.settings?.appConfig || serverTenant.settings?.localState
+        if (cfg) {
+          Object.entries(cfg).forEach(([k, v]) => {
             try {
               cache[k] = typeof v === "string" ? JSON.parse(v) : v
             } catch {
@@ -857,12 +858,12 @@ export const syncFromBackend = async () => {
     })
 
     let isAlreadyOnboarded = false
-    if (tenant.settings && tenant.settings.localState) {
-      const state = tenant.settings.localState
-      if (state.ll_onboarded === "1" || state.ll_onboarded === 1 || state.ll_co || state.ll_multipliers) {
+    const config = tenant.settings ? (tenant.settings.appConfig || tenant.settings.localState) : null
+    if (config) {
+      if (config.ll_onboarded === "1" || config.ll_onboarded === 1 || config.ll_co || config.ll_multipliers) {
         isAlreadyOnboarded = true
       }
-      Object.entries(state).forEach(([k, v]) => {
+      Object.entries(config).forEach(([k, v]) => {
         if (v !== null && !keysToIgnoreOnLogin.includes(k)) {
           let parsed;
           try {
@@ -954,7 +955,7 @@ export const syncFromBackend = async () => {
 
     if (isAlreadyOnboarded) {
       cache["ll_onboarded"] = "1"
-      if (!tenant.settings?.localState?.ll_onboarded) {
+      if (!tenant.settings?.appConfig?.ll_onboarded && !tenant.settings?.localState?.ll_onboarded) {
         setTimeout(() => syncTenantSettingsOnly(headers), 100)
       }
     }
@@ -1017,13 +1018,13 @@ export const clearAllDataOnServer = async () => {
       delete lastSyncedValues[k]
     })
 
-    // 1. Reset tenant settings localState
+    // 1. Reset tenant settings appConfig
     const res = await fetch(`${apiUrl}/api/tenant`, { headers })
     if (res.ok) {
       const tenant = await res.json()
       const updatedSettings = {
         ...(tenant.settings || {}),
-        localState: {}
+        appConfig: {}
       }
       await fetch(`${apiUrl}/api/tenant`, {
         method: "PUT",

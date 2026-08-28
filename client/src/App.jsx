@@ -145,20 +145,7 @@ export default function App() {
         }
         const inv = loadInventory(DEFAULT_INV)
         
-        // Initialize opening stock draft for the current month if not already present,
-        // snapshotting the inventory state at the start of the month/session.
-        const currentMonthStr = new Date().toISOString().slice(0, 7)
-        const savedOS = loadLocal("ll_opening_stock", null)
-        if (!savedOS || savedOS.month !== currentMonthStr || !Array.isArray(savedOS.items)) {
-          const initializedItems = inv.map(i => ({
-            id: i.id,
-            name: i.name,
-            unit: i.unit,
-            cost: i.cost,
-            openingQty: i.stock || 0
-          }))
-          saveLocal("ll_opening_stock", { month: currentMonthStr, items: initializedItems })
-        }
+
 
         const prods = loadProductions([])
         const txns = loadTransactions([])
