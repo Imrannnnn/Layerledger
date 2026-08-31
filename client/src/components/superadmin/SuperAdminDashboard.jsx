@@ -6,8 +6,8 @@
  * active user count, and full tenant control tools (suspend, delete, add tokens).
  * ----------------------------------------------------------------------------
  */
-import React, { useState, useEffect } from "react"
-import { Btn, Card, Badge, Inp, SHead } from "../common/ui.jsx"
+import React, { useState, useEffect, useMemo } from "react"
+import { Btn, Card, Badge, Inp, SHead, Pagination } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 
 export function SuperAdminDashboard() {
@@ -21,6 +21,9 @@ export function SuperAdminDashboard() {
   const [stats, setStats] = useState(null)
   const [tenants, setTenants] = useState([])
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
 
   // Token adjustment modal state
   const [adjustingTenant, setAdjustingTenant] = useState(null)
@@ -143,6 +146,13 @@ export function SuperAdminDashboard() {
       alert(err.message)
     }
   }
+
+  const paginatedTenants = useMemo(() => {
+    if (pageSize === "all") return tenants
+    const sz = Number(pageSize) || 25
+    const start = (currentPage - 1) * sz
+    return tenants.slice(start, start + sz)
+  }, [tenants, currentPage, pageSize])
 
   // --- Login View ---
   if (!token) {
@@ -269,7 +279,7 @@ export function SuperAdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {tenants.map(t => {
+                {paginatedTenants.map(t => {
                   const regDate = new Date(t.registrationDate).toLocaleDateString()
                   const activeDate = new Date(t.lastActiveDate).toLocaleDateString()
                   return (
@@ -306,6 +316,19 @@ export function SuperAdminDashboard() {
               </tbody>
             </table>
           </Card>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={tenants.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(sz) => {
+              setPageSize(sz)
+              setCurrentPage(1)
+            }}
+            pageSizeOptions={[10, 25, 50, 100]}
+            itemLabel="tenants"
+          />
         </>
       ) : (
         <Card style={{ textAlign: "center", padding: 48 }}>

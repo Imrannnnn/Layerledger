@@ -5,8 +5,8 @@
  * Logs Utilities, Salary, Delivery, Transport, etc. Excludes ingredient purchases.
  * ----------------------------------------------------------------------------
  */
-import React, { useState } from "react"
-import { Btn, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, iSt, Spinner } from "../common/ui.jsx"
+import React, { useState, useEffect, useMemo } from "react"
+import { Btn, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, iSt, Spinner, Pagination } from "../common/ui.jsx"
 import { fmt, uid, today } from "../../lib/helpers.js"
 import { EXP_CATS } from "../../constants.js"
 import { saveExpenses } from "../../lib/data.js"
@@ -18,6 +18,9 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [deletingAll, setDeletingAll] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
 
   const [draftExpenses, setDraftExpenses] = useState([
     {
@@ -229,6 +232,18 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
     }
     return true // "monthly"
   })
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedMonth, tab, selectedCategoryFilter])
+
+  const paginatedExpenses = useMemo(() => {
+    if (pageSize === "all") return filtered
+    const sz = Number(pageSize) || 25
+    const start = (currentPage - 1) * sz
+    return filtered.slice(start, start + sz)
+  }, [filtered, currentPage, pageSize])
+
 
   const handleDeleteAll = async () => {
     if (!window.confirm("Are you sure you want to delete ALL overhead expenses? This will permanently delete all manual and bank expenses across all months. (Ingredient purchase expenses will be preserved). This cannot be undone.")) return
@@ -522,7 +537,7 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                 </td>
               </tr>
             ) : (
-              filtered.map((e, i) => editingRows[e.id] ? (
+              paginatedExpenses.map((e, i) => editingRows[e.id] ? (
                 <tr key={e.id} style={{ background: "#FEF9EE" }}>
                   <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                     {/* Checkbox column alignment placeholder */}
@@ -550,12 +565,12 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                   </td>
                   <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                     <select
-                      value={editingRows[e.id].category || ""}
+                      value={editingRows[e.id].category || "Utilities"}
                       onChange={ev => setEditingRows(p => ({
                         ...p,
                         [e.id]: { ...p[e.id], category: ev.target.value }
                       }))}
-                      style={{ padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 5, fontSize: 11, fontFamily: "inherit" }}
+                      style={{ padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 5, fontSize: 12, fontFamily: "inherit" }}
                     >
                       {EXP_CATS.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
@@ -610,6 +625,19 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
           </tbody>
         </table>
       </Card>
+
+      <Pagination
+        currentPage={currentPage}
+        totalItems={filtered.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={(sz) => {
+          setPageSize(sz)
+          setCurrentPage(1)
+        }}
+        pageSizeOptions={[10, 25, 50, 100]}
+        itemLabel="expenses"
+      />
     </div>
   )
 }

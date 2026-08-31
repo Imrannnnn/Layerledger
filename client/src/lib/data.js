@@ -1052,6 +1052,68 @@ export const clearAllDataOnServer = async () => {
   }
 }
 
+export const deleteAllInventoryOnServer = async () => {
+  const headers = getAuthHeaders()
+  if (!headers) return false
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) return false
+
+  try {
+    const res = await fetch(`${apiUrl}/api/inventory/all`, {
+      method: "DELETE",
+      headers
+    })
+    if (res.ok) {
+      cache["ll_inv"] = []
+      lastSyncedValues["ll_inv"] = JSON.stringify([])
+      try {
+        sessionStorage.removeItem("ll_inv")
+      } catch {}
+      return true
+    } else {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message || "Failed to delete all inventory from server")
+    }
+  } catch (e) {
+    console.error("deleteAllInventoryOnServer error:", e)
+    throw e
+  }
+}
+
+export const deleteOpeningStockOnServer = async () => {
+  const headers = getAuthHeaders()
+  if (!headers) return false
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) return false
+
+  try {
+    const res = await fetch(`${apiUrl}/api/inventory/opening-stock`, {
+      method: "DELETE",
+      headers
+    })
+    if (res.ok) {
+      delete cache["ll_opening_stock"]
+      Object.keys(cache).forEach(k => {
+        if (k.startsWith("ll_os_")) delete cache[k]
+      })
+      try {
+        sessionStorage.removeItem("ll_opening_stock")
+        Object.keys(sessionStorage).forEach(k => {
+          if (k.startsWith("ll_os_")) sessionStorage.removeItem(k)
+        })
+      } catch {}
+      return true
+    } else {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message || "Failed to delete opening stock from server")
+    }
+  } catch (e) {
+    console.error("deleteOpeningStockOnServer error:", e)
+    throw e
+  }
+}
+
+
 
 // Inventory
 export const loadInventory = (def = []) => {

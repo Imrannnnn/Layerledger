@@ -132,3 +132,175 @@ export function SearchableSelect({ value, onChange, options, placeholder, style 
     </div>
   )
 }
+
+export function Pagination({
+  currentPage = 1,
+  totalItems = 0,
+  pageSize = 25,
+  onPageChange,
+  onPageSizeChange,
+  pageSizeOptions = [10, 25, 50, 100],
+  itemLabel = "items",
+  style = {}
+}) {
+  const isAll = pageSize === "all" || pageSize >= totalItems
+  const effectivePageSize = isAll ? Math.max(1, totalItems) : Number(pageSize) || 25
+  const totalPages = Math.max(1, Math.ceil(totalItems / effectivePageSize))
+  const page = Math.min(Math.max(1, currentPage), totalPages)
+
+  if (totalItems === 0) return null
+
+  const start = isAll ? 1 : (page - 1) * effectivePageSize + 1
+  const end = isAll ? totalItems : Math.min(page * effectivePageSize, totalItems)
+
+  const getPageNumbers = () => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1)
+    }
+    const pages = []
+    pages.push(1)
+    if (page > 3) pages.push("...")
+    const startPage = Math.max(2, page - 1)
+    const endPage = Math.min(totalPages - 1, page + 1)
+    for (let p = startPage; p <= endPage; p++) {
+      if (!pages.includes(p)) pages.push(p)
+    }
+    if (page < totalPages - 2) pages.push("...")
+    if (!pages.includes(totalPages)) pages.push(totalPages)
+    return pages
+  }
+
+  const pageNumbers = getPageNumbers()
+
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 12,
+      padding: "12px 6px",
+      fontSize: 12.5,
+      color: "var(--muted)",
+      userSelect: "none",
+      ...style
+    }}>
+      {/* Range text */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span>
+          Showing <strong>{start}–{end}</strong> of <strong>{totalItems}</strong> {itemLabel}
+        </span>
+      </div>
+
+      {/* Controls */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        {onPageSizeChange && (
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ fontSize: 11.5 }}>Per page:</span>
+            <select
+              value={isAll ? "all" : effectivePageSize}
+              onChange={(e) => {
+                const val = e.target.value === "all" ? "all" : Number(e.target.value)
+                onPageSizeChange(val)
+              }}
+              style={{
+                ...iSt,
+                width: "auto",
+                padding: "3px 8px",
+                fontSize: 12,
+                cursor: "pointer",
+                borderRadius: 6
+              }}
+            >
+              {pageSizeOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt === "all" ? "All" : opt}
+                </option>
+              ))}
+              {!pageSizeOptions.includes("all") && <option value="all">All</option>}
+            </select>
+          </div>
+        )}
+
+        {!isAll && totalPages > 1 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {/* Prev button */}
+            <button
+              onClick={() => onPageChange && onPageChange(page - 1)}
+              disabled={page <= 1}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: page <= 1 ? "transparent" : "var(--panel)",
+                color: page <= 1 ? "var(--border)" : "var(--text)",
+                cursor: page <= 1 ? "not-allowed" : "pointer",
+                fontSize: 12,
+                fontFamily: "inherit"
+              }}
+              title="Previous Page"
+            >
+              ‹ Prev
+            </button>
+
+            {/* Page number buttons */}
+            {pageNumbers.map((p, idx) => {
+              if (p === "...") {
+                return (
+                  <span key={`dots-${idx}`} style={{ padding: "0 4px", color: "var(--muted)" }}>
+                    …
+                  </span>
+                )
+              }
+              const isCurrent = p === page
+              return (
+                <button
+                  key={p}
+                  onClick={() => onPageChange && onPageChange(p)}
+                  style={{
+                    minWidth: 28,
+                    height: 28,
+                    padding: "0 6px",
+                    borderRadius: 6,
+                    border: isCurrent ? "1px solid var(--gold)" : "1px solid var(--border)",
+                    background: isCurrent ? "var(--gold)" : "var(--panel)",
+                    color: isCurrent ? "#fff" : "var(--text)",
+                    fontWeight: isCurrent ? 600 : 400,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontFamily: "inherit",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}
+                >
+                  {p}
+                </button>
+              )
+            })}
+
+            {/* Next button */}
+            <button
+              onClick={() => onPageChange && onPageChange(page + 1)}
+              disabled={page >= totalPages}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: page >= totalPages ? "transparent" : "var(--panel)",
+                color: page >= totalPages ? "var(--border)" : "var(--text)",
+                cursor: page >= totalPages ? "not-allowed" : "pointer",
+                fontSize: 12,
+                fontFamily: "inherit"
+              }}
+              title="Next Page"
+            >
+              Next ›
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+

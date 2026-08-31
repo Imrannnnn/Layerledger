@@ -4,8 +4,8 @@
  * Order History screen: lists and filters all confirmed orders.
  * ----------------------------------------------------------------------------
  */
-import React, { useState } from "react"
-import { Btn, Card, Badge, SHead, Tabs, TH, TR2, iSt } from "../common/ui.jsx"
+import React, { useState, useEffect, useMemo } from "react"
+import { Btn, Card, Badge, SHead, Tabs, TH, TR2, iSt, Pagination } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { updateProdStatus } from "../../lib/data.js"
 
@@ -15,8 +15,15 @@ export function Records({ productions, setProductions, setView, setPrefillProd, 
   const [statusFilter, setStatusFilter] = useState("all")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [clientSearch, productType, statusFilter, startDate, endDate])
 
   const isOwner = user?.role === "owner"
+
 
   // Filter confirmed orders
   const filtered = productions.filter(p => {
@@ -51,6 +58,14 @@ export function Records({ productions, setProductions, setView, setPrefillProd, 
 
   const cost = filtered.reduce((sum, p) => sum + (p.cost || 0) + (p.deliveryCost || 0), 0)
   const profit = revenue - cost
+
+  const paginated = useMemo(() => {
+    if (pageSize === "all") return filtered
+    const sz = Number(pageSize) || 25
+    const start = (currentPage - 1) * sz
+    return filtered.slice(start, start + sz)
+  }, [filtered, currentPage, pageSize])
+
 
   return (
     <div>
@@ -138,7 +153,7 @@ export function Records({ productions, setProductions, setView, setPrefillProd, 
                 </td>
               </tr>
             ) : (
-              filtered.map((p, i) => {
+              paginated.map((p, i) => {
                 const summaryText = p.cakeSummary || p.productType || `${p.size || ""} ${p.covering || ""}`
                 const isDelivered = (p.status || "").toLowerCase() === "delivered"
                 
@@ -171,6 +186,20 @@ export function Records({ productions, setProductions, setView, setPrefillProd, 
           </tbody>
         </table>
       </Card>
+
+      <Pagination
+        currentPage={currentPage}
+        totalItems={filtered.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={(sz) => {
+          setPageSize(sz)
+          setCurrentPage(1)
+        }}
+        pageSizeOptions={[10, 25, 50, 100]}
+        itemLabel="orders"
+      />
+
 
       {/* Summary Stats Row */}
       {isOwner && filtered.length > 0 && (

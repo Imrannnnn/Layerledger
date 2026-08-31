@@ -8,6 +8,32 @@ const { asyncHandler } = require('../middleware/custommiddleware');
  */
 const getPurchases = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
+    const { page, limit } = req.query;
+
+    if (page || limit) {
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const limitNum = Math.max(1, parseInt(limit) || 25);
+        const skip = (pageNum - 1) * limitNum;
+
+        const [purchases, total] = await Promise.all([
+            prisma.purchase.findMany({
+                where: { tenantId },
+                skip,
+                take: limitNum,
+                orderBy: { date: 'desc' }
+            }),
+            prisma.purchase.count({ where: { tenantId } })
+        ]);
+
+        return res.json({
+            data: purchases,
+            total,
+            page: pageNum,
+            limit: limitNum,
+            totalPages: Math.ceil(total / limitNum)
+        });
+    }
+
     const purchases = await prisma.purchase.findMany({
         where: { tenantId },
         orderBy: { date: 'desc' }

@@ -5,7 +5,7 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { Btn, iSt, Inp, Card, SHead, TH, TR2, Spinner } from "../common/ui.jsx"
+import { Btn, iSt, Inp, Card, SHead, TH, TR2, Spinner, Pagination } from "../common/ui.jsx"
 import { fmt, uid, DEFAULT_CATEGORIES, mapCategory } from "../../lib/helpers.js"
 import { saveInventory, saveExpenses, loadLocal, saveLocal } from "../../lib/data.js"
 
@@ -13,6 +13,8 @@ import { saveInventory, saveExpenses, loadLocal, saveLocal } from "../../lib/dat
 export function Purchases({ inventory, setInventory, expenses, setExpenses, setView, isOwner }) {
   const [showForm, setShowForm] = useState(false)
   const [purchases, setPurchases] = useState(() => loadLocal("ll_purchases", []))
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
   const [draftPurchases, setDraftPurchases] = useState([
     {
       item: "",
@@ -26,6 +28,11 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
   ])
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [deletingAll, setDeletingAll] = useState(false)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedMonth])
+
 
   const customCats = loadLocal("ll_custom_categories", [])
   const categoriesList = useMemo(() => {
@@ -188,6 +195,13 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     }
   }
 
+  const paginatedPurchases = useMemo(() => {
+    if (pageSize === "all") return filteredPurchases
+    const sz = Number(pageSize) || 25
+    const start = (currentPage - 1) * sz
+    return filteredPurchases.slice(start, start + sz)
+  }, [filteredPurchases, currentPage, pageSize])
+
   return <div>
     <SHead title="Purchases" sub="Log every ingredient purchase — cost per unit updates inventory automatically." />
     <div style={{ background: "#E8EFFC", border: "1px solid #B5D4F4", borderRadius: 8, padding: "10px 14px", fontSize: 12.5, color: "#185FA5", marginBottom: 14, lineHeight: 1.7 }}>
@@ -327,7 +341,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <TH cols={["Date", "Item", "Category", "Unit", "Pack size", "Qty", "Price/pack", "Total", "Cost/unit ✦", "Status"]} />
         <tbody>{filteredPurchases.length === 0 ? <tr><td colSpan={10} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>No purchases logged in this month. Click + Log Purchase to start.</td></tr> :
-          filteredPurchases.map((p, i) => {
+          paginatedPurchases.map((p, i) => {
             const invItem = inventory.find(item => item.id === p.itemId)
             const displayCat = invItem?.cat || p.category || "—"
             const displayUnit = invItem?.unit || p.unit || ""
@@ -347,6 +361,20 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
         }</tbody>
       </table>
     </Card>
+
+    <Pagination
+      currentPage={currentPage}
+      totalItems={filteredPurchases.length}
+      pageSize={pageSize}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={(sz) => {
+        setPageSize(sz)
+        setCurrentPage(1)
+      }}
+      pageSizeOptions={[10, 25, 50, 100]}
+      itemLabel="purchases"
+    />
+
     <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--muted)" }}>✦ Cost/unit = Price per pack ÷ Pack size. Updates inventory and starting inventory immediately.</div>
   </div>
 }

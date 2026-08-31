@@ -7,10 +7,10 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert, Modal } from "../common/ui.jsx"
+import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert, Modal, Pagination } from "../common/ui.jsx"
 import { fmt, uid, callClaude } from "../../lib/helpers.js"
 import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, PRICING_SIZES } from "../../constants.js"
-import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, logout, loadLocal, saveInventory } from "../../lib/data.js"
+import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, logout, loadLocal, saveInventory, deleteOpeningStockOnServer } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
 
 // ═══════════════════════════════════════════════════════════
@@ -181,10 +181,53 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
   const [importItems, setImportItems] = useState([])
   const [warnMsg, setWarnMsg] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [deletingAll, setDeletingAll] = useState(false)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery])
 
   const filteredItems = items.filter(item =>
     item.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
+
+  const paginatedItems = useMemo(() => {
+    if (pageSize === "all") return filteredItems
+    const sz = Number(pageSize) || 25
+    const start = (currentPage - 1) * sz
+    return filteredItems.slice(start, start + sz)
+  }, [filteredItems, currentPage, pageSize])
+
+  const handleDeleteAllOpeningStock = async () => {
+    if (items.length === 0) {
+      alert("Opening stock is already empty.")
+      return
+    }
+    const confirmed = window.confirm(
+      `⚠️ ARE YOU SURE YOU WANT TO DELETE ALL OPENING STOCK DIRECTLY FROM THE DATABASE?\n\nThis will remove all opening stock records and monthly snapshots from the database. This action cannot be undone.`
+    )
+    if (!confirmed) return
+    const secondCheck = window.confirm(
+      "Please confirm again: Do you really want to permanently delete all opening stock records from the database?"
+    )
+    if (!secondCheck) return
+
+    setDeletingAll(true)
+    try {
+      await deleteOpeningStockOnServer()
+      setItems([])
+      setSaved(false)
+      setCurrentPage(1)
+      alert("✓ All opening stock records deleted from database.")
+    } catch (e) {
+      alert("Failed to delete opening stock: " + e.message)
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
 
   const L = v => v.trim().split(String.fromCharCode(10)).map(s => s.replace(/,/g, "").trim()).filter(Boolean)
 
@@ -631,7 +674,7 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
                 </td>
               </tr>
             ) : (
-              filteredItems.map((item, i) => {
+              paginatedItems.map((item, i) => {
                 const qty = item.openingQty || 0
                 return <tr key={item.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
                   <td style={{ padding: "8px 10px", fontWeight: 500 }}>{item.name}</td>
@@ -704,6 +747,20 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
           </tr></tfoot>
         </table>
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalItems={filteredItems.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={(sz) => {
+          setPageSize(sz)
+          setCurrentPage(1)
+        }}
+        pageSizeOptions={[10, 25, 50, 100]}
+        itemLabel="opening stock items"
+      />
+
       <style>{`
         .os-btn-row {
           margin-top: 14px;
@@ -762,7 +819,20 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
             <div className="os-btn-group-left">
               <span style={{ fontSize: 13, color: "#357A52", fontWeight: 600, background: "#EEF8F3", padding: "6px 12px", borderRadius: 8, border: "1px solid #C2E0CF" }}>🔒 Opening Stock is locked for {curMonth}</span>
               {user?.role === "owner" && (
-                <Btn variant="outline" onClick={unlockStock} loading={loadingAction === "unlockStock"} loadingText="Unlocking..." style={{ padding: "4px 10px", fontSize: 12 }}>🔓 Unlock</Btn>
+                <>
+                  <Btn variant="outline" onClick={unlockStock} loading={loadingAction === "unlockStock"} loadingText="Unlocking..." style={{ padding: "4px 10px", fontSize: 12 }}>🔓 Unlock</Btn>
+                  {items.length > 0 && (
+                    <Btn
+                      variant="ghost"
+                      onClick={handleDeleteAllOpeningStock}
+                      disabled={deletingAll}
+                      style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "12px", padding: "4px 10px" }}
+                      title="Delete all opening stock directly from database"
+                    >
+                      {deletingAll ? "Deleting..." : "🗑 Delete All"}
+                    </Btn>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -793,6 +863,17 @@ export function OpeningStockTab({ inventory, setInventory, user }) {
             >
               + Add Item
             </Btn>
+            {user?.role === "owner" && items.length > 0 && (
+              <Btn
+                variant="ghost"
+                onClick={handleDeleteAllOpeningStock}
+                disabled={deletingAll}
+                style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "12px" }}
+                title="Delete all opening stock directly from database"
+              >
+                {deletingAll ? "Deleting..." : "🗑 Delete All"}
+              </Btn>
+            )}
           </div>
         )}
       </div>

@@ -2,14 +2,51 @@ const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
 
 /**
- * @desc    Get all inventory items for a tenant
+ * @desc    Get all inventory items for a tenant (with optional pagination)
  * @route   GET /api/inventory
  * @access  Private
  */
 const getInventory = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
+    const { page, limit, search, category } = req.query;
+
+    const where = { tenantId };
+    if (search) {
+        where.name = { contains: search, mode: 'insensitive' };
+    }
+    if (category) {
+        where.category = category;
+    }
+
+    if (page || limit) {
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const limitNum = Math.max(1, parseInt(limit) || 25);
+        const skip = (pageNum - 1) * limitNum;
+
+        const [items, total] = await Promise.all([
+            prisma.inventoryItem.findMany({
+                where,
+                skip,
+                take: limitNum,
+                orderBy: [
+                    { category: 'asc' },
+                    { name: 'asc' }
+                ]
+            }),
+            prisma.inventoryItem.count({ where })
+        ]);
+
+        return res.json({
+            data: items,
+            total,
+            page: pageNum,
+            limit: limitNum,
+            totalPages: Math.ceil(total / limitNum)
+        });
+    }
+
     const items = await prisma.inventoryItem.findMany({
-        where: { tenantId },
+        where,
         orderBy: [
             { category: 'asc' },
             { name: 'asc' }
@@ -226,10 +263,98 @@ const adjustItem = asyncHandler(async (req, res) => {
     res.json(updatedItem);
 });
 
+/**
+ * @desc    Delete all inventory items for a tenant directly from database
+ * @route   DELETE /api/inventory/all
+ * @access  Private (Owner only)
+ */
+const deleteAllInventory = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+
+    const result = await prisma.$transaction(async (tx) => {
+        // 1. Unlink any purchase items referencing inventory items so foreign keys don't fail
+        await tx.purchase.updateMany({
+            where: { tenantId, itemId: { not: null } },
+            data: { itemId: null }
+        });
+
+        // 2. Delete inventory history
+        await tx.inventoryHistory.deleteMany({
+            where: { tenantId }
+        });
+
+        // 3. Delete recipe ingredients
+        await tx.recipeIngredient.deleteMany({
+            where: { recipe: { tenantId } }
+        });
+
+        // 4. Delete all inventory items
+        const deleted = await tx.inventoryItem.deleteMany({
+            where: { tenantId }
+        });
+
+        return deleted;
+    }, { maxWait: 10000, timeout: 30000 });
+
+    res.json({ message: 'All inventory items deleted successfully', count: result.count });
+});
+
+/**
+ * @desc    Delete all opening stock records directly from database
+ * @route   DELETE /api/inventory/opening-stock
+ * @access  Private (Owner only)
+ */
+const deleteOpeningStock = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) {
+        res.status(404);
+        throw new Error('Tenant not found');
+    }
+
+    const settings = tenant.settings || {};
+    const appConfig = settings.appConfig || settings.localState || {};
+
+    // Remove opening stock keys: ll_opening_stock and any ll_os_*
+    const cleanedConfig = {};
+    for (const [k, v] of Object.entries(appConfig)) {
+        if (k !== 'll_opening_stock' && !k.startsWith('ll_os_')) {
+            cleanedConfig[k] = v;
+        }
+    }
+
+    const updatedSettings = {
+        ...settings,
+        appConfig: cleanedConfig
+    };
+    if (settings.localState) {
+        updatedSettings.localState = cleanedConfig;
+    }
+
+    await prisma.$transaction(async (tx) => {
+        // Clear opening balance history entries
+        await tx.inventoryHistory.deleteMany({
+            where: { tenantId, type: 'OPENING_BALANCE' }
+        });
+
+        // Update tenant settings directly in DB
+        await tx.tenant.update({
+            where: { id: tenantId },
+            data: { settings: updatedSettings }
+        });
+    });
+
+    res.json({ message: 'All opening stock records deleted successfully' });
+});
+
 module.exports = {
     getInventory,
     createItem,
     updateItem,
     deleteItem,
-    adjustItem
+    adjustItem,
+    deleteAllInventory,
+    deleteOpeningStock
 };
+

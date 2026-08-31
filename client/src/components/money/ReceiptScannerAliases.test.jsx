@@ -49,6 +49,7 @@ jest.mock("../common/ui.jsx", () => {
         {children}
       </div>
     ),
+    Pagination: ({ currentPage, totalItems }) => <div data-testid="pagination">Page {currentPage} of {totalItems}</div>,
     useToast: () => jest.fn(),
     useAsyncAction: (asyncFn, options = {}) => {
       const [status, setStatus] = React.useState("idle")

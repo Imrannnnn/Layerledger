@@ -7,11 +7,12 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect, Spinner } from "../common/ui.jsx"
+import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect, Spinner, Pagination } from "../common/ui.jsx"
 import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES } from "../../lib/helpers.js"
 
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
-import { saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
+import { saveInventory, saveRecipes, saveLocal, loadLocal, deleteAllInventoryOnServer } from "../../lib/data.js"
+
 
 
 export function RestockCell({id,unit,onRestock}){
@@ -217,6 +218,13 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
   const [showImport,setShowImport]=useState(false)
   const [showAdd,setShowAdd]=useState(false)
   const [saving,setSaving]=useState(false)
+  const [deletingAll,setDeletingAll]=useState(false)
+  const [currentPage,setCurrentPage]=useState(1)
+  const [pageSize,setPageSize]=useState(25)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery])
 
   const [importStep,setImportStep]=useState(1) // 1=paste 2=preview 3=done
   const [prevItems,setPrevItems]=useState([])
@@ -229,9 +237,38 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
   const [editRow,setEditRow]=useState({})
   const [warnMsg,setWarnMsg]=useState("")
 
+  const handleDeleteAllInventory = async () => {
+    if (inventory.length === 0) {
+      showMsg("Inventory is already empty", "gold")
+      return
+    }
+    const confirmed = window.confirm(
+      `⚠️ ARE YOU SURE YOU WANT TO DELETE ALL ${inventory.length} INVENTORY ITEMS?\n\nThis will permanently delete all inventory items directly from the database and unlink associated purchases. This action cannot be undone.`
+    )
+    if (!confirmed) return
+    const secondCheck = window.confirm(
+      "Please confirm again: Do you really want to permanently delete all inventory items from the database?"
+    )
+    if (!secondCheck) return
+
+    setDeletingAll(true)
+    try {
+      await deleteAllInventoryOnServer()
+      setInventory([])
+      setSelectedItemIds(new Set())
+      setCurrentPage(1)
+      showMsg("✓ All inventory items successfully deleted from database", "green")
+    } catch (e) {
+      showMsg("Failed to delete inventory: " + e.message, "red")
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
   // Custom Categories state
   const [customCategories, setCustomCategories] = useState(() => loadLocal("ll_custom_categories", []))
   const [showAddCatModal, setShowAddCatModal] = useState(false)
+
   const [newCatName, setNewCatName] = useState("")
   const [customCatInput, setCustomCatInput] = useState("")
 
@@ -470,6 +507,19 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     return<span style={{background:"#E5F4EC",color:"#2D7A50",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>In Stock</span>
   }
 
+  const filteredInventory = useMemo(() => {
+    if (!searchQuery.trim()) return inventory
+    const q = searchQuery.toLowerCase()
+    return inventory.filter(i => (i.name || "").toLowerCase().includes(q) || (i.cat || i.category || "").toLowerCase().includes(q))
+  }, [inventory, searchQuery])
+
+  const paginatedInventory = useMemo(() => {
+    if (pageSize === "all") return filteredInventory
+    const sz = Number(pageSize) || 25
+    const start = (currentPage - 1) * sz
+    return filteredInventory.slice(start, start + sz)
+  }, [filteredInventory, currentPage, pageSize])
+
   // Group inventory by mapped category
   const categories = {}
   allCategoryOptions.forEach(c => {
@@ -479,13 +529,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
   const storedDecorations = loadLocal("ll_decorations", DECORATION_ITEMS)
   const decorIids = new Set(storedDecorations.map(d => d.iid))
 
-  const filteredInventory = useMemo(() => {
-    if (!searchQuery.trim()) return inventory
-    const q = searchQuery.toLowerCase()
-    return inventory.filter(i => (i.name || "").toLowerCase().includes(q) || (i.cat || i.category || "").toLowerCase().includes(q))
-  }, [inventory, searchQuery])
-
-  inventory.forEach(item => {
+  paginatedInventory.forEach(item => {
     let mapped = mapCategory(item.cat, item.name)
     if (decorIids.has(item.id)) {
       mapped = "Decoration Extras"
@@ -493,9 +537,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     if (!categories[mapped]) {
       categories[mapped] = []
     }
-    if (!searchQuery.trim() || (item.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || (item.cat || item.category || "").toLowerCase().includes(searchQuery.toLowerCase())) {
-      categories[mapped].push(item)
-    }
+    categories[mapped].push(item)
   })
 
 
@@ -515,6 +557,18 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
         <Btn small variant="outline" onClick={() => setShowAddCatModal(true)}>+ New Category</Btn>
         <Btn small variant="ghost" onClick={()=>{setShowImport(s=>!s);setShowAdd(false);setImportStep(1)}}>📋 Import from Excel</Btn>
         <Btn small onClick={()=>{setShowAdd(s=>!s);setShowImport(false)}}>+ Add Item</Btn>
+        {inventory.length > 0 && (
+          <Btn
+            small
+            variant="ghost"
+            disabled={deletingAll || saving}
+            style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px" }}
+            onClick={handleDeleteAllInventory}
+            title="Delete all inventory items directly from database"
+          >
+            {deletingAll ? "Deleting..." : "🗑 Delete All"}
+          </Btn>
+        )}
       </div>}
     </div>
 
@@ -981,6 +1035,20 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       })}
     </div>
 
+    {/* PAGINATION */}
+    <Pagination
+      currentPage={currentPage}
+      totalItems={filteredInventory.length}
+      pageSize={pageSize}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={(sz) => {
+        setPageSize(sz)
+        setCurrentPage(1)
+      }}
+      pageSizeOptions={[10, 25, 50, 100]}
+      itemLabel="inventory items"
+    />
+
     <div style={{marginTop:8,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Stock reduces automatically as production orders are saved. Set opening stock in <strong>Settings → Opening Stock</strong>. Restock by scanning a purchase receipt.</div>
   </div>
 }
@@ -993,6 +1061,12 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
 export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""}){
   const LS_KEY = "ll_decorations"
   const [decorVersion, setDecorVersion] = useState(0)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery])
 
   const items = useMemo(() => {
     const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
@@ -1035,6 +1109,13 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
     const q = searchQuery.toLowerCase()
     return items.filter(d => (d.name || d.label || "").toLowerCase().includes(q))
   }, [items, searchQuery])
+
+  const paginatedItems = useMemo(() => {
+    if (pageSize === "all") return displayItems
+    const sz = Number(pageSize) || 25
+    const start = (currentPage - 1) * sz
+    return displayItems.slice(start, start + sz)
+  }, [displayItems, currentPage, pageSize])
 
   const decorOptions = useMemo(() => {
     const isDecor = (i) => {
@@ -1220,7 +1301,7 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%", borderCollapse:"collapse", background:"var(--panel)", borderRadius:10, overflow:"hidden", border:"1px solid var(--border)"}}>
         <TH cols={["Decoration", "Linked Inventory Item", "Std Qty", "Cost", ...(isOwner?["Actions"]:[])]}/>
-        <tbody>{displayItems.map((d,i)=>{
+        <tbody>{paginatedItems.map((d,i)=>{
           const it = inventory.find(x=>x.id===d.iid)
           const editing = editId===d.id
           return <tr key={d.id} style={{background:i%2===0?"var(--panel)":"#F8F3EA"}}>
@@ -1263,6 +1344,19 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
         })}</tbody>
       </table>
     </div>
+
+    <Pagination
+      currentPage={currentPage}
+      totalItems={displayItems.length}
+      pageSize={pageSize}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={(sz) => {
+        setPageSize(sz)
+        setCurrentPage(1)
+      }}
+      pageSizeOptions={[10, 25, 50, 100]}
+      itemLabel="decorations"
+    />
   </div>
 }
 
@@ -1274,6 +1368,13 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
 
 // ═══════════════════════════════════════════════════════════
 export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery])
+
   const items = useMemo(() => {
     return inventory.filter(item => 
       item.cat === "Board and Packaging" || 
@@ -1287,6 +1388,14 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
     const q = searchQuery.toLowerCase()
     return items.filter(p => (p.name || "").toLowerCase().includes(q) || (p.cat || p.category || "").toLowerCase().includes(q))
   }, [items, searchQuery])
+
+  const paginatedItems = useMemo(() => {
+    if (pageSize === "all") return displayItems
+    const sz = Number(pageSize) || 25
+    const start = (currentPage - 1) * sz
+    return displayItems.slice(start, start + sz)
+  }, [displayItems, currentPage, pageSize])
+
 
   const [adding,setAdding]=useState(false)
   const [newItem,setNewItem]=useState({name:"",price:"",unit:"pcs",minStock:"5"})
@@ -1381,7 +1490,7 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
         {displayItems.length === 0 ? (
           <tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No board and packaging items found. Click + Add item above to create one.</td></tr>
         ) : (
-          displayItems.map((item,i)=>{
+          paginatedItems.map((item,i)=>{
             const isLow = item.stock <= (item.minStock || 5)
             return <tr key={item.id} style={{background:isLow?"#FFF9EE":i%2===0?"var(--panel)":"#F8F3EA"}}>
               {editId===item.id
@@ -1406,6 +1515,19 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
         )}
       </tbody>
     </table>
+
+    <Pagination
+      currentPage={currentPage}
+      totalItems={displayItems.length}
+      pageSize={pageSize}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={(sz) => {
+        setPageSize(sz)
+        setCurrentPage(1)
+      }}
+      pageSizeOptions={[10, 25, 50, 100]}
+      itemLabel="packaging items"
+    />
   </div>
 }
 
@@ -1432,11 +1554,26 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
 
   const showMsg = (m,c="gold") => { setMsg(m); setMsgColor(c); setTimeout(()=>setMsg(""),4000) }
 
+  const [recipePage, setRecipePage] = useState(1)
+  const [recipePageSize, setRecipePageSize] = useState(10)
+
+  useEffect(() => {
+    setRecipePage(1)
+  }, [searchQuery])
+
   const filteredRecipes = useMemo(() => {
     if (!searchQuery.trim()) return recipes
     const q = searchQuery.toLowerCase()
     return recipes.filter(r => (r.name || "").toLowerCase().includes(q) || (r.notes || "").toLowerCase().includes(q))
   }, [recipes, searchQuery])
+
+  const paginatedRecipes = useMemo(() => {
+    if (recipePageSize === "all") return filteredRecipes
+    const sz = Number(recipePageSize) || 10
+    const start = (recipePage - 1) * sz
+    return filteredRecipes.slice(start, start + sz)
+  }, [filteredRecipes, recipePage, recipePageSize])
+
 
   // ── Recipes ──
   const openRecipe = (r) => setRecipeModal(r ? {...r} : {id:uid(),name:"",size:"6",tiers:1,covering:"buttercream",ing:[]})
@@ -1522,10 +1659,29 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         Each recipe is for <strong>1 layer</strong> of that flavour. When you log a production, select the recipe and enter the number of layers — the app multiplies automatically.
       </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <span style={{fontSize:13,color:"var(--muted)"}}>{recipes.length} recipes · click any card to expand</span>
+        <span style={{fontSize:13,color:"var(--muted)"}}>{filteredRecipes.length} recipes {searchQuery ? "(filtered)" : "total"} · click any card to expand</span>
         {isOwner&&<Btn small onClick={()=>openRecipe(null)}>+ New Recipe</Btn>}
       </div>
-      {recipes.map(r=><RecipeCard key={r.id} r={r} inventory={inventory} isOwner={isOwner} onEdit={()=>openRecipe(r)} onDelete={()=>deleteRecipe(r.id)} onDuplicate={()=>duplicateRecipe(r)}/>)}
+      {filteredRecipes.length === 0 ? (
+        <Card style={{ padding: 24, textAlign: "center", color: "var(--muted)", marginBottom: 12 }}>
+          {recipes.length === 0 ? "No recipes created yet. Click + New Recipe to get started." : "No recipes matching search."}
+        </Card>
+      ) : (
+        paginatedRecipes.map(r=><RecipeCard key={r.id} r={r} inventory={inventory} isOwner={isOwner} onEdit={()=>openRecipe(r)} onDelete={()=>deleteRecipe(r.id)} onDuplicate={()=>duplicateRecipe(r)}/>)
+      )}
+      <Pagination
+        currentPage={recipePage}
+        totalItems={filteredRecipes.length}
+        pageSize={recipePageSize}
+        onPageChange={setRecipePage}
+        onPageSizeChange={(sz) => {
+          setRecipePageSize(sz)
+          setRecipePage(1)
+        }}
+        pageSizeOptions={[10, 25, 50, 100]}
+        itemLabel="recipes"
+      />
+
       {recipeModal&&<Modal title={recipeModal.name?"Edit Recipe":"New Recipe"} onClose={()=>setRecipeModal(null)}>
         <Inp label="Recipe Name * (e.g. Vanilla Cake, Buttercream)" value={recipeModal.name} onChange={v=>setRecipeModal(r=>({...r,name:v}))}/>
         <div style={{marginBottom:11}}>

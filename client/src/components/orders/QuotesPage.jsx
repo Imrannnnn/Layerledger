@@ -6,8 +6,8 @@
  * Gift/sample orders are logged as a write-off with no revenue.
  * ----------------------------------------------------------------------------
  */
-import React, { useState } from "react"
-import { Btn, Card, SHead, iSt } from "../common/ui.jsx"
+import React, { useState, useEffect, useMemo } from "react"
+import { Btn, Card, SHead, iSt, Pagination } from "../common/ui.jsx"
 import { fmt, uid } from "../../lib/helpers.js"
 import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal } from "../../lib/data.js"
 import { DEFAULT_MULTS } from "../../constants.js"
@@ -24,8 +24,15 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
   const [quotes, setQuotes] = useState(loadQuotes)
   const [filter, setFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [expanded, setExpanded] = useState(null)
   const [confirming, setConfirming] = useState(false)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filter, searchQuery])
+
 
   const updateStatus = (id, status) => {
     const updated = quotes.map(q => q.id === id ? { ...q, status } : q)
@@ -257,6 +264,13 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
     return dateB.localeCompare(dateA)
   })
 
+  const paginatedQuotes = useMemo(() => {
+    if (pageSize === "all") return sorted
+    const sz = Number(pageSize) || 10
+    const start = (currentPage - 1) * sz
+    return sorted.slice(start, start + sz)
+  }, [sorted, currentPage, pageSize])
+
   const pendingCount = quotes.filter(q => q.status === "pending").length
 
   return (
@@ -317,7 +331,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
         </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {sorted.map(q => {
+          {paginatedQuotes.map(q => {
             const isConfirmed = q.status === "confirmed" || !!q.confirmedAt
             const currentStatus = isConfirmed ? "confirmed" : (q.status || "pending")
             const st = QUOTE_STATUSES.find(s => s.v === currentStatus) || QUOTE_STATUSES[0]
@@ -759,6 +773,19 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
           })}
         </div>
       )}
+
+      <Pagination
+        currentPage={currentPage}
+        totalItems={sorted.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={(sz) => {
+          setPageSize(sz)
+          setCurrentPage(1)
+        }}
+        pageSizeOptions={[10, 25, 50, 100]}
+        itemLabel="quotes"
+      />
     </div>
   )
 }

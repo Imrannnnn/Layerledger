@@ -5,8 +5,8 @@
  * Generates a printable invoice window with a Share button.
  * ----------------------------------------------------------------------------
  */
-import React, { useState, useEffect } from "react"
-import { Btn, iSt, Card, Badge, SHead, Tabs, Spinner } from "../common/ui.jsx"
+import React, { useState, useEffect, useMemo } from "react"
+import { Btn, iSt, Card, Badge, SHead, Tabs, Spinner, Pagination } from "../common/ui.jsx"
 import { loadLocal, saveLocal } from "../../lib/data.js"
 
 export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner}){
@@ -15,6 +15,13 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
   const [search,setSearch]=useState("")
   const [filter,setFilter]=useState("all")
   const [deletingAll, setDeletingAll] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search, filter])
+
 
   const handleDeleteAll = async () => {
     if (!window.confirm("Are you sure you want to delete ALL invoices? This will clear all invoice records permanently. This cannot be undone.")) return
@@ -36,6 +43,14 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
     .filter(inv=>filter==="all"||(filter==="paid" ? inv.status==="paid" : inv.status!=="paid"))
     .filter(inv=>!search||inv.clientName?.toLowerCase().includes(search.toLowerCase())||inv.id?.toLowerCase().includes(search.toLowerCase()))
     .sort((a,b)=>new Date(b.date||0)-new Date(a.date||0))
+
+  const paginatedInvoices = useMemo(() => {
+    if (pageSize === "all") return filtered
+    const sz = Number(pageSize) || 10
+    const start = (currentPage - 1) * sz
+    return filtered.slice(start, start + sz)
+  }, [filtered, currentPage, pageSize])
+
 
   const markPaid=async(id)=>{
     const updated=invoices.map(i=>i.id===id?{...i,status:"paid",paymentType:"full",remainingAmount:0,depositedAmount:i.amount}:i)
@@ -181,7 +196,7 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
         {/* Invoice list */}
         {filtered.length===0
           ?<div style={{textAlign:"center",padding:32,color:"var(--muted)"}}>No invoices match your search.</div>
-          :filtered.map(inv=><Card key={inv.id} style={{marginBottom:10,borderLeft:`4px solid ${inv.status==="paid"?"#357A52":inv.status==="partially_paid"?"#1D75B0":"var(--gold)"}`}}>
+          :paginatedInvoices.map(inv=><Card key={inv.id} style={{marginBottom:10,borderLeft:`4px solid ${inv.status==="paid"?"#357A52":inv.status==="partially_paid"?"#1D75B0":"var(--gold)"}`}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
               <div style={{flex:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
@@ -231,6 +246,19 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
               </div>
             </div>
           </Card>)}
+
+        <Pagination
+          currentPage={currentPage}
+          totalItems={filtered.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(sz) => {
+            setPageSize(sz)
+            setCurrentPage(1)
+          }}
+          pageSizeOptions={[10, 25, 50, 100]}
+          itemLabel="invoices"
+        />
       </>}
   </div>
 }

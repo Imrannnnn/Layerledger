@@ -62,7 +62,8 @@ jest.mock("../common/ui.jsx", () => {
     ),
     TH: ({ cols }) => <thead><tr>{cols.map((c, idx) => <th key={idx}>{c}</th>)}</tr></thead>,
     TR2: ({ row, i }) => <tr>{row.map((c, idx) => <td key={idx}>{c}</td>)}</tr>,
-    Spinner: () => <div>Loading...</div>
+    Spinner: () => <div>Loading...</div>,
+    Pagination: ({ currentPage, totalItems }) => <div data-testid="pagination">Page {currentPage} of {totalItems}</div>
   }
 })
 
