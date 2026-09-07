@@ -10,6 +10,7 @@ import * as dataLib from "../../lib/data"
 jest.mock("../../lib/data", () => ({
   saveInventory: jest.fn().mockResolvedValue(true),
   saveExpenses: jest.fn().mockResolvedValue(true),
+  savePurchases: jest.fn().mockResolvedValue(true),
   saveLocal: jest.fn().mockResolvedValue(true),
   loadLocal: jest.fn().mockImplementation((key, fallback) => fallback),
   loadAliases: jest.fn(() => ({})),

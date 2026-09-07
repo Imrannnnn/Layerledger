@@ -9,6 +9,7 @@ import React, { useState, useRef } from "react"
 import { Btn, Card, Badge, SHead, TH, TR2 } from "../common/ui.jsx"
 import { fmt, uid, callClaude, today } from "../../lib/helpers.js"
 import { saveTxns, saveExpenses, saveProductionsList, loadLocal } from "../../lib/data.js"
+import { Calendar, ClipboardList, FileUp, FileText, AlertTriangle, Sparkles, Check } from "lucide-react"
 
 export function BankImport({ transactions, setTransactions, productions, setProductions, expenses, setExpenses }) {
   const [input, setInput] = useState("")
@@ -233,15 +234,21 @@ Ignore stamp duty and VAT lines under ₦500.`
       <SHead title="Bank Statement" sub="Upload PDF statements or paste text to reconcile payments and log overhead expenses." />
 
       <Card style={{ marginBottom: 14, background: "#FFF9EE", borderColor: "var(--gold)" }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>📅 Payment Matching & Reconcile</div>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+          <Calendar size={14} /> Payment Matching & Reconcile
+        </div>
         <p style={{ fontSize: 12.5, color: "var(--muted)", margin: 0, lineHeight: 1.7 }}>
           Clients often pay deposits before delivery. After statement parsing, match credit transactions to confirmed orders in the <strong>Match to Order</strong> column. Debits (money out) are automatically categorised and added directly to your Overhead Expenses.
         </p>
       </Card>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <Btn small variant={mode === "paste" ? "primary" : "ghost"} onClick={() => setMode("paste")}>📋 Paste Text</Btn>
-        <Btn small variant={mode === "file" ? "primary" : "ghost"} onClick={() => setMode("file")}>📄 Upload PDF / CSV</Btn>
+        <Btn small variant={mode === "paste" ? "primary" : "ghost"} onClick={() => setMode("paste")} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <ClipboardList size={13} /> Paste Text
+        </Btn>
+        <Btn small variant={mode === "file" ? "primary" : "ghost"} onClick={() => setMode("file")} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <FileUp size={13} /> Upload PDF / CSV
+        </Btn>
       </div>
 
       {parsed.length === 0 ? (
@@ -255,23 +262,50 @@ Ignore stamp duty and VAT lines under ₦500.`
                 placeholder={"Copy and paste your bank statement text here.\n\nYou can copy the text from your bank's website or app.\n\nThe AI will recognize GTBank, Access, Zenith, UBA, First Bank and all other Nigerian banks."}
                 style={{ width: "100%", minHeight: 180, padding: "12px", borderRadius: 8, border: "1px solid var(--border)", background: "#FAF7F0", fontSize: 13, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }}
               />
-              {error && <div style={{ color: "#B03A2E", fontSize: 12.5, marginTop: 8 }}>⚠ {error}</div>}
+              {error && (
+                <div style={{ color: error.toLowerCase().includes("token") ? "#92400E" : "#B03A2E", background: error.toLowerCase().includes("token") ? "#FFF4E5" : "transparent", padding: error.toLowerCase().includes("token") ? "8px 12px" : 0, borderRadius: 8, fontSize: 12.5, marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <AlertTriangle size={13} color={error.toLowerCase().includes("token") ? "#D97706" : "#B03A2E"} />
+                    <span>{error}</span>
+                  </div>
+                  {error.toLowerCase().includes("token") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof window !== "undefined") {
+                          window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                        }
+                      }}
+                      style={{ background: "var(--gold)", color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      Buy Tokens
+                    </button>
+                  )}
+                </div>
+              )}
               <div style={{ marginTop: 10 }}>
-                <Btn onClick={() => parseFromText(input)} disabled={loading || !input.trim()}>{loading ? "🔍 Parsing…" : "✦ Parse Statement"}</Btn>
+                <Btn onClick={() => parseFromText(input)} disabled={loading || !input.trim()} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  {loading ? "Parsing…" : <><Sparkles size={13} /> Parse Statement <span style={{ fontSize: 10.5, opacity: 0.85 }}>(0.7 tokens)</span></>}
+                </Btn>
               </div>
             </>
           ) : (
             <>
               <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Upload Bank Statement PDF</div>
               <div onClick={() => fileRef.current?.click()} style={{ border: "2px dashed var(--border)", borderRadius: 10, padding: 40, textAlign: "center", cursor: "pointer", background: "#FAF7F0", marginBottom: 10 }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>📄</div>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 8, color: "var(--gold)" }}>
+                  <FileText size={36} />
+                </div>
                 <div style={{ fontSize: 14, color: "var(--muted)" }}>Click to upload</div>
                 <div style={{ fontSize: 12, color: "#C8B89A", marginTop: 4 }}>PDF or CSV bank statement</div>
-                <div style={{ fontSize: 11.5, color: "var(--gold)", marginTop: 8 }}>✓ GTBank PDF statements supported</div>
+                <div style={{ fontSize: 11.5, color: "var(--gold)", marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                  <Check size={12} /> GTBank PDF statements supported
+                </div>
               </div>
               <input ref={fileRef} type="file" accept=".pdf,.csv,.txt" onChange={handleFile} style={{ display: "none" }} />
-              {loading && <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13 }}>🔍 AI is reading your statement… This may take 30-60 seconds for long statements.</div>}
-              {error && <div style={{ color: "#B03A2E", fontSize: 12.5, marginTop: 8 }}>⚠ {error}</div>}
+              {loading && <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13 }}>AI is reading your statement… This may take 30-60 seconds for long statements.</div>}
+              {error && <div style={{ color: "#B03A2E", fontSize: 12.5, marginTop: 8, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> {error}</div>}
             </>
           )}
         </Card>
@@ -328,7 +362,9 @@ Ignore stamp duty and VAT lines under ₦500.`
 
                       t.type === "credit" ? (
                         t.matchedProdId ? (
-                          <span style={{ fontSize: 12, color: "#357A52", fontWeight: 500 }}>✓ Matched</span>
+                          <span style={{ fontSize: 12, color: "#357A52", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <Check size={12} /> Matched
+                          </span>
                         ) : (
                           <select
                             onChange={e => match(t.id, e.target.value)}
@@ -352,7 +388,9 @@ Ignore stamp duty and VAT lines under ₦500.`
           </Card>
 
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn variant="success" onClick={saveAll}>✓ Save All Transactions</Btn>
+            <Btn variant="success" onClick={saveAll} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <Check size={13} /> Save All Transactions
+            </Btn>
             <Btn variant="ghost" onClick={() => { setParsed([]); setInput("") }}>← New Statement</Btn>
           </div>
         </div>

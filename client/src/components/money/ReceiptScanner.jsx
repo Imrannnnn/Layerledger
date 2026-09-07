@@ -9,30 +9,64 @@
 import React, { useState, useEffect, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Modal } from "../common/ui.jsx"
 import { fmt, uid, today, callClaude, compressImage } from "../../lib/helpers.js"
-import { saveInventory, saveExpenses, saveLocal, loadLocal, loadAliases, saveAliases } from "../../lib/data.js"
+import { saveInventory, saveExpenses, savePurchases, saveLocal, loadLocal, loadAliases, saveAliases } from "../../lib/data.js"
 import { EXP_CATS } from "../../constants.js"
+import { Camera, Upload, PenLine, Sparkles, AlertTriangle, Check } from "lucide-react"
 
-// Helper to extract and repair common LLM JSON syntax flaws (trailing commas, unquoted keys, comments)
-function extractAndRepairJson(rawText) {
+// Normalizes various date string formats (DD/MM/YYYY, YYYY/MM/DD, natural text) to ISO YYYY-MM-DD
+export function normalizeToIsoDate(inputDate) {
+  if (!inputDate || typeof inputDate !== "string") return today()
+  const trimmed = inputDate.trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
+  }
+
+  // YYYY/MM/DD
+  const ymdMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/)
+  if (ymdMatch) {
+    const [, y, m, d] = ymdMatch
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
+  }
+
+  // General Date parsing fallback
+  try {
+    const d = new Date(trimmed)
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().slice(0, 10)
+    }
+  } catch {}
+
+  return today()
+}
+
+// Helper to extract and repair common LLM JSON syntax flaws (trailing commas, unquoted keys, comments, truncated outputs)
+export function extractAndRepairJson(rawText) {
   if (!rawText) return null
   let str = rawText.trim()
   str = str.replace(/```json|```/g, "").trim()
 
-  const jsonMatch = str.match(/\{[\s\S]*\}/)
+  const jsonMatch = str.match(/\{[\s\S]*\}/) || str.match(/\[[\s\S]*\]/)
   if (jsonMatch) {
     str = jsonMatch[0]
   }
 
   // Attempt 1: Direct JSON parse
   try {
-    return JSON.parse(str)
+    const res = JSON.parse(str)
+    return Array.isArray(res) ? { items: res } : res
   } catch {
     // Attempt 2: Strip comments and trailing commas
     try {
       let cleaned = str
         .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
         .replace(/,\s*([\]\}])/g, "$1")
-      return JSON.parse(cleaned)
+      const res = JSON.parse(cleaned)
+      return Array.isArray(res) ? { items: res } : res
     } catch {
       // Attempt 3: Quote unquoted keys
       try {
@@ -40,8 +74,44 @@ function extractAndRepairJson(rawText) {
           .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
           .replace(/,\s*([\]\}])/g, "$1")
           .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
-        return JSON.parse(cleaned)
+        const res = JSON.parse(cleaned)
+        return Array.isArray(res) ? { items: res } : res
       } catch {
+        // Attempt 4: Partial / Truncated JSON recovery
+        try {
+          if (str.includes('"items"') && !str.endsWith('}')) {
+            const lastObjIdx = str.lastIndexOf('}')
+            if (lastObjIdx !== -1) {
+              let rescued = str.slice(0, lastObjIdx + 1)
+              if (!rescued.includes(']')) rescued += ']'
+              if (!rescued.endsWith('}')) rescued += '}'
+              let cleaned = rescued
+                .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
+                .replace(/,\s*([\]\}])/g, "$1")
+              const res = JSON.parse(cleaned)
+              return Array.isArray(res) ? { items: res } : res
+            }
+          }
+        } catch {}
+
+        // Attempt 5: Fallback regex extraction of individual item objects
+        try {
+          const itemRegex = /\{[^{}]*?"item_on_receipt"[^{}]*?\}/g
+          const matches = str.match(itemRegex)
+          if (matches && matches.length > 0) {
+            const rescuedItems = []
+            for (const m of matches) {
+              try {
+                const item = JSON.parse(m.replace(/,\s*([\]\}])/g, "$1"))
+                if (item) rescuedItems.push(item)
+              } catch {}
+            }
+            if (rescuedItems.length > 0) {
+              return { items: rescuedItems }
+            }
+          }
+        } catch {}
+
         return null
       }
     }
@@ -108,50 +178,81 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses 
     setError("")
   }
 
-  // Scan receipt with Claude
+  // Scan receipt or photo with Claude
   const scan = async () => {
     if (!photoB64) return
     setLoading(true)
     setError("")
     try {
-      const compressed = await compressImage(photoB64, 1600, 0.85)
+      const compressed = await compressImage(photoB64, 1920, 0.88, { enhanceContrast: true })
       const invList = inventory.map(i => `${i.id}:${i.name}(${i.unit})`).join(", ")
+      const promptText = `You are an expert AI scanner for a Nigerian bakery and cake business.
+Analyze the provided image carefully. The image could be:
+1. A printed paper receipt or invoice (supermarket receipt, wholesale distributor invoice, waybill).
+2. A handwritten market slip, biro note, or vendor calculation on paper.
+3. A bank transfer confirmation, POS receipt, or mobile banking screenshot (OPay, PalmPay, Moniepoint, etc.).
+4. A photo of PHYSICAL INGREDIENTS or BAKERY SUPPLIES (e.g. bags/sacks of flour, sugar, butter blocks, egg crates, boxes, flavour bottles, cake boards, toppers).
+
+YOUR GOAL: Extract EVERY single purchase item or overhead expense visible in this image.
+CRITICAL: NEVER return an empty items list if any bakery supplies, ingredients, items, text, or products are visible in the image!
+
+Inventory items already in the system to match against:
+${invList}
+
+Extraction Instructions:
+1. RECEIPTS, INVOICES, & HANDWRITTEN SLIPS:
+   - Extract every line item, quantity, unit, and price.
+   - For unclear handwriting or local Nigerian brands (Dangote, Golden Penny, Simas, Presco, Dano, etc.), make your best informed estimate.
+   - If unit_size is not clear, use qty as unit_size and set qty to 1.
+   - If price is missing or unclear, set unit_price: 0 and line_total: 0.
+
+2. BANK TRANSFER / POS SCREENSHOTS:
+   - If it is a payment receipt or debit alert without individual line items, create one entry representing the payment:
+     - item_on_receipt: "Payment to [Beneficiary or Merchant name if visible, else 'Supplier Payment']"
+     - qty: 1, unit: "tx", unit_size: 1, unit_price: [amount paid], line_total: [amount paid]
+     - type: "expense", category: "Miscellaneous"
+
+3. PHOTOS OF PHYSICAL PRODUCTS / SUPPLIES:
+   - Identify each distinct bakery item visible (e.g. "Flour", "Margarine", "Eggs", "Cake Box").
+   - Count or estimate the quantity visible (e.g. number of bags/boxes visible, or default to 1).
+   - Set unit_price: 0 and line_total: 0 so the baker can confirm the cost paid.
+   - Match against the inventory list if possible.
+
+Classification:
+- "purchase": Baking ingredients, packaging materials, or supplies (flour, sugar, butter, eggs, oil, cocoa, milk, food colour, cake boards, boxes, ribbons, decorations, etc.).
+- "expense": Overhead costs (delivery/transport fee, electricity, diesel/fuel, salary, cleaning, maintenance, market levy, etc.).
+
+Return ONLY valid JSON with this exact structure, no preamble:
+{
+  "items": [
+    {
+      "item_on_receipt": "Flour",
+      "qty": 2,
+      "unit": "kg",
+      "unit_size": 50,
+      "unit_price": 57000,
+      "line_total": 114000,
+      "type": "purchase",
+      "matched_id": "matched inventory id or empty string",
+      "matched_name": "Matched inventory name or empty string",
+      "confidence": "high"
+    }
+  ],
+  "receipt_total": 114000,
+  "receipt_date": "YYYY-MM-DD",
+  "supplier": "Vendor or shop name if visible, else empty",
+  "scan_notes": "One short sentence summarizing what was detected"
+}`
+
       const raw = await callClaude([
         {
           role: "user",
           content: [
             { type: "image", source: { type: "base64", media_type: "image/jpeg", data: compressed } },
-            {
-              type: "text",
-              text: `This is a Nigerian bakery receipt. Read every item carefully.
-Please extract EVERY SINGLE item listed on the receipt, even if it is not in the inventory list. If an item on the receipt does not match any item in the inventory list, set "matched_id" to "".
-
-Inventory list to match against:
-${invList}
-
-For each item, classify as:
-- "purchase" if it is a baking ingredient or supply (flour, sugar, butter, eggs, oil, cocoa, milk, cream, food colour, packaging materials, cake boards, boxes, ribbons, decorations, etc.)
-- "expense" if it is an overhead cost (delivery fee, transport, utility, salary, cleaning, equipment repair, marketing, rent, etc.)
-
-For purchase items, also extract:
-- unit_size: the size of one pack/bag/crate (e.g. 50 for a 50kg bag, 30 for a 30-egg crate)
-- If unit_size is not clear from the receipt, use the qty as the unit_size and set qty to 1.
-
-Return ONLY this exact JSON, no other text:
-{
-  "items": [
-    {"item_on_receipt":"flour","qty":3,"unit":"kg","unit_size":50,"unit_price":57000,"line_total":171000,"type":"purchase","matched_id":"i1","matched_name":"Flour","confidence":"high"},
-    {"item_on_receipt":"delivery fee","qty":1,"unit":"","unit_size":1,"unit_price":2000,"line_total":2000,"type":"expense","matched_id":"","matched_name":"Delivery","confidence":"high"}
-  ],
-  "receipt_total":173000,
-  "receipt_date":"2026-04-01",
-  "supplier":"market name if visible"
-}
-confidence: "high", "medium", or "low". For unclear handwriting, make best guess.`
-            }
+            { type: "text", text: promptText }
           ]
         }
-      ], "Parse Nigerian bakery receipts. Classify each item as purchase or expense. Return valid JSON only.")
+      ], "You are an expert vision AI for Nigerian bakery operations. Extract all purchased items, ingredients, supplies, or expenses from any receipt, handwritten slip, payment screenshot, or photo of physical stock. Always return valid JSON only.", 4000)
 
       const result = extractAndRepairJson(raw)
       const rawItems = result && (
@@ -161,23 +262,41 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
               Array.isArray(result.receipt_items) ? result.receipt_items : null
       )
 
-      const displayRawText = (raw && raw.trim()) ? raw : "(No raw text response returned by AI API)"
-
       if (!result || !rawItems || rawItems.length === 0) {
+        const notes = result?.scan_notes || "Could not clearly detect any items, ingredients, or text in this image. Please ensure the receipt or items are well lit and in focus."
+        setError(notes)
         setParsed({
           supplier: result?.supplier || "",
-          receipt_date: result?.receipt_date || today(),
+          receipt_date: normalizeToIsoDate(result?.receipt_date),
+          scan_notes: notes,
           items: [
             { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
           ]
         })
         setTotalAmount("")
       } else {
+        const normalizedItems = rawItems.map(normalizeItem)
+        // Auto-match items against aliases and inventory if matched_id is empty
+        const matchedItems = normalizedItems.map(item => {
+          if (!item.overrideId && item.type === "purchase") {
+            const key = (item.item_on_receipt || "").trim().toLowerCase()
+            if (aliases[key] && inventory.some(i => i.id === aliases[key])) {
+              return { ...item, overrideId: aliases[key] }
+            }
+            const directMatch = inventory.find(i => i.name.toLowerCase() === key) ||
+              inventory.find(i => key.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(key))
+            if (directMatch) {
+              return { ...item, overrideId: directMatch.id }
+            }
+          }
+          return item
+        })
+
         setParsed({
           supplier: result.supplier || "",
-          receipt_date: result.receipt_date || today(),
+          receipt_date: normalizeToIsoDate(result.receipt_date),
           ...result,
-          items: rawItems.map(normalizeItem)
+          items: matchedItems
         })
         if (result.receipt_total) setTotalAmount(String(result.receipt_total))
       }
@@ -279,34 +398,54 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
   const applyUpdates = async () => {
     setSaving(true)
     try {
-      const monthStr = parsed.receipt_date || today()
+      const receiptDate = normalizeToIsoDate(parsed.receipt_date)
+      const monthStr = receiptDate.slice(0, 7)
       const approved = parsed.items.filter(r => r.approved)
-      const purchases = approved.filter(r => r.type === "purchase" && r.overrideId)
+      const purchases = approved.filter(r => r.type === "purchase")
 
       // Update inventory: stock + cost/unit for purchases
       let updInv = [...inventory]
       const purchaseLog = []
 
       purchases.forEach(r => {
-        const invItem = updInv.find(i => i.id === r.overrideId)
-        if (!invItem) return
+        let invItem = updInv.find(i => i.id === r.overrideId)
         const unitSize = +r.unit_size || +r.qty || 1
         const cpu = parseFloat((+r.unit_price / unitSize).toFixed(2))
         const stockAdded = parseFloat((unitSize * (+r.qty || 1)).toFixed(3))
-        updInv = updInv.map(i => i.id === r.overrideId ? { ...i, cost: cpu, stock: parseFloat((i.stock + stockAdded).toFixed(3)) } : i)
-        purchaseLog.push({
-          id: uid(),
-          date: parsed.receipt_date || today(),
-          itemId: r.overrideId,
-          item: invItem.name,
-          unit: invItem.unit,
-          unitSize,
-          qty: +r.qty || 1,
-          price: +r.unit_price,
-          total: +r.line_total || 0,
-          cpu,
-          stockAdded
-        })
+
+        // If item not yet in inventory, auto-create it so it's not lost
+        if (!invItem && (r.item_on_receipt || "").trim()) {
+          const newId = uid()
+          invItem = {
+            id: newId,
+            name: r.item_on_receipt.trim(),
+            cat: "Dry Goods",
+            unit: r.unit || "kg",
+            cost: cpu || 0,
+            stock: stockAdded,
+            minStock: 5
+          }
+          updInv.push(invItem)
+          r.overrideId = newId
+        } else if (invItem) {
+          updInv = updInv.map(i => i.id === r.overrideId ? { ...i, cost: cpu || i.cost, stock: parseFloat((i.stock + stockAdded).toFixed(3)) } : i)
+        }
+
+        if (invItem) {
+          purchaseLog.push({
+            id: uid(),
+            date: receiptDate,
+            itemId: invItem.id,
+            item: invItem.name,
+            unit: invItem.unit || r.unit || "kg",
+            unitSize,
+            qty: +r.qty || 1,
+            price: +r.unit_price,
+            total: +r.line_total || 0,
+            cpu,
+            stockAdded
+          })
+        }
       })
 
       if (purchases.length > 0) {
@@ -318,10 +457,18 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
         await saveAliases(aliases)
       }
 
-      // Save purchase logs to database (via saveLocal which triggers sync)
+      // Save purchase logs to database & local storage (via savePurchases which triggers sync & event)
       if (purchaseLog.length > 0) {
         const existing = loadLocal("ll_purchases", [])
-        await saveLocal("ll_purchases", [...purchaseLog, ...existing])
+        const allPurchases = [...purchaseLog, ...existing]
+        if (typeof savePurchases === "function") {
+          await savePurchases(allPurchases)
+        } else {
+          await saveLocal("ll_purchases", allPurchases)
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("layerledger:purchases-updated", { detail: { purchases: allPurchases } }))
+        }
       }
 
       // Log expense records grouped by category
@@ -358,7 +505,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
           if (scaledAmt > 0) {
             newExps.push({
               id: uid(),
-              date: parsed.receipt_date || today(),
+              date: receiptDate,
               description: `${parsed.supplier || "Receipt"} — ${data.cat}`,
               amount: scaledAmt,
               category: data.cat,
@@ -386,7 +533,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
       setSaved(true)
     } catch (e) {
       console.error(e)
-      alert("❌ Save failed: " + e.message)
+      alert("Save failed: " + e.message)
     } finally {
       setSaving(false)
     }
@@ -464,7 +611,9 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
 
         {/* Left Side: Upload or Choose Method */}
         <Card>
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 12 }}>📷 Stock Purchase Input</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+            <Camera size={16} /> Stock Purchase Input
+          </div>
 
           {!photo && !parsed && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
@@ -472,7 +621,13 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
                 <button
                   onClick={async () => {
                     try {
-                      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+                      const stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                          facingMode: "environment",
+                          width: { ideal: 1920, max: 3840 },
+                          height: { ideal: 1080, max: 2160 }
+                        }
+                      })
                       const video = document.createElement("video")
                       video.srcObject = stream
                       video.autoplay = true
@@ -480,10 +635,10 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
                       overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px"
                       video.style.cssText = "max-width:100%;max-height:70vh;border-radius:10px"
                       const btn = document.createElement("button")
-                      btn.textContent = "📷 Capture"
+                      btn.textContent = "Capture"
                       btn.style.cssText = "padding:14px 32px;border-radius:10px;border:none;background:var(--gold);color:#fff;font-size:16px;cursor:pointer"
                       const close = document.createElement("button")
-                      close.textContent = "✕ Cancel"
+                      close.textContent = "Cancel"
                       close.style.cssText = "padding:10px 24px;border-radius:10px;border:none;background:#555;color:#fff;font-size:14px;cursor:pointer"
                       overlay.appendChild(video)
                       overlay.appendChild(btn)
@@ -496,7 +651,7 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
                         canvas.getContext("2d").drawImage(video, 0, 0)
                         stream.getTracks().forEach(t => t.stop())
                         document.body.removeChild(overlay)
-                        const dataUrl = canvas.toDataURL("image/jpeg", 0.8)
+                        const dataUrl = canvas.toDataURL("image/jpeg", 0.9)
                         const b64 = dataUrl.split(",")[1]
                         handleFile({ target: { files: [new File([Uint8Array.from(atob(b64), c => c.charCodeAt(0))], "capture.jpg", { type: "image/jpeg" })] } })
                       }
@@ -512,23 +667,27 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
                   }}
                   style={{ padding: "14px 8px", borderRadius: 10, border: "2px dashed var(--border)", background: "#FAF7F0", cursor: "pointer", textAlign: "center" }}
                 >
-                  <div style={{ fontSize: 28, marginBottom: 4 }}>📷</div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 4, color: "var(--gold)" }}>
+                    <Camera size={26} />
+                  </div>
                   <div style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>Open camera</div>
                 </button>
                 <button
                   onClick={() => fileRef.current?.click()}
                   style={{ padding: "14px 8px", borderRadius: 10, border: "2px dashed var(--border)", background: "#FAF7F0", cursor: "pointer", textAlign: "center" }}
                 >
-                  <div style={{ fontSize: 28, marginBottom: 4 }}>🖼️</div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 4, color: "var(--gold)" }}>
+                    <Upload size={26} />
+                  </div>
                   <div style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>Upload photo</div>
                 </button>
               </div>
 
               <button
                 onClick={startManualEntry}
-                style={{ padding: "12px 14px", borderRadius: 10, border: "2px dashed var(--gold)", background: "#FDFAF4", cursor: "pointer", textAlign: "center", color: "var(--gold)", fontWeight: 600, fontSize: 13 }}
+                style={{ padding: "12px 14px", borderRadius: 10, border: "2px dashed var(--gold)", background: "#FDFAF4", cursor: "pointer", textAlign: "center", color: "var(--gold)", fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
               >
-                ✍️ Enter Manually (Type Purchases)
+                <PenLine size={14} /> Enter Manually (Type Purchases)
               </button>
             </div>
           )}
@@ -543,15 +702,40 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
 
           {photo && !parsed && !saved && (
             <>
-              <Btn full onClick={scan} disabled={loading}>{loading ? "🔍 AI is reading the receipt…" : "✦ Scan & Extract Items"}</Btn>
+              <Btn full onClick={scan} disabled={loading} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                {loading ? "AI is reading the receipt…" : <><Sparkles size={14} /> Scan & Extract Items <span style={{ fontSize: 11, opacity: 0.85, fontWeight: 500 }}>(0.7 tokens)</span></>}
+              </Btn>
               {loading && <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 8 }}>This may take 15-30 seconds…</div>}
-              {error && <div style={{ marginTop: 10, padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12.5, color: "#B03A2E", lineHeight: 1.5 }}>⚠ {error}</div>}
+              {error && (
+                <div style={{ marginTop: 10, padding: "8px 12px", background: error.toLowerCase().includes("token") ? "#FFF4E5" : "#FDEBE9", border: error.toLowerCase().includes("token") ? "1px solid #FFE0B2" : "1px solid #FCDAD7", borderRadius: 8, fontSize: 12.5, color: error.toLowerCase().includes("token") ? "#92400E" : "#B03A2E", lineHeight: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <AlertTriangle size={14} color={error.toLowerCase().includes("token") ? "#D97706" : "#B03A2E"} style={{ flexShrink: 0 }} />
+                    <span>{error}</span>
+                  </div>
+                  {error.toLowerCase().includes("token") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof window !== "undefined") {
+                          window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                        }
+                      }}
+                      style={{ background: "var(--gold)", color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      Buy Tokens
+                    </button>
+                  )}
+                </div>
+              )}
             </>
           )}
 
           {saved && (
             <div style={{ background: "#EEF8F3", borderRadius: 8, padding: 12, border: "1px solid #C2E0CF", marginBottom: 12 }}>
-              <div style={{ fontWeight: 600, color: "#357A52", marginBottom: 4 }}>✓ Done! Purchases updated inventory and expenses logged to the {savedMonth} ledger.</div>
+              <div style={{ fontWeight: 600, color: "#357A52", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                <Check size={14} /> Done! Purchases updated inventory and expenses logged to the {savedMonth} ledger.
+              </div>
               <Btn small variant="outline" onClick={() => setSaved(false)}>Log Another</Btn>
             </div>
           )}
@@ -560,12 +744,12 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
             <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
               <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 600, marginBottom: 8 }}>How It Works</div>
               {[
-                ["📸", "Supermarket receipts or market logs work. Lay flat in bright light."],
-                ["✍️", "Or tap manual entry to type list rows directly."],
-                ["✅", "Review extracted lines, link to ingredients, and check cost levels."]
-              ].map(([icon, text]) => (
-                <div key={icon} style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-                  <span style={{ fontSize: 16 }}>{icon}</span>
+                [<Camera size={14} color="var(--gold)" />, "Supermarket receipts or market logs work. Lay flat in bright light."],
+                [<PenLine size={14} color="var(--gold)" />, "Or tap manual entry to type list rows directly."],
+                [<Check size={14} color="#357A52" />, "Review extracted lines, link to ingredients, and check cost levels."]
+              ].map(([icon, text], idx) => (
+                <div key={idx} style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-start" }}>
+                  <span style={{ marginTop: 2, flexShrink: 0 }}>{icon}</span>
                   <span style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>{text}</span>
                 </div>
               ))}
@@ -584,6 +768,12 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
             </div>
 
             {/* Receipt Metadata */}
+            {parsed.scan_notes && (
+              <div style={{ background: "rgba(200,145,42,0.08)", border: "1px solid rgba(200,145,42,0.25)", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12.5, color: "var(--text)", display: "flex", alignItems: "center", gap: 6 }}>
+                <Sparkles size={14} color="var(--gold)" style={{ flexShrink: 0 }} />
+                <span>{parsed.scan_notes}</span>
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
               <Inp label="Supplier / Shop" value={parsed.supplier || ""} onChange={v => setParsed({ ...parsed, supplier: v })} placeholder="e.g. Market vendor" />
               <Inp label="Purchase Date" type="date" value={parsed.receipt_date || ""} onChange={v => setParsed({ ...parsed, receipt_date: v })} />
@@ -685,7 +875,9 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
             <Inp label="Total Invoice Cost (₦)" type="number" value={totalAmount} onChange={setTotalAmount} placeholder="Total amount paid" />
 
             <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-              <Btn variant="success" onClick={applyUpdates} disabled={saving || !parsed.items.some(r => r.approved)}>{saving ? "⌛ Saving..." : "✓ Save & Restock"}</Btn>
+              <Btn variant="success" onClick={applyUpdates} disabled={saving || !parsed.items.some(r => r.approved)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                {saving ? "Saving..." : <><Check size={13} /> Save & Restock</>}
+              </Btn>
               <Btn variant="ghost" onClick={() => setParsed(null)}>Cancel</Btn>
             </div>
           </Card>
@@ -764,7 +956,9 @@ confidence: "high", "medium", or "low". For unclear handwriting, make best guess
               <Inp label="Min Stock Level Alert" type="number" value={newFields.minStock} onChange={v => setNewFields({ ...newFields, minStock: v })} />
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
-              <Btn variant="success" onClick={saveNewItemFromReceipt}>✓ Add Ingredient</Btn>
+              <Btn variant="success" onClick={saveNewItemFromReceipt} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <Check size={13} /> Add Ingredient
+              </Btn>
               <Btn variant="ghost" onClick={() => { setAddingNewItemForIdx(null); setCalcMode("manual"); }}>Cancel</Btn>
             </div>
           </div>

@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useMemo } from "react"
 import { Btn, iSt, Card, Badge, SHead, Tabs, Spinner, Pagination } from "../common/ui.jsx"
 import { loadLocal, saveLocal } from "../../lib/data.js"
+import { Receipt, Trash2, Calendar, Truck, Cake, Check, Zap, Clock } from "lucide-react"
 
 export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner}){
   const loadInvs=()=>{return loadLocal("ll_quote_invoices",[])}
@@ -17,11 +18,55 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
   const [deletingAll, setDeletingAll] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+
+  const handleSelectRowToggle = (id) => {
+    setSelectedIds(p => {
+      const copy = new Set(p)
+      if (copy.has(id)) copy.delete(id)
+      else copy.add(id)
+      return copy
+    })
+  }
+
+  const handleSelectAllToggle = () => {
+    const allSelected = filtered.length > 0 && filtered.every(inv => selectedIds.has(inv.id))
+    setSelectedIds(p => {
+      const copy = new Set(p)
+      if (allSelected) {
+        filtered.forEach(inv => copy.delete(inv.id))
+      } else {
+        filtered.forEach(inv => copy.add(inv.id))
+      }
+      return copy
+    })
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return
+    const count = selectedIds.size
+    if (!window.confirm(`Are you sure you want to delete the ${count} selected invoice${count !== 1 ? "s" : ""}? This cannot be undone.`)) return
+    const updated = invoices.filter(inv => !selectedIds.has(inv.id))
+    setInvoices(updated)
+    await saveLocal("ll_quote_invoices", updated)
+    setSelectedIds(new Set())
+  }
+
+  const handleDeleteSingle = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this invoice?")) return
+    const updated = invoices.filter(inv => inv.id !== id)
+    setInvoices(updated)
+    await saveLocal("ll_quote_invoices", updated)
+    setSelectedIds(p => {
+      const copy = new Set(p)
+      copy.delete(id)
+      return copy
+    })
+  }
 
   useEffect(() => {
     setCurrentPage(1)
   }, [search, filter])
-
 
   const handleDeleteAll = async () => {
     if (!window.confirm("Are you sure you want to delete ALL invoices? This will clear all invoice records permanently. This cannot be undone.")) return
@@ -29,6 +74,7 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
     try {
       setInvoices([])
       await saveLocal("ll_quote_invoices", [])
+      setSelectedIds(new Set())
     } catch (err) {
       alert("Failed to delete invoices: " + err.message)
     } finally {
@@ -100,7 +146,37 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
       +(inv.clientPhone?"<div style='font-size:13px;color:#555;margin-top:3px'>"+inv.clientPhone+"</div>":"")
       +"</div></div>"
       +"<div style='font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#888;border-bottom:2px solid "+gold+";padding-bottom:4px;margin-bottom:12px;font-weight:600'>Order details</div>"
-      +"<div class='tier'>"+(inv.cakeSummary||inv.productType||"")+(inv.notes?"<br><span style='color:#888;font-size:12px'>"+inv.notes+"</span>":"")+"</div>"
+      +(inv.items && inv.items.length > 0
+        ? inv.items.map((it, idx) => {
+            const delivText = it.deliveryDetailsText || (it.sameDeliveryAsFirst ? `Same as above (${inv.items[0]?.deliveryDate || inv.deliveryDate || ""})` : (it.deliveryDate ? `${it.deliveryDate}${it.collectionTime ? " @ " + it.collectionTime : ""}` : (inv.deliveryDate || "Date not set")))
+            const thumb = it.photos?.[0] || it.photo
+            const imgTag = thumb ? `<div style='margin:6px 0'><img src='${thumb}' style='height:75px;border-radius:6px;border:1px solid #E3D6B3;object-fit:cover'/></div>` : ""
+            const content = it.type === "cake"
+              ? (it.tiers || []).map((t, ti) => {
+                  const tThumb = (t.photos && t.photos.length > 0) ? t.photos[0] : t.photo
+                  const tImg = tThumb ? `<div style='margin:4px 0'><img src='${tThumb}' style='height:65px;border-radius:4px;border:1px solid #E3D6B3;object-fit:cover'/></div>` : ""
+                  return `<div><strong>Cake ${ti + 1}: ${t.size}" ${t.shape || "Round"}</strong><br>`
+                    + tImg
+                    + `Flavours: ${t.layers?.map(l => (l.qty > 1 ? l.qty + "× " : "") + l.flavour).filter(Boolean).join(", ") || "—"}<br>`
+                    + (t.fillings?.length ? `Fillings: ${t.fillings.map(f => f.type + (f.grams ? ` (${f.grams}g)` : "")).join(", ")}<br>` : "")
+                    + `Covering: ${t.coverings?.map(c => c.type).join(" + ") || "—"}</div>`
+                }).join("<hr style='border:none;border-top:1px dashed #EDE5D6;margin:6px 0'/>")
+              : (it.pastryItems || []).map(p =>
+                  `<div>${p.qty}× ${p.flavour || "Pastry"}${p.filling ? ` (${p.filling})` : ""}</div>`
+                ).join("")
+            const notePart = it.itemNote ? `<div style='font-size:11.5px;color:#777;margin-top:4px'>Note: ${it.itemNote}</div>` : ""
+            return `<div class='tier' style='margin-bottom:12px'>`
+              + `<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px'>`
+              + `<strong style='font-size:13.5px;color:${gold}'>${it.type === "cake" ? "🎂 " : "🍩 "}${it.name || `Item ${idx + 1}`}</strong>`
+              + `<span style='font-size:11px;background:#F5F0E4;padding:2px 8px;border-radius:4px;font-weight:600'>📅 ${delivText}</span>`
+              + `</div>`
+              + imgTag
+              + `<div style='font-size:12px;color:#555;line-height:1.7'>${content}</div>`
+              + notePart
+              + `</div>`
+          }).join("")
+        : "<div class='tier'>"+(inv.cakeSummary||inv.productType||"")+(inv.notes?"<br><span style='color:#888;font-size:12px'>"+inv.notes+"</span>":"")+"</div>"
+      )
       +"<div class='price-box'>"
       +"<div style='font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px'>Total amount</div>"
       +"<div style='font-size:36px;font-weight:700;color:"+gold+"'>&#8358;"+(inv.amount||0).toLocaleString()+"</div>"
@@ -129,8 +205,8 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
       +(company.invoiceFooter?"<br>"+company.invoiceFooter:"")
       +"</div>"
       +"<div class='no-print' style='margin-top:28px;display:flex;gap:10px;justify-content:center'>"
-      +"<button onclick='window.print()' style='padding:12px 24px;background:"+gold+";color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600'>📥 Print / Save PDF</button>"
-      +(inv.clientPhone?"<button onclick=\"window.open('https://wa.me/"+(inv.clientPhone||"").replace(/[^0-9]/g,"").replace(/^0/,"234")+"?text="+encodeURIComponent("Hello "+inv.clientName+"! 🎂 Your invoice is ready.\n\nInvoice: "+inv.id+"\nAmount: ₦"+(inv.amount||0).toLocaleString()+"\n\nPlease make payment to:\nBank: "+(company.bankName||"")+"\nAccount: "+(company.bankAccount||"")+" ("+(company.bankAccountName||"")+")\n\nThank you for choosing "+(company.name||"our bakery")+"! 🎂")+"','_blank')\" style='padding:12px 24px;background:#25D366;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600'>📱 Share via WhatsApp</button>":"")
+      +"<button onclick='window.print()' style='padding:12px 24px;background:"+gold+";color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600'>Print / Save PDF</button>"
+      +(inv.clientPhone?"<button onclick=\"window.open('https://wa.me/"+(inv.clientPhone||"").replace(/[^0-9]/g,"").replace(/^0/,"234")+"?text="+encodeURIComponent("Hello "+inv.clientName+"! Your invoice is ready.\n\nInvoice: "+inv.id+"\nAmount: ₦"+(inv.amount||0).toLocaleString()+"\n\nPlease make payment to:\nBank: "+(company.bankName||"")+"\nAccount: "+(company.bankAccount||"")+" ("+(company.bankAccountName||"")+")\n\nThank you for choosing "+(company.name||"our bakery")+"!")+"','_blank')\" style='padding:12px 24px;background:#25D366;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600'>Share via WhatsApp</button>":"")
       +"</div>"
       +"<div style='margin-top:16px;font-size:11px;color:#aaa;text-align:center'>"+(company.name||"")+" · Generated by BakeWealth</div>"
       +"</body></html>"
@@ -153,7 +229,7 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
 
     {invoices.length===0
       ?<Card style={{textAlign:"center",padding:48}}>
-        <div style={{fontSize:32,marginBottom:12}}>🧾</div>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:12,color:"var(--muted)"}}><Receipt size={36}/></div>
         <div style={{fontSize:16,fontWeight:600,marginBottom:8,color:"var(--text)"}}>No invoices yet</div>
         <div style={{fontSize:13,color:"var(--muted)",marginBottom:20}}>Invoices are created from the Quotes page. Open a quote and click "Convert to invoice" to generate one.</div>
       </Card>
@@ -164,21 +240,33 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by client name or invoice number..." style={{...iSt,flex:1,minWidth:200}}/>
             <Tabs tabs={[{v:"all",l:"All"},{v:"unpaid",l:"Unpaid"},{v:"paid",l:"Paid"}]} active={filter} onChange={setFilter}/>
           </div>
-          {isOwner && (
-            deletingAll ? (
-              <Spinner />
-            ) : (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {filtered.length > 0 && isOwner && (
               <Btn
                 small
-                variant="ghost"
-                disabled={deletingAll}
-                style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px", fontWeight: "normal", padding: "4px 8px" }}
-                onClick={handleDeleteAll}
+                variant="outline"
+                onClick={handleSelectAllToggle}
+                style={{ fontSize: "11.5px", padding: "4px 8px" }}
               >
-                🗑 Clear All Invoices
+                {filtered.length > 0 && filtered.every(inv => selectedIds.has(inv.id)) ? "Deselect All" : "Select All"}
               </Btn>
-            )
-          )}
+            )}
+            {isOwner && (
+              deletingAll ? (
+                <Spinner />
+              ) : (
+                <Btn
+                  small
+                  variant="ghost"
+                  disabled={deletingAll}
+                  style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px", fontWeight: "normal", padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 5 }}
+                  onClick={handleDeleteAll}
+                >
+                  <Trash2 size={12} /> Clear All Invoices
+                </Btn>
+              )
+            )}
+          </div>
         </div>
 
         {/* Summary row */}
@@ -193,21 +281,57 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
           </Card>)}
         </div>
 
+        {/* Bulk Actions Bar */}
+        {selectedIds.size > 0 && (
+          <div style={{
+            background: "#FFF9EE",
+            border: "1px solid var(--gold)",
+            borderRadius: 8,
+            padding: "10px 16px",
+            marginBottom: 14,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap"
+          }}>
+            <span style={{ fontWeight: 600, fontSize: 13.5 }}>
+              {selectedIds.size} invoice{selectedIds.size !== 1 ? "s" : ""} selected
+            </span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn small variant="danger" onClick={handleBulkDelete} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Trash2 size={12} /> Delete Selected ({selectedIds.size})
+              </Btn>
+              <Btn small variant="ghost" onClick={() => setSelectedIds(new Set())}>
+                Clear
+              </Btn>
+            </div>
+          </div>
+        )}
+
         {/* Invoice list */}
         {filtered.length===0
           ?<div style={{textAlign:"center",padding:32,color:"var(--muted)"}}>No invoices match your search.</div>
-          :paginatedInvoices.map(inv=><Card key={inv.id} style={{marginBottom:10,borderLeft:`4px solid ${inv.status==="paid"?"#357A52":inv.status==="partially_paid"?"#1D75B0":"var(--gold)"}`}}>
+          :paginatedInvoices.map(inv=><Card key={inv.id} style={{marginBottom:10,borderLeft:`4px solid ${inv.status==="paid"?"#357A52":inv.status==="partially_paid"?"#1D75B0":"var(--gold)"}`, background: selectedIds.has(inv.id) ? "#FFFDF5" : "var(--panel)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
               <div style={{flex:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
+                  {isOwner && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(inv.id)}
+                      onChange={() => handleSelectRowToggle(inv.id)}
+                      style={{ cursor: "pointer", width: 16, height: 16, accentColor: "var(--gold)", margin: 0 }}
+                    />
+                  )}
                   <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600}}>{inv.clientName}</span>
                   <span style={{fontSize:11,color:"var(--muted)",background:"var(--bg)",padding:"2px 8px",borderRadius:20}}>{inv.id}</span>
                   <Badge color={inv.status === "paid" ? "green" : inv.status === "partially_paid" ? "blue" : "gold"}>{inv.status === "paid" ? "Paid" : inv.status === "partially_paid" ? "Partially Paid" : "Unpaid"}</Badge>
                 </div>
-                <div style={{fontSize:12.5,color:"var(--muted)",display:"flex",gap:16,flexWrap:"wrap"}}>
-                  <span>📅 Date: {inv.date}</span>
-                  {inv.deliveryDate&&<span>🚚 Delivery: {inv.deliveryDate}</span>}
-                  <span>🧁 {inv.productType||"Cake"}</span>
+                <div style={{fontSize:12.5,color:"var(--muted)",display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:4}}><Calendar size={12}/> Date: {inv.date}</span>
+                  {inv.deliveryDate&&<span style={{display:"inline-flex",alignItems:"center",gap:4}}><Truck size={12}/> Delivery: {inv.deliveryDate}</span>}
+                  <span style={{display:"inline-flex",alignItems:"center",gap:4}}><Cake size={12}/> {inv.productType||"Cake"}</span>
                 </div>
                 {inv.notes&&<div style={{fontSize:12,color:"var(--muted)",marginTop:4,fontStyle:"italic"}}>{inv.notes}</div>}
                 
@@ -224,8 +348,8 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
                   flexWrap: "wrap",
                   alignItems: "center"
                 }}>
-                  <span style={{ fontWeight: 600, color: inv.status === "paid" ? "#357A52" : inv.status === "partially_paid" ? "#1D75B0" : "#8C5E00" }}>
-                    {inv.status === "paid" ? "✓ Full Payment (Paid)" : (inv.status === "partially_paid" || inv.paymentType === "advance") ? "⚡ Part Payment (Deposit Paid)" : "⏳ Unpaid"}
+                  <span style={{ fontWeight: 600, color: inv.status === "paid" ? "#357A52" : inv.status === "partially_paid" ? "#1D75B0" : "#8C5E00", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    {inv.status === "paid" ? <><Check size={12}/> Full Payment (Paid)</> : (inv.status === "partially_paid" || inv.paymentType === "advance") ? <><Zap size={12}/> Part Payment (Deposit Paid)</> : <><Clock size={12}/> Unpaid</>}
                   </span>
                   {(inv.paymentType === "advance" || inv.status === "partially_paid") && inv.status !== "paid" && (
                     <>
@@ -239,9 +363,14 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
               </div>
               <div style={{textAlign:"right",flexShrink:0}}>
                 <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:"var(--gold)",marginBottom:8}}>₦{(inv.amount||0).toLocaleString()}</div>
-                <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
-                  <Btn small onClick={()=>generateInvoice(inv)}>🧾 Generate invoice</Btn>
-                  {inv.status!=="paid"&&<Btn small variant="success" onClick={()=>markPaid(inv.id)}>✓ Mark paid</Btn>}
+                <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap",alignItems:"center"}}>
+                  <Btn small onClick={()=>generateInvoice(inv)} style={{display:"inline-flex",alignItems:"center",gap:5}}><Receipt size={12}/> Generate invoice</Btn>
+                  {inv.status!=="paid"&&<Btn small variant="success" onClick={()=>markPaid(inv.id)} style={{display:"inline-flex",alignItems:"center",gap:5}}><Check size={12}/> Mark paid</Btn>}
+                  {isOwner && (
+                    <Btn small variant="danger" onClick={()=>handleDeleteSingle(inv.id)} title="Delete invoice" style={{display:"inline-flex",alignItems:"center",padding:"5px 7px"}}>
+                      <Trash2 size={12}/>
+                    </Btn>
+                  )}
                 </div>
               </div>
             </div>

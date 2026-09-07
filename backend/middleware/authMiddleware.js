@@ -1,6 +1,10 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../prisma');
 
+// In-memory cache for authenticated users to prevent pool exhaustion during concurrent requests
+const userCache = new Map();
+const USER_CACHE_TTL = 30 * 1000;
+
 /**
  * Middleware to protect routes by verifying JWT token
  * and attaching the user object (with tenantId) to the request.
@@ -20,22 +24,32 @@ const protect = async (req, res, next) => {
                 return res.status(401).json({ message: 'Not authorized, invalid token payload' });
             }
 
-            // Get user from the token (exclude password)
-            req.user = await prisma.user.findUnique({
-                where: { id: decoded.id },
-                select: {
-                    id: true,
-                    tenantId: true,
-                    name: true,
-                    email: true,
-                    role: true,
-                    tenant: {
-                        select: {
-                            settings: true
+            // Check in-memory cache first
+            const cached = userCache.get(decoded.id);
+            if (cached && (Date.now() - cached.timestamp < USER_CACHE_TTL)) {
+                req.user = cached.user;
+            } else {
+                // Get user from the token (exclude password)
+                req.user = await prisma.user.findUnique({
+                    where: { id: decoded.id },
+                    select: {
+                        id: true,
+                        tenantId: true,
+                        name: true,
+                        email: true,
+                        role: true,
+                        tenant: {
+                            select: {
+                                settings: true
+                            }
                         }
                     }
+                });
+
+                if (req.user) {
+                    userCache.set(decoded.id, { user: req.user, timestamp: Date.now() });
                 }
-            });
+            }
 
             if (!req.user) {
                 return res.status(401).json({ message: 'Not authorized, user no longer exists' });

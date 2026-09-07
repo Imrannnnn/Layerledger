@@ -154,14 +154,36 @@ const updateItem = asyncHandler(async (req, res) => {
  */
 const deleteItem = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const deletedItem = await prisma.inventoryItem.deleteMany({
-        where: { id: req.params.id, tenantId }
+    const itemId = req.params.id;
+
+    await prisma.$transaction(async (tx) => {
+        // 1. Unlink any purchase items referencing this item
+        await tx.purchase.updateMany({
+            where: { tenantId, itemId },
+            data: { itemId: null }
+        });
+
+        // 2. Delete inventory history for this item
+        await tx.inventoryHistory.deleteMany({
+            where: { tenantId, inventoryItemId: itemId }
+        });
+
+        // 3. Delete recipe ingredients referencing this item
+        await tx.recipeIngredient.deleteMany({
+            where: { inventoryItemId: itemId }
+        });
+
+        // 4. Delete the item
+        const deletedItem = await tx.inventoryItem.deleteMany({
+            where: { id: itemId, tenantId }
+        });
+
+        if (deletedItem.count === 0) {
+            res.status(404);
+            throw new Error('Inventory item not found');
+        }
     });
-    
-    if (deletedItem.count === 0) {
-        res.status(404);
-        throw new Error('Inventory item not found');
-    }
+
     res.json({ message: 'Inventory item removed successfully' });
 });
 
@@ -314,7 +336,7 @@ const deleteOpeningStock = asyncHandler(async (req, res) => {
     }
 
     const settings = tenant.settings || {};
-    const appConfig = settings.appConfig || settings.localState || {};
+    const appConfig = settings.appConfig || {};
 
     // Remove opening stock keys: ll_opening_stock and any ll_os_*
     const cleanedConfig = {};
@@ -328,9 +350,6 @@ const deleteOpeningStock = asyncHandler(async (req, res) => {
         ...settings,
         appConfig: cleanedConfig
     };
-    if (settings.localState) {
-        updatedSettings.localState = cleanedConfig;
-    }
 
     await prisma.$transaction(async (tx) => {
         // Clear opening balance history entries
@@ -348,6 +367,48 @@ const deleteOpeningStock = asyncHandler(async (req, res) => {
     res.json({ message: 'All opening stock records deleted successfully' });
 });
 
+/**
+ * @desc    Batch delete specific inventory items by array of IDs
+ * @route   POST /api/inventory/batch-delete
+ * @access  Private
+ */
+const batchDeleteItems = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        res.status(400);
+        throw new Error('Please provide an array of item IDs to delete');
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+        // 1. Unlink any purchase items referencing these items
+        await tx.purchase.updateMany({
+            where: { tenantId, itemId: { in: ids } },
+            data: { itemId: null }
+        });
+
+        // 2. Delete inventory history for these items
+        await tx.inventoryHistory.deleteMany({
+            where: { tenantId, inventoryItemId: { in: ids } }
+        });
+
+        // 3. Delete recipe ingredients referencing these items
+        await tx.recipeIngredient.deleteMany({
+            where: { inventoryItemId: { in: ids } }
+        });
+
+        // 4. Delete the items
+        const deleted = await tx.inventoryItem.deleteMany({
+            where: { id: { in: ids }, tenantId }
+        });
+
+        return deleted;
+    }, { maxWait: 10000, timeout: 30000 });
+
+    res.json({ message: 'Selected inventory items deleted successfully', count: result.count });
+});
+
 module.exports = {
     getInventory,
     createItem,
@@ -355,6 +416,7 @@ module.exports = {
     deleteItem,
     adjustItem,
     deleteAllInventory,
-    deleteOpeningStock
+    deleteOpeningStock,
+    batchDeleteItems
 };
 

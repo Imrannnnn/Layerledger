@@ -1,9 +1,9 @@
 {
-  "name": "layerledger",
+  "name": "bakewealth",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "LayerLedger — bakery management & accounting app for Fayvouree Luxe Cakes Studio",
+  "description": "BakeWealth — bakery management & accounting app",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "layerledger-monorepo": "file:..",
+    "lucide-react": "^1.38.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

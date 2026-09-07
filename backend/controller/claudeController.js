@@ -1,4 +1,7 @@
+const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+
+const TOKEN_COST_PER_AI_REQUEST = 0.7;
 
 /**
  * @desc    Proxy request to Anthropic Claude API using server-side key
@@ -11,6 +14,32 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
     if (!messages || !Array.isArray(messages)) {
         res.status(400);
         throw new Error("Messages array is required.");
+    }
+
+    const tenantId = req.user?.tenantId;
+
+    // 1. Enforce Token Balance Check if tenant is present
+    if (tenantId) {
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { tokenBalance: true }
+        });
+
+        if (!tenant) {
+            res.status(404);
+            throw new Error("Tenant not found.");
+        }
+
+        const balance = tenant.tokenBalance || 0;
+        if (balance < TOKEN_COST_PER_AI_REQUEST) {
+            return res.status(402).json({
+                error: "Insufficient tokens",
+                code: "INSUFFICIENT_TOKENS",
+                message: `You need at least ${TOKEN_COST_PER_AI_REQUEST} tokens to use this AI feature. You currently have ${balance.toFixed(1)} token${balance === 1 ? '' : 's'}. Please buy tokens to continue.`,
+                currentBalance: balance,
+                requiredTokens: TOKEN_COST_PER_AI_REQUEST
+            });
+        }
     }
 
     const key = process.env.CLAUDE_API || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
@@ -70,7 +99,50 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
                 res.status(502);
                 throw new Error(`Invalid JSON response from Anthropic API: ${responseText.substring(0, 200)}`);
             }
-            return res.json(data);
+
+            // 2. Successful AI response — atomically deduct 0.7 tokens & record transaction
+            let newBalance = null;
+            if (tenantId) {
+                try {
+                    const txResult = await prisma.$transaction(async (tx) => {
+                        const updatedTenant = await tx.tenant.update({
+                            where: { id: tenantId },
+                            data: {
+                                tokenBalance: {
+                                    decrement: TOKEN_COST_PER_AI_REQUEST
+                                }
+                            },
+                            select: { tokenBalance: true }
+                        });
+
+                        await tx.tokenTransaction.create({
+                            data: {
+                                tenantId,
+                                amount: -TOKEN_COST_PER_AI_REQUEST,
+                                type: "ai_usage",
+                                description: `AI feature usage (${TOKEN_COST_PER_AI_REQUEST} tokens deducted)`
+                            }
+                        });
+
+                        return updatedTenant;
+                    });
+                    newBalance = Math.round(txResult.tokenBalance * 100) / 100;
+                } catch (txErr) {
+                    console.error("Token deduction error after successful AI call:", txErr);
+                }
+            }
+
+            if (newBalance !== null) {
+                res.setHeader('X-Token-Balance', String(newBalance));
+            }
+
+            return res.json({
+                ...data,
+                tokenUsage: {
+                    tokensDeducted: TOKEN_COST_PER_AI_REQUEST,
+                    newBalance: newBalance
+                }
+            });
         } catch (err) {
             lastError = err;
             if (attempt < maxRetries) {

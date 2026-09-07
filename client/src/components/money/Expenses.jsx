@@ -10,6 +10,7 @@ import { Btn, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, iSt, Spinner, Paginat
 import { fmt, uid, today } from "../../lib/helpers.js"
 import { EXP_CATS } from "../../constants.js"
 import { saveExpenses } from "../../lib/data.js"
+import { Lightbulb, Trash2, Zap, Pencil, Check, X } from "lucide-react"
 
 export function Expenses({ expenses, setExpenses, isOwner }) {
   const [tab, setTab] = useState("monthly")
@@ -20,6 +21,7 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
   const [deletingAll, setDeletingAll] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  const [saving, setSaving] = useState(false)
 
 
   const [draftExpenses, setDraftExpenses] = useState([
@@ -64,32 +66,41 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
 
   // Save manual Cash Expenses
   const saveExp = async () => {
+    if (saving) return
     const invalid = draftExpenses.some(de => !de.description.trim() || !de.amount)
     if (invalid) {
       alert("Description and Amount are required for all entries")
       return
     }
-    const newExpenses = draftExpenses.map(de => ({
-      ...de,
-      id: uid(),
-      amount: Number(de.amount),
-      source: "manual"
-    }))
-    const updated = [...newExpenses, ...expenses]
-    setExpenses(updated)
-    await saveExpenses(updated)
+    setSaving(true)
+    try {
+      const newExpenses = draftExpenses.map(de => ({
+        ...de,
+        id: uid(),
+        amount: Number(de.amount),
+        source: "manual"
+      }))
+      const updated = [...newExpenses, ...expenses]
+      setExpenses(updated)
+      await saveExpenses(updated)
 
-    setDraftExpenses([
-      {
-        date: today(),
-        description: "",
-        amount: "",
-        category: "Utilities",
-        paymentMethod: "cash",
-        notes: ""
-      }
-    ])
-    setAdding(false)
+      setDraftExpenses([
+        {
+          date: today(),
+          description: "",
+          amount: "",
+          category: "Utilities",
+          paymentMethod: "cash",
+          notes: ""
+        }
+      ])
+      setAdding(false)
+    } catch (err) {
+      console.error("Failed to save expenses:", err)
+      alert("Error saving expenses: " + (err.message || "Unknown error"))
+    } finally {
+      setSaving(false)
+    }
   }
 
   // Inline editor functions
@@ -276,8 +287,9 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
       <SHead title="Overhead Expenses" sub="Log and track non-ingredient running costs." />
 
       {/* Tip Banner */}
-      <div style={{ marginBottom: 14, padding: "12px 16px", background: "#FFF9EE", borderRadius: 8, fontSize: 13, color: "#8A6D3B", border: "1px solid #F0DFA0", lineHeight: 1.6 }}>
-        💡 <strong>Tip:</strong> Ingredient purchases go in <strong>Purchases</strong> and update your stock. Use <strong>Expenses</strong> for your running costs like electricity, salary, and delivery.
+      <div style={{ marginBottom: 14, padding: "12px 16px", background: "#FFF9EE", borderRadius: 8, fontSize: 13, color: "#8A6D3B", border: "1px solid #F0DFA0", lineHeight: 1.6, display: "flex", alignItems: "center", gap: 6 }}>
+        <Lightbulb size={16} style={{ flexShrink: 0 }} />
+        <span><strong>Tip:</strong> Ingredient purchases go in <strong>Purchases</strong> and update your stock. Use <strong>Expenses</strong> for your running costs like electricity, salary, and delivery.</span>
       </div>
 
       {/* Action / Filter row */}
@@ -321,10 +333,10 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                 small
                 variant="ghost"
                 disabled={deletingAll}
-                style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px", fontWeight: "normal", padding: "4px 8px" }}
+                style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px", fontWeight: "normal", padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 4 }}
                 onClick={handleDeleteAll}
               >
-                🗑 Clear All Overhead
+                <Trash2 size={12} /> Clear All Overhead
               </Btn>
             )
           )}
@@ -353,9 +365,9 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                   {draftExpenses.length > 1 && (
                     <button
                       onClick={() => removeDraftExpense(idx)}
-                      style={{ background: "none", border: "none", color: "#B03A2E", cursor: "pointer", fontSize: 11, fontWeight: 600 }}
+                      style={{ background: "none", border: "none", color: "#B03A2E", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}
                     >
-                      🗑 Remove Entry
+                      <Trash2 size={11} /> Remove Entry
                     </button>
                   )}
                 </div>
@@ -387,10 +399,18 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
-            <Btn variant="outline" onClick={addDraftRow}>+ Add Another Entry</Btn>
+            <Btn variant="outline" onClick={addDraftRow} disabled={saving}>+ Add Another Entry</Btn>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn variant="success" onClick={saveExp}>Save {draftExpenses.length} {draftExpenses.length === 1 ? "Expense" : "Expenses"}</Btn>
-              <Btn variant="ghost" onClick={() => {
+              <Btn
+                variant="success"
+                onClick={saveExp}
+                loading={saving}
+                loadingText="Saving Expenses..."
+                disabled={saving}
+              >
+                Save {draftExpenses.length} {draftExpenses.length === 1 ? "Expense" : "Expenses"}
+              </Btn>
+              <Btn variant="ghost" disabled={saving} onClick={() => {
                 setAdding(false)
                 setDraftExpenses([{
                   date: today(),
@@ -444,10 +464,12 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
           flexWrap: "wrap"
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 600, fontSize: 13.5 }}>
-              ⚡ {selectedIds.size} {selectedIds.size === 1 ? "expense" : "expenses"} selected
+            <span style={{ fontWeight: 600, fontSize: 13.5, display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <Zap size={14} color="var(--gold)" /> {selectedIds.size} {selectedIds.size === 1 ? "expense" : "expenses"} selected
             </span>
-            <Btn small variant="ghost" onClick={startBulkEdit}> Edit Selected</Btn>
+            <Btn small variant="ghost" onClick={startBulkEdit} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Pencil size={11} /> Edit Selected
+            </Btn>
 
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 12, color: "var(--muted)" }}>Category:</span>
@@ -486,7 +508,9 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn small variant="danger" onClick={handleBulkDelete}>🗑 Delete Selected</Btn>
+            <Btn small variant="danger" onClick={handleBulkDelete} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Trash2 size={12} /> Delete Selected
+            </Btn>
             <Btn small variant="ghost" style={{ borderColor: "transparent" }} onClick={() => setSelectedIds(new Set())}>Clear</Btn>
           </div>
         </div>
@@ -506,12 +530,16 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
           gap: 12,
           flexWrap: "wrap"
         }}>
-          <span style={{ fontWeight: 600, fontSize: 13.5, color: "#2355A0" }}>
-            📝 Editing {Object.keys(editingRows).length} {Object.keys(editingRows).length === 1 ? "expense" : "expenses"}
+          <span style={{ fontWeight: 600, fontSize: 13.5, color: "#2355A0", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Pencil size={14} /> Editing {Object.keys(editingRows).length} {Object.keys(editingRows).length === 1 ? "expense" : "expenses"}
           </span>
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn small variant="success" onClick={saveAllEdits}>✓ Save All Changes</Btn>
-            <Btn small variant="ghost" onClick={cancelAllEdits}>✕ Cancel All</Btn>
+            <Btn small variant="success" onClick={saveAllEdits} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Check size={12} /> Save All Changes
+            </Btn>
+            <Btn small variant="ghost" onClick={cancelAllEdits} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <X size={12} /> Cancel All
+            </Btn>
           </div>
         </div>
       )}
@@ -591,8 +619,8 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                   </td>
                   <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                     <div style={{ display: "flex", gap: 4 }}>
-                      <Btn small variant="success" onClick={() => saveEdit(e.id)}>✓</Btn>
-                      <Btn small variant="ghost" onClick={() => cancelEdit(e.id)}>✕</Btn>
+                      <Btn small variant="success" onClick={() => saveEdit(e.id)}><Check size={12} /></Btn>
+                      <Btn small variant="ghost" onClick={() => cancelEdit(e.id)}><X size={12} /></Btn>
                     </div>
                   </td>
                 </tr>
@@ -615,8 +643,8 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                       {e.source || "manual"}
                     </Badge>,
                     <div style={{ display: "flex", gap: 4 }}>
-                      <Btn small variant="ghost" onClick={() => startEdit(e)}>Edit</Btn>
-                      <Btn small variant="ghost" onClick={() => handleDelete(e.id)}>×</Btn>
+                      <Btn small variant="ghost" onClick={() => startEdit(e)} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Pencil size={11} /> Edit</Btn>
+                      <Btn small variant="ghost" onClick={() => handleDelete(e.id)} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><X size={11} /></Btn>
                     </div>
                   ]}
                 />

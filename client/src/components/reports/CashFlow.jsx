@@ -9,6 +9,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Card, SHead } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { loadLocal } from "../../lib/data.js"
+import { Lightbulb } from "lucide-react"
 
 // ═══════════════════════════════════════════════════════════
 export function CashFlow({productions,expenses,transactions,company}){
@@ -47,8 +48,9 @@ export function CashFlow({productions,expenses,transactions,company}){
       </select>
     </div>
 
-    <div style={{background:"#FEF9EE",border:"1px solid var(--gold)",borderRadius:8,padding:"11px 14px",fontSize:12.5,color:"#7A5500",lineHeight:1.7,marginBottom:14}}>
-      💡 This shows actual cash in and out, grouped into Operating (trade), Investing (assets) and Financing (loans). A business can be profitable but still short of cash — this reveals the real picture.
+    <div style={{background:"#FEF9EE",border:"1px solid var(--gold)",borderRadius:8,padding:"11px 14px",fontSize:12.5,color:"#7A5500",lineHeight:1.7,marginBottom:14,display:"flex",alignItems:"flex-start",gap:8}}>
+      <Lightbulb size={15} style={{flexShrink:0,marginTop:2}} />
+      <span>This shows actual cash in and out, grouped into Operating (trade), Investing (assets) and Financing (loans). A business can be profitable but still short of cash — this reveals the real picture.</span>
     </div>
 
     <Card style={{maxWidth:560}}>

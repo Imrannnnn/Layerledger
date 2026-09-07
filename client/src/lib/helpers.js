@@ -14,7 +14,42 @@
  * ----------------------------------------------------------------------------
  */
 import { FLAVOR_EXTRAS, DECORATION_ITEMS } from "../constants.js"
-import { getAuthHeaders, loadLocal } from "./data.js"
+import { getAuthHeaders, loadLocal, saveLocal } from "./data.js"
+
+export const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+]
+
+export const SPECIAL_DATE_TYPES = [
+  { value: "Birthday", label: "Birthday", iconName: "Cake" },
+  { value: "Anniversary", label: "Anniversary", iconName: "Heart" }
+]
+
+export const parseSpecialDate = (rawStr = "") => {
+  if (!rawStr || typeof rawStr !== "string") {
+    return { type: "Birthday", month: "", day: "", formatted: "", fullText: "", iconName: "Cake" }
+  }
+  const str = rawStr.trim()
+  const isAnniv = str.toLowerCase().includes("anniversary")
+  const type = isAnniv ? "Anniversary" : "Birthday"
+  const iconName = isAnniv ? "Heart" : "Cake"
+  const month = MONTHS.find(m => str.toLowerCase().includes(m.toLowerCase())) || ""
+  const dayMatch = str.match(/\b([1-9]|[12][0-9]|3[01])\b/)
+  const day = dayMatch ? dayMatch[1] : ""
+  const formatted = day && month ? `${day} ${month}` : (month || day || "")
+  const fullText = formatted ? `${type}: ${formatted}` : ""
+  return { type, month, day, formatted, fullText, iconName }
+}
+
+export const formatSpecialDate = (type = "Birthday", day = "", month = "") => {
+  const d = String(day || "").trim()
+  const m = String(month || "").trim()
+  const safeType = type === "Anniversary" ? "Anniversary" : "Birthday"
+  if (!d && !m) return `${safeType}:`
+  const datePart = d && m ? `${d} ${m}` : (d || m)
+  return `${safeType}: ${datePart}`
+}
 
 export const DEFAULT_CATEGORIES = [
   "Dry Goods",
@@ -74,7 +109,21 @@ export const calcFullCost = (recipe, inv, flavors, decorationIds, accessoryPct, 
 
 
 
-export async function callClaude(messages, system = "") {
+export async function callClaude(messages, system = "", maxTokens = 4000) {
+  const tenantInfo = typeof loadLocal === "function" ? loadLocal("ll_tenant_info", null) : null
+  if (tenantInfo && typeof tenantInfo.tokenBalance === "number" && tenantInfo.tokenBalance < 0.7) {
+    if (typeof window !== "undefined") {
+      const detail = {
+        currentBalance: tenantInfo.tokenBalance,
+        requiredTokens: 0.7,
+        message: `You need at least 0.7 tokens to use this AI feature. You currently have ${tenantInfo.tokenBalance.toFixed(1)} tokens. Please buy tokens to continue.`
+      }
+      window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail }))
+      window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail }))
+    }
+    throw new Error(`Insufficient tokens: You have ${tenantInfo.tokenBalance.toFixed(1)} tokens remaining. Each AI feature requires 0.7 tokens. Please buy tokens to continue.`)
+  }
+
   const headers = getAuthHeaders() || {}
   const apiUrl = import.meta.env.VITE_API_URL || ""
   const endpoint = `${apiUrl}/api/claude`
@@ -89,7 +138,7 @@ export async function callClaude(messages, system = "") {
       },
       body: JSON.stringify({
         model: "claude-sonnet-5",
-        max_tokens: 1500,
+        max_tokens: maxTokens || 4000,
         system,
         messages
       })
@@ -101,16 +150,34 @@ export async function callClaude(messages, system = "") {
   const text = await res.text()
   if (!res.ok) {
     let errMsg = ""
+    let errJson = null
     try {
       if (text && text.trim()) {
-        const errJson = JSON.parse(text)
-        errMsg = errJson.error?.message || errJson.message || ""
+        errJson = JSON.parse(text)
+        errMsg = errJson.error?.message || errJson.message || errJson.error || ""
         if (errJson.error?.type === "not_found_error") {
           errMsg = `Anthropic API error: Model not found (${errMsg}). This usually means your Anthropic account has no credits/funds left or billing is inactive. Please fund your account in the Anthropic Console.`
         }
       }
     } catch (e) {
       // Ignore JSON parse errors and fallback to status checks
+    }
+
+    if (res.status === 402 || errJson?.code === "INSUFFICIENT_TOKENS" || (errMsg && errMsg.toLowerCase().includes("insufficient token"))) {
+      const balance = errJson?.currentBalance ?? tenantInfo?.tokenBalance ?? 0
+      if (tenantInfo && typeof saveLocal === "function") {
+        saveLocal("ll_tenant_info", { ...tenantInfo, tokenBalance: balance })
+      }
+      if (typeof window !== "undefined") {
+        const detail = {
+          currentBalance: balance,
+          requiredTokens: 0.7,
+          message: errMsg || `You need at least 0.7 tokens to use this AI feature. Please buy tokens to continue.`
+        }
+        window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail }))
+        window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail }))
+      }
+      throw new Error(errMsg || "Insufficient tokens. Please buy tokens to continue.")
     }
 
     if (errMsg) {
@@ -138,6 +205,23 @@ export async function callClaude(messages, system = "") {
     throw new Error("API error: " + (data.error.message || JSON.stringify(data.error)))
   }
 
+  // Real-time token balance update on successful deduction
+  if (data.tokenUsage && typeof data.tokenUsage.newBalance === "number") {
+    const curTenant = (typeof loadLocal === "function" ? loadLocal("ll_tenant_info", null) : null) || {}
+    curTenant.tokenBalance = data.tokenUsage.newBalance
+    if (typeof saveLocal === "function") {
+      saveLocal("ll_tenant_info", curTenant)
+    }
+    if (typeof window !== "undefined") {
+      const detail = {
+        tokenBalance: data.tokenUsage.newBalance,
+        tokensDeducted: data.tokenUsage.tokensDeducted || 0.7
+      }
+      window.dispatchEvent(new CustomEvent("bakewealth:token-updated", { detail }))
+      window.dispatchEvent(new CustomEvent("layerledger:token-updated", { detail }))
+    }
+  }
+
   if (Array.isArray(data.content)) {
     const textBlock = data.content.find(c => c.type === "text" && c.text)
     if (textBlock && textBlock.text) {
@@ -149,18 +233,43 @@ export async function callClaude(messages, system = "") {
 }
 
 // Compress image before sending to API
-export async function compressImage(base64, maxWidth = 800, quality = 0.8) {
+export async function compressImage(base64, maxWidth = 1920, quality = 0.85, options = {}) {
   return new Promise(resolve => {
     const img = new Image()
     img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const scale = Math.min(1, maxWidth / img.width)
-      canvas.width = img.width * scale
-      canvas.height = img.height * scale
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
-      resolve(canvas.toDataURL('image/jpeg', quality).split(',')[1])
+      try {
+        const canvas = document.createElement('canvas')
+        const maxDim = Math.max(img.width, img.height)
+        const scale = maxDim > maxWidth ? maxWidth / maxDim : 1
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        const ctx = canvas.getContext('2d')
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+        if (options.enhanceContrast) {
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+          const d = imgData.data
+          const factor = 1.15
+          for (let i = 0; i < d.length; i += 4) {
+            d[i] = Math.min(255, Math.max(0, factor * (d[i] - 128) + 128 + 4))
+            d[i + 1] = Math.min(255, Math.max(0, factor * (d[i + 1] - 128) + 128 + 4))
+            d[i + 2] = Math.min(255, Math.max(0, factor * (d[i + 2] - 128) + 128 + 4))
+          }
+          ctx.putImageData(imgData, 0, 0)
+        }
+
+        resolve(canvas.toDataURL('image/jpeg', quality).split(',')[1])
+      } catch {
+        resolve(base64.replace(/^data:image\/[a-z]+;base64,/, ''))
+      }
     }
-    img.src = `data:image/jpeg;base64,${base64}`
+    img.onerror = () => {
+      resolve(base64.replace(/^data:image\/[a-z]+;base64,/, ''))
+    }
+    const cleanB64 = base64.replace(/^data:image\/[a-z]+;base64,/, '')
+    img.src = base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${cleanB64}`
   })
 }
 

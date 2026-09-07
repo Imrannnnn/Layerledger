@@ -8,6 +8,7 @@ import React, { useState } from "react"
 import { Btn, Card, Badge, SHead } from "../common/ui.jsx"
 import { fmt, mapCategory } from "../../lib/helpers.js"
 import { saveInventory } from "../../lib/data.js"
+import { Check, Printer } from "lucide-react"
 
 export function ShoppingList({ inventory, setInventory, company }) {
   const [done, setDone] = useState(false)
@@ -76,7 +77,7 @@ export function ShoppingList({ inventory, setInventory, company }) {
       <h1>${company?.name || "Bakery"} — Shopping List</h1>
       <h2>Generated: ${new Date().toLocaleDateString("en-NG", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</h2>
       
-      ${zero.length > 0 ? `<div style="border: 1px solid #000; padding: 10px; margin-bottom: 16px; font-weight: bold;">🚨 OUT OF STOCK: ${zero.map(i => i.name).join(", ")}</div>` : ""}
+      ${zero.length > 0 ? `<div style="border: 1px solid #000; padding: 10px; margin-bottom: 16px; font-weight: bold;">OUT OF STOCK: ${zero.map(i => i.name).join(", ")}</div>` : ""}
       
       <table>
         <thead>
@@ -132,15 +133,19 @@ export function ShoppingList({ inventory, setInventory, company }) {
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 600 }}>Items Needing Restock ({low.length})</div>
             {low.length > 0 && (
               <div style={{ display: "flex", gap: 8 }}>
-                <Btn small variant="success" onClick={markAllPurchased}>✓ Mark All Purchased</Btn>
-                <Btn small onClick={print}>🖨️ Download and print</Btn>
+                <Btn small variant="success" onClick={markAllPurchased} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <Check size={12} /> Mark All Purchased
+                </Btn>
+                <Btn small onClick={print} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <Printer size={13} /> Download and print
+                </Btn>
               </div>
             )}
           </div>
 
           {low.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 30, color: "#357A52", fontWeight: 600, fontSize: 14 }}>
-              ✓ All items are well-stocked! Nothing needs restocking.
+            <div style={{ textAlign: "center", padding: 30, color: "#357A52", fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <Check size={18} /> All items are well-stocked! Nothing needs restocking.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -163,7 +168,9 @@ export function ShoppingList({ inventory, setInventory, company }) {
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <Badge color={i.stock === 0 ? "red" : "gold"}>{i.stock === 0 ? "OUT" : "LOW"}</Badge>
-                      <Btn small variant="outline" onClick={() => markAsPurchased(i)}>✓ Purchased</Btn>
+                      <Btn small variant="outline" onClick={() => markAsPurchased(i)} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <Check size={11} /> Purchased
+                      </Btn>
                     </div>
                   </div>
                 )

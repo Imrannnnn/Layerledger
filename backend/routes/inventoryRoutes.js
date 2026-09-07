@@ -7,7 +7,8 @@ const {
     deleteItem,
     adjustItem,
     deleteAllInventory,
-    deleteOpeningStock
+    deleteOpeningStock,
+    batchDeleteItems
 } = require('../controller/inventoryController');
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 const { validate } = require('../middleware/validationMiddleware');
@@ -20,6 +21,8 @@ router.route('/')
 // Bulk delete operations (placed before /:id to prevent route shadowing)
 router.delete('/all', protect, restrictTo('owner'), deleteAllInventory);
 router.delete('/opening-stock', protect, restrictTo('owner'), deleteOpeningStock);
+router.post('/batch-delete', protect, batchDeleteItems);
+router.delete('/batch', protect, batchDeleteItems);
 
 router.route('/:id')
     .put(protect, validate(updateInventorySchema), updateItem)

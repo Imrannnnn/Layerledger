@@ -11,7 +11,21 @@ import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSele
 import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES } from "../../lib/helpers.js"
 
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
-import { saveInventory, saveRecipes, saveLocal, loadLocal, deleteAllInventoryOnServer } from "../../lib/data.js"
+import { 
+  saveInventory, 
+  saveRecipes, 
+  saveLocal, 
+  loadLocal, 
+  deleteAllInventoryOnServer, 
+  batchDeleteInventoryOnServer,
+  createInventoryItemOnServer,
+  updateInventoryItemOnServer,
+  deleteInventoryItemOnServer,
+  createRecipeOnServer,
+  updateRecipeOnServer,
+  deleteRecipeOnServer
+} from "../../lib/data.js"
+import { Pencil, Trash2, Check, X, AlertTriangle, ShoppingCart, Folder, FileSpreadsheet, Camera, Sparkles, Plus, ChevronUp, ChevronDown } from "lucide-react"
 
 
 
@@ -64,11 +78,11 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center"}}>
         {isOwner&&<div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
-          <Btn small variant="ghost" onClick={onEdit}>✎ Edit</Btn>
-          {onDuplicate&&<Btn small variant="ghost" onClick={onDuplicate}>⧉ Duplicate</Btn>}
-          <Btn small variant="danger" onClick={onDelete}>×</Btn>
+          <Btn small variant="ghost" onClick={onEdit} style={{display:"inline-flex",alignItems:"center",gap:4}}><Pencil size={11}/> Edit</Btn>
+          {onDuplicate&&<Btn small variant="ghost" onClick={onDuplicate}>Duplicate</Btn>}
+          <Btn small variant="danger" onClick={onDelete} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn>
         </div>}
-        <span style={{color:"var(--muted)",fontSize:16,marginLeft:4}}>{open?"▴":"▾"}</span>
+        <span style={{color:"var(--muted)",display:"flex",alignItems:"center",marginLeft:4}}>{open ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}</span>
       </div>
     </div>
 
@@ -186,7 +200,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
                 {mult!==null
                   ?<div style={{display:"flex",alignItems:"center",gap:8}}>
                       <div style={{flex:1,padding:"7px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",fontSize:14,fontWeight:600,color:"var(--gold)"}}>× {mult.toFixed(1)}</div>
-                      <span style={{fontSize:11,color:"#357A52",whiteSpace:"nowrap"}}>✓ Set</span>
+                      <span style={{fontSize:11,color:"#357A52",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:3}}><Check size={11}/> Set</span>
                     </div>
                   :<div style={{padding:"7px 12px",borderRadius:8,border:"1px solid #F0C0BB",background:"#FDEBE9",fontSize:13,color:"#B03A2E"}}>
                       Not set — go to <strong>Settings → Pricing setup</strong> to add this size/shape multiplier.
@@ -214,7 +228,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
 //  DECORATIONS TAB (standalone — own state, saved to sessionStorage)
 
 // ═══════════════════════════════════════════════════════════
-export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,setTab,searchQuery=""}){
+export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setView,setTab,searchQuery=""}){
   const [showImport,setShowImport]=useState(false)
   const [showAdd,setShowAdd]=useState(false)
   const [saving,setSaving]=useState(false)
@@ -243,7 +257,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       return
     }
     const confirmed = window.confirm(
-      `⚠️ ARE YOU SURE YOU WANT TO DELETE ALL ${inventory.length} INVENTORY ITEMS?\n\nThis will permanently delete all inventory items directly from the database and unlink associated purchases. This action cannot be undone.`
+      `ARE YOU SURE YOU WANT TO DELETE ALL ${inventory.length} INVENTORY ITEMS?\n\nThis will permanently delete all inventory items directly from the database and unlink associated purchases. This action cannot be undone.`
     )
     if (!confirmed) return
     const secondCheck = window.confirm(
@@ -257,7 +271,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       setInventory([])
       setSelectedItemIds(new Set())
       setCurrentPage(1)
-      showMsg("✓ All inventory items successfully deleted from database", "green")
+      showMsg("All inventory items successfully deleted from database", "green")
     } catch (e) {
       showMsg("Failed to delete inventory: " + e.message, "red")
     } finally {
@@ -328,10 +342,25 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     setSaving(true)
     try {
       const approved=prevItems.filter(p=>p.on)
-      const updated=[...inventory,...approved.filter(ni=>!inventory.find(i=>i.name.toLowerCase()===ni.name.toLowerCase()))]
-      setInventory(updated);await saveInventory(updated)
+      let currentList = [...inventory]
+      let addedCount = 0
+      for (const ni of approved) {
+        if (!currentList.find(i => i.name.toLowerCase() === ni.name.toLowerCase())) {
+          const saved = await createInventoryItemOnServer({
+            name: ni.name,
+            unit: ni.unit || "kg",
+            cost: +ni.cost,
+            stock: 0,
+            minStock: 5,
+            cat: "Dry Goods"
+          })
+          currentList.push(saved)
+          addedCount++
+        }
+      }
+      setInventory(currentList)
       setPasteN("");setPasteU("");setPasteC("");setImportStep(3)
-      showMsg(`✓ ${approved.length} items imported. Set opening stock in Settings → Opening Stock.`,"green")
+      showMsg(`${addedCount} items imported directly to database. Set opening stock in Settings → Opening Stock.`,"green")
     } catch (e) {
       showMsg("Failed to import: " + e.message, "red")
     } finally {
@@ -359,16 +388,24 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
 
     setSaving(true)
     try {
-      const item={id:uid(),name:newItem.name,unit:newItem.unit||"kg",cost:+cost,stock:0,minStock:+newItem.minStock||5,cat:selectedCat||"Dry Goods"}
-      const updated=[...inventory,item]
-      setInventory(updated);await saveInventory(updated)
+      const itemToSave = {
+        name: newItem.name.trim(),
+        unit: newItem.unit || "kg",
+        cost: +cost,
+        stock: 0,
+        minStock: +newItem.minStock || 5,
+        cat: selectedCat || "Dry Goods"
+      }
+      const savedItem = await createInventoryItemOnServer(itemToSave)
+      const updated = [...inventory.filter(i => i.id !== savedItem.id), savedItem]
+      setInventory(updated)
       setNewItem({name:"",unit:"kg",cost:"",minStock:"",cat:"Dry Goods",totalPaid:"",qtyBought:""})
       setCustomCatInput("")
       setShowAdd(false)
       setCalcMode("manual")
-      showMsg("✓ Item added. Set opening stock in Settings → Opening Stock.","green")
+      showMsg("Item added directly to database. Set opening stock in Settings → Opening Stock.","green")
     } catch (e) {
-      showMsg("Failed to add item: " + e.message, "red")
+      showMsg("Failed to add item to database: " + e.message, "red")
     } finally {
       setSaving(false)
     }
@@ -388,8 +425,20 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     }
     setSaving(true)
     try {
-      const updated=inventory.map(i=>i.id===editId?{...editRow,cat:finalCat,cost:+editRow.cost,minStock:+editRow.minStock||5,stock:+editRow.stock||0}:i)
-      setInventory(updated);await saveInventory(updated);setEditId(null);setCustomCatInput("");showMsg("✓ Updated","green")
+      const itemToUpdate = {
+        name: editRow.name,
+        cat: finalCat,
+        unit: editRow.unit,
+        cost: +editRow.cost,
+        stock: +editRow.stock || 0,
+        minStock: +editRow.minStock || 5
+      }
+      const updatedItem = await updateInventoryItemOnServer(editId, itemToUpdate)
+      const updated = inventory.map(i => i.id === editId ? updatedItem : i)
+      setInventory(updated)
+      setEditId(null)
+      setCustomCatInput("")
+      showMsg("Item updated directly in database","green")
     } catch (e) {
       showMsg("Failed to save item: " + e.message, "red")
     } finally {
@@ -397,12 +446,15 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     }
   }
   const doDelete=async(id)=>{
-    if(!confirm("Remove this item?"))return
+    if(!confirm("Delete this ingredient from database?"))return
     setSaving(true)
     try {
-      const updated=inventory.filter(i=>i.id!==id);setInventory(updated);await saveInventory(updated)
+      await deleteInventoryItemOnServer(id)
+      const updated=inventory.filter(i=>i.id!==id)
+      setInventory(updated)
+      showMsg("Item deleted from database","green")
     } catch (e) {
-      showMsg("Failed to delete item: " + e.message, "red")
+      showMsg("Failed to delete item from database: " + e.message, "red")
     } finally {
       setSaving(false)
     }
@@ -459,12 +511,39 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       })
       setInventory(updated)
       await saveInventory(updated)
-      showMsg(`✓ Moved ${selectedItemIds.size} item(s) to "${catToApply}"`, "green")
+      showMsg(`Moved ${selectedItemIds.size} item(s) to "${catToApply}"`, "green")
       setSelectedItemIds(new Set())
       setTargetCatForBulk("")
       setCustomCatInput("")
     } catch (e) {
       showMsg("Failed to move items: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedItemIds.size === 0) return
+    const count = selectedItemIds.size
+    const confirmed = window.confirm(
+      `Are you sure you want to delete the ${count} selected item${count !== 1 ? "s" : ""}? This will permanently remove them from inventory and cannot be undone.`
+    )
+    if (!confirmed) return
+    setSaving(true)
+    try {
+      const idsToDelete = Array.from(selectedItemIds)
+      const updated = inventory.filter(item => !selectedItemIds.has(item.id))
+      setInventory(updated)
+      try {
+        await batchDeleteInventoryOnServer(idsToDelete)
+      } catch (err) {
+        console.warn("Server batch delete error, fallback to sync:", err)
+      }
+      await saveInventory(updated)
+      setSelectedItemIds(new Set())
+      showMsg(`✓ Deleted ${count} item${count !== 1 ? "s" : ""}`, "green")
+    } catch (e) {
+      showMsg("Failed to delete items: " + e.message, "red")
     } finally {
       setSaving(false)
     }
@@ -482,7 +561,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       const updated = inventory.map(item => item.id === itemId ? { ...item, cat: catToApply } : item)
       setInventory(updated)
       await saveInventory(updated)
-      showMsg(`✓ Item moved to "${catToApply}"`, "green")
+      showMsg(`Item moved to "${catToApply}"`, "green")
     } catch (e) {
       showMsg("Failed to move item: " + e.message, "red")
     } finally {
@@ -503,7 +582,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
 
   const badge=(item)=>{
     if(item.stock===0)return<span style={{background:"#FDEBE9",color:"#912622",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Out of Stock</span>
-    if(item.stock<=(item.minStock||5))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Low stock ⚠</span>
+    if(item.stock<=(item.minStock||5))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600,display:"inline-flex",alignItems:"center",gap:3}}>Low stock <AlertTriangle size={10}/></span>
     return<span style={{background:"#E5F4EC",color:"#2D7A50",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>In Stock</span>
   }
 
@@ -546,27 +625,27 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:13,color:"var(--muted)",fontWeight:500}}>{inventory.length} items total</span>
-        {lowStock.length>0&&<span onClick={()=>setView("shopping")} style={{fontSize:12.5,color:"#B03A2E",fontWeight:600,cursor:"pointer",background:"#FDEBE9",padding:"3px 10px",borderRadius:20}}>⚠ {lowStock.length} low stock → Shopping List</span>}
+        {lowStock.length>0&&<span onClick={()=>setView("shopping")} style={{fontSize:12.5,color:"#B03A2E",fontWeight:600,cursor:"pointer",background:"#FDEBE9",padding:"3px 10px",borderRadius:20,display:"inline-flex",alignItems:"center",gap:4}}><AlertTriangle size={12}/> {lowStock.length} low stock → Shopping List</span>}
       </div>
       {isOwner&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
         {inventory.length > 0 && (
           <Btn small variant="ghost" onClick={selectAllItems}>
-            {selectedItemIds.size === inventory.length ? "☐ Deselect All" : "☑ Select All"}
+            {selectedItemIds.size === inventory.length ? "Deselect All" : "Select All"}
           </Btn>
         )}
         <Btn small variant="outline" onClick={() => setShowAddCatModal(true)}>+ New Category</Btn>
-        <Btn small variant="ghost" onClick={()=>{setShowImport(s=>!s);setShowAdd(false);setImportStep(1)}}>📋 Import from Excel</Btn>
+        <Btn small variant="ghost" onClick={()=>{setShowImport(s=>!s);setShowAdd(false);setImportStep(1)}} style={{display:"inline-flex",alignItems:"center",gap:4}}><FileSpreadsheet size={13}/> Import from Excel</Btn>
         <Btn small onClick={()=>{setShowAdd(s=>!s);setShowImport(false)}}>+ Add Item</Btn>
         {inventory.length > 0 && (
           <Btn
             small
             variant="ghost"
             disabled={deletingAll || saving}
-            style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px" }}
+            style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: 4 }}
             onClick={handleDeleteAllInventory}
             title="Delete all inventory items directly from database"
           >
-            {deletingAll ? "Deleting..." : "🗑 Delete All"}
+            <Trash2 size={12} /> {deletingAll ? "Deleting..." : "Delete All"}
           </Btn>
         )}
       </div>}
@@ -590,7 +669,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                 setSaving(true)
                 try {
                   const added = await addCustomCategory(newCatName)
-                  showMsg(`✓ Category "${added}" created!`, "green")
+                  showMsg(`Category "${added}" created!`, "green")
                   setNewCatName("")
                   setShowAddCatModal(false)
                 } catch (e) {
@@ -618,8 +697,8 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
 
     {/* LOW STOCK BANNER */}
     {lowStock.length>0&&<div style={{background:"#FFF9EE",border:"1px solid var(--gold)",borderRadius:8,padding:"9px 14px",fontSize:12.5,color:"var(--gold)",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <span>⚠ {lowStock.map(i=>i.name).join(", ")} — below minimum</span>
-      <Btn small variant="outline" onClick={()=>setView("shopping")}>🛒 Shopping List →</Btn>
+      <span style={{display:"inline-flex",alignItems:"center",gap:5}}><AlertTriangle size={13}/> {lowStock.map(i=>i.name).join(", ")} — below minimum</span>
+      <Btn small variant="outline" onClick={()=>setView("shopping")} style={{display:"inline-flex",alignItems:"center",gap:5}}><ShoppingCart size={13}/> Shopping List →</Btn>
     </div>}
 
     {/* IMPORT PANEL */}
@@ -627,11 +706,11 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
 
       {/* Step indicators */}
       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-        {[["1","Paste columns"],["2","Preview"],["✓","Imported"]].map(([num,lbl],i)=>{
+        {[["1","Paste columns"],["2","Preview"],["3","Imported"]].map(([num,lbl],i)=>{
           const idx=i+1
           const done=importStep>idx,active=importStep===idx
           return <div key={num} style={{display:"flex",alignItems:"center",gap:5}}>
-            <div style={{width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,background:done?"#357A52":active?"var(--gold)":"var(--border)",color:done||active?"#fff":"var(--muted)"}}>{done?"✓":num}</div>
+            <div style={{width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,background:done?"#357A52":active?"var(--gold)":"var(--border)",color:done||active?"#fff":"var(--muted)"}}>{done?<Check size={12}/>:num}</div>
             <span style={{fontSize:12,color:active?"var(--text)":"var(--muted)",fontWeight:active?500:400}}>{lbl}</span>
             {i<2&&<div style={{width:20,height:1,background:"var(--border)",margin:"0 2px"}}/>}
           </div>
@@ -641,7 +720,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
       {/* STEP 1 — paste */}
       {importStep===1&&<div>
         <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:10,lineHeight:1.7}}>Open your Excel. Copy each column and paste into its own box. Only item names and cost per unit are required.</div>
-        <div style={{background:"#FFF9EE",border:"1px solid #E8D5A3",borderRadius:7,padding:"8px 12px",fontSize:12,color:"var(--gold)",marginBottom:12}}>💡 Just copy from Excel as-is. No reformatting needed.</div>
+        <div style={{background:"#FFF9EE",border:"1px solid #E8D5A3",borderRadius:7,padding:"8px 12px",fontSize:12,color:"var(--gold)",marginBottom:12}}>Just copy from Excel as-is. No reformatting needed.</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:10}}>
           <div>
             <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Item Names *</label>
@@ -658,7 +737,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
             <div style={{fontSize:10.5,color:"var(--gold)",marginTop:3}}>Bulk price ÷ qty bought = cost/unit</div>
           </div>
         </div>
-        {warnMsg&&<div style={{padding:"7px 12px",background:"#FDEBE9",borderRadius:7,fontSize:12,color:"#B03A2E",marginBottom:10}}>⚠ {warnMsg}</div>}
+        {warnMsg&&<div style={{padding:"7px 12px",background:"#FDEBE9",borderRadius:7,fontSize:12,color:"#B03A2E",marginBottom:10,display:"flex",alignItems:"center",gap:5}}><AlertTriangle size={13}/> {warnMsg}</div>}
         <div style={{display:"flex",gap:8}}>
           <Btn onClick={doPreview} disabled={!pasteN.trim()||!pasteC.trim()||!!warnMsg}>Preview import →</Btn>
           <Btn variant="ghost" onClick={()=>setShowImport(false)}>Cancel</Btn>
@@ -689,7 +768,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
             <Spinner />
           ) : (
             <>
-              <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p=>p.on)}>✓ Confirm & Import {prevItems.filter(p=>p.on).length} Items</Btn>
+              <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p=>p.on)} style={{display:"inline-flex",alignItems:"center",gap:5}}><Check size={13}/> Confirm & Import {prevItems.filter(p=>p.on).length} Items</Btn>
               <Btn variant="ghost" onClick={()=>setImportStep(1)}>← Edit</Btn>
             </>
           )}
@@ -698,7 +777,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
 
       {/* STEP 3 — done */}
       {importStep===3&&<div style={{textAlign:"center",padding:"16px 0"}}>
-        <div style={{fontSize:16,color:"#357A52",fontWeight:600,marginBottom:6}}>✓ Import complete</div>
+        <div style={{fontSize:16,color:"#357A52",fontWeight:600,marginBottom:6,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Check size={18}/> Import complete</div>
         <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>Go to <strong>Settings → Opening Stock</strong> to set opening quantities.</div>
         <Btn variant="ghost" onClick={()=>{setImportStep(1);setShowImport(false)}}>Done</Btn>
       </div>}
@@ -859,6 +938,22 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
           <Btn small variant="success" onClick={handleBulkMove} disabled={!targetCatForBulk || saving}>
             {saving ? "Moving..." : "Move Selected →"}
           </Btn>
+          <Btn
+            small
+            variant="danger"
+            onClick={handleBulkDelete}
+            disabled={saving}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              background: "#B03A2E",
+              color: "#fff",
+              borderColor: "#B03A2E"
+            }}
+          >
+            <Trash2 size={12} /> {saving ? "Deleting..." : `Delete Selected (${selectedItemIds.size})`}
+          </Btn>
           <Btn small variant="ghost" style={{ color: "#aaa", borderColor: "#555" }} onClick={selectAllItems} disabled={saving}>
             {selectedItemIds.size === inventory.length ? "Deselect All" : "Select All"}
           </Btn>
@@ -895,7 +990,9 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span>📁 {catName} ({displayItems.length} item{displayItems.length !== 1 ? "s" : ""})</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Folder size={15} color="var(--gold)" style={{ flexShrink: 0 }} /> {catName} ({displayItems.length} item{displayItems.length !== 1 ? "s" : ""})
+                </span>
  
                 {catName === "Decoration Extras" && (
                   <span 
@@ -941,7 +1038,23 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
             {!isCollapsed && (
               <div style={{ marginTop: 8, overflowX: "auto" }}>
                 <table style={{width:"100%",borderCollapse:"collapse",background:"var(--panel)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
-                  <TH cols={[...(isOwner ? [""] : []), "Item", "Unit", "Stock qty", "Cost/Unit", "Min Alert", "Status", ...(isOwner ? ["Category / Move", "Actions"] : [])]}/>
+                  <TH cols={[
+                    ...(isOwner ? [
+                      <input
+                        key={`cat-sel-${catName}`}
+                        type="checkbox"
+                        checked={displayItems.length > 0 && displayItems.every(i => selectedItemIds.has(i.id))}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleSelectCategoryItems(displayItems);
+                        }}
+                        title="Select / Deselect all items in this category"
+                        style={{ cursor: "pointer", width: 15, height: 15, accentColor: "var(--gold)", margin: 0 }}
+                      />
+                    ] : []),
+                    "Item", "Unit", "Stock qty", "Cost/Unit", "Min Alert", "Status",
+                    ...(isOwner ? ["Category / Move", "Actions"] : [])
+                  ]}/>
                   <tbody>
                     {displayItems.length === 0 ? (
                       <tr><td colSpan={isOwner ? 9 : 6} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No items in this category yet.</td></tr>
@@ -979,7 +1092,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                                     <input value={customCatInput} onChange={e=>setCustomCatInput(e.target.value)} placeholder="Category Name" style={{...iSt,padding:"4px 6px",fontSize:11,marginTop:4}} />
                                   )}
                                 </td>
-                                <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={doSaveEdit} disabled={saving}>✓</Btn><Btn small variant="ghost" onClick={cancelEdit} disabled={saving}>✗</Btn></div></td>
+                                <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={doSaveEdit} disabled={saving}><Check size={12}/></Btn><Btn small variant="ghost" onClick={cancelEdit} disabled={saving}><X size={12}/></Btn></div></td>
                               </>
                             ) : (
                               <>
@@ -1015,8 +1128,8 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg,setView,set
                                 {isOwner && (
                                   <td style={{padding:"9px 10px"}}>
                                     <div style={{display:"flex",gap:4}}>
-                                      <Btn small variant="ghost" onClick={()=>startEdit(item)} disabled={saving}>✎ Edit</Btn>
-                                      <Btn small variant="danger" onClick={()=>doDelete(item.id)} disabled={saving}>×</Btn>
+                                      <Btn small variant="ghost" onClick={()=>startEdit(item)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><Pencil size={11}/> Edit</Btn>
+                                      <Btn small variant="danger" onClick={()=>doDelete(item.id)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn>
                                     </div>
                                   </td>
                                 )}
@@ -1063,6 +1176,58 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
   const [decorVersion, setDecorVersion] = useState(0)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+
+  const toggleSelect = (id) => {
+    setSelectedIds(p => {
+      const copy = new Set(p)
+      if (copy.has(id)) copy.delete(id)
+      else copy.add(id)
+      return copy
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const allSelected = displayItems.length > 0 && displayItems.every(d => selectedIds.has(d.id))
+    setSelectedIds(p => {
+      const copy = new Set(p)
+      if (allSelected) {
+        displayItems.forEach(d => copy.delete(d.id))
+      } else {
+        displayItems.forEach(d => copy.add(d.id))
+      }
+      return copy
+    })
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return
+    const count = selectedIds.size
+    if (!window.confirm(`Are you sure you want to delete the ${count} selected decoration${count !== 1 ? "s" : ""}?`)) return
+    setSaving(true)
+    try {
+      const toDeleteDecorations = items.filter(d => selectedIds.has(d.id))
+      const toDeleteIids = new Set(toDeleteDecorations.map(d => d.iid).filter(Boolean))
+      let currentInv = inventory.map(i => {
+        if (toDeleteIids.has(i.id)) {
+          return { ...i, cat: "Other" }
+        }
+        return i
+      })
+      const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
+      const updatedDecorations = stored.filter(d => !selectedIds.has(d.id) && !toDeleteIids.has(d.iid))
+      saveLocal(LS_KEY, updatedDecorations)
+      setInventory(currentInv)
+      await saveInventory(currentInv)
+      setDecorVersion(v => v + 1)
+      setSelectedIds(new Set())
+      showMsg(`✓ Deleted ${count} decoration(s)`, "green")
+    } catch (e) {
+      showMsg("Failed to delete decorations: " + e.message, "red")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   useEffect(() => {
     setCurrentPage(1)
@@ -1174,7 +1339,7 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
       await saveInventory(currentInv)
       setDecorVersion(v => v + 1)
       setEditId(null)
-      showMsg("✓ Decoration updated")
+      showMsg("Decoration updated")
     } catch (e) {
       showMsg("Failed to save: " + e.message)
     } finally {
@@ -1218,9 +1383,7 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
     let currentInv = [...inventory]
 
     if (!targetIid) {
-      const newId = uid()
       const newInvItem = {
-        id: newId,
         name: newItem.name.trim(),
         cat: "Decoration Extras",
         unit: newItem.unit || "pcs",
@@ -1228,15 +1391,19 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
         stock: 0,
         minStock: 5
       }
-      currentInv = [...currentInv, newInvItem]
-      targetIid = newId
+      const savedInv = await createInventoryItemOnServer(newInvItem)
+      currentInv = [...currentInv.filter(i => i.id !== savedInv.id), savedInv]
+      targetIid = savedInv.id
     } else {
-      currentInv = currentInv.map(i => {
-        if (i.id === targetIid) {
-          return { ...i, name: newItem.name.trim(), cat: "Decoration Extras" }
-        }
-        return i
-      })
+      const existing = currentInv.find(i => i.id === targetIid)
+      if (existing) {
+        const updatedItem = await updateInventoryItemOnServer(targetIid, {
+          ...existing,
+          name: newItem.name.trim(),
+          cat: "Decoration Extras"
+        })
+        currentInv = currentInv.map(i => i.id === targetIid ? updatedItem : i)
+      }
     }
 
     const stored = loadLocal(LS_KEY, DECORATION_ITEMS)
@@ -1245,15 +1412,14 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
 
     setSaving(true)
     try {
-      saveLocal(LS_KEY, updatedDecorations)
+      await saveLocal(LS_KEY, updatedDecorations)
       setInventory(currentInv)
-      await saveInventory(currentInv)
       setDecorVersion(v => v + 1)
       setNewItem({name:"", label:"", iid:"", qty:"1", cost:"", unit:"pcs"})
       setAdding(false)
-      showMsg("✓ Decoration added")
+      showMsg("Decoration added directly to database","green")
     } catch (e) {
-      showMsg("Failed to add: " + e.message)
+      showMsg("Failed to add decoration: " + e.message, "red")
     } finally {
       setSaving(false)
     }
@@ -1265,7 +1431,7 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
       {isOwner&&<Btn small onClick={()=>setAdding(!adding)}>+ Add Decoration</Btn>}
     </div>
 
-    {msg&&<Alert msg={msg} color={msg.startsWith("✓")?"green":"gold"} onClose={()=>setMsg("")}/>}
+    {msg&&<Alert msg={msg} color="green" onClose={()=>setMsg("")}/>}
 
     {adding&&isOwner&&<Card style={{marginBottom:14, background:"#FFF9EE", borderColor:"var(--gold)"}}>
       <div style={{fontFamily:"'Playfair Display',serif", fontSize:14, fontWeight:600, marginBottom:12}}>New Decoration Extra</div>
@@ -1298,13 +1464,64 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
       </div>
     </Card>}
 
+    {/* Bulk Actions Bar */}
+    {selectedIds.size > 0 && (
+      <div style={{
+        background: "#FFF9EE",
+        border: "1px solid var(--gold)",
+        borderRadius: 8,
+        padding: "10px 16px",
+        marginBottom: 12,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        flexWrap: "wrap"
+      }}>
+        <span style={{ fontWeight: 600, fontSize: 13.5 }}>
+          {selectedIds.size} decoration{selectedIds.size !== 1 ? "s" : ""} selected
+        </span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn small variant="danger" onClick={handleBulkDelete} disabled={saving} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <Trash2 size={12} /> {saving ? "Deleting..." : `Delete Selected (${selectedIds.size})`}
+          </Btn>
+          <Btn small variant="ghost" onClick={() => setSelectedIds(new Set())} disabled={saving}>
+            Deselect All
+          </Btn>
+        </div>
+      </div>
+    )}
+
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%", borderCollapse:"collapse", background:"var(--panel)", borderRadius:10, overflow:"hidden", border:"1px solid var(--border)"}}>
-        <TH cols={["Decoration", "Linked Inventory Item", "Std Qty", "Cost", ...(isOwner?["Actions"]:[])]}/>
+        <TH cols={[
+          ...(isOwner ? [
+            <input
+              key="decor-select-all"
+              type="checkbox"
+              checked={displayItems.length > 0 && displayItems.every(d => selectedIds.has(d.id))}
+              onChange={toggleSelectAll}
+              title="Select / Deselect all"
+              style={{ cursor: "pointer", width: 16, height: 16, accentColor: "var(--gold)", margin: 0 }}
+            />
+          ] : []),
+          "Decoration", "Linked Inventory Item", "Std Qty", "Cost", ...(isOwner?["Actions"]:[])
+        ]}/>
         <tbody>{paginatedItems.map((d,i)=>{
           const it = inventory.find(x=>x.id===d.iid)
           const editing = editId===d.id
-          return <tr key={d.id} style={{background:i%2===0?"var(--panel)":"#F8F3EA"}}>
+          const isSelected = selectedIds.has(d.id)
+          return <tr key={d.id} style={{background: isSelected ? "#FFF3D6" : i%2===0?"var(--panel)":"#F8F3EA"}}>
+            {isOwner && (
+              <td style={{ padding: "9px 10px" }} onClick={e => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => toggleSelect(d.id)}
+                  style={{ cursor: "pointer", width: 16, height: 16, accentColor: "var(--gold)" }}
+                />
+              </td>
+            )}
             {editing ? <>
               <td style={{padding:"6px 8px"}}><input value={editRow.name||editRow.label||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value,label:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12}}/></td>
               <td style={{padding:"6px 8px", minWidth: 200}}>
@@ -1332,13 +1549,13 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
 
               <td style={{padding:"6px 8px"}}><input type="number" value={editRow.qty||""} onChange={e=>setEditRow(r=>({...r,qty:e.target.value}))} style={{...iSt,width:70,padding:"4px 6px",fontSize:12}}/></td>
               <td style={{padding:"6px 8px",fontSize:13}}>{editRow.iid&&inventory.find(x=>x.id===editRow.iid)?fmt(inventory.find(x=>x.id===editRow.iid).cost*(+editRow.qty||0)):"—"}</td>
-              <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={saveEdit} disabled={saving}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}>✗</Btn></div></td>
+              <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={saveEdit} disabled={saving}><Check size={12}/></Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}><X size={12}/></Btn></div></td>
             </> : <>
               <td style={{padding:"9px 10px",fontWeight:500,fontSize:13}}>{d.name||d.label}</td>
-              <td style={{padding:"9px 10px",color:"var(--muted)",fontSize:12.5}}>{it?.name||<span style={{color:"#B03A2E"}}>⚠ Not found</span>}</td>
+              <td style={{padding:"9px 10px",color:"var(--muted)",fontSize:12.5}}>{it?.name||<span style={{color:"#B03A2E",display:"inline-flex",alignItems:"center",gap:3}}><AlertTriangle size={11}/> Not found</span>}</td>
               <td style={{padding:"9px 10px",fontSize:13}}>{d.qty} {it?.unit||""}</td>
               <td style={{padding:"9px 10px",color:"var(--gold)",fontWeight:500,fontSize:13}}>{it?fmt(it.cost*d.qty):"—"}</td>
-              {isOwner&&<td style={{padding:"9px 10px"}}><div style={{display:"flex",gap:4}}><Btn small variant="ghost" onClick={()=>startEdit(d)} disabled={saving}>✎ Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(d.id)} disabled={saving}>×</Btn></div></td>}
+              {isOwner&&<td style={{padding:"9px 10px"}}><div style={{display:"flex",gap:4}}><Btn small variant="ghost" onClick={()=>startEdit(d)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><Pencil size={11}/> Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(d.id)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn></div></td>}
             </>}
           </tr>
         })}</tbody>
@@ -1402,49 +1619,104 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
   const [editId,setEditId]=useState(null)
   const [editRow,setEditRow]=useState({})
   const [saving,setSaving]=useState(false)
+  const [selectedItemIds, setSelectedItemIds] = useState(new Set())
+
+  const toggleSelectItem = (id) => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const allSelected = displayItems.length > 0 && displayItems.every(i => selectedItemIds.has(i.id))
+    setSelectedItemIds(prev => {
+      const next = new Set(prev)
+      if (allSelected) {
+        displayItems.forEach(i => next.delete(i.id))
+      } else {
+        displayItems.forEach(i => next.add(i.id))
+      }
+      return next
+    })
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedItemIds.size === 0) return
+    const count = selectedItemIds.size
+    if (!window.confirm(`Are you sure you want to delete the ${count} selected packaging item${count !== 1 ? "s" : ""}? This cannot be undone.`)) return
+    setSaving(true)
+    try {
+      const idsToDelete = Array.from(selectedItemIds)
+      const updated = inventory.filter(i => !selectedItemIds.has(i.id))
+      setInventory(updated)
+      try {
+        await batchDeleteInventoryOnServer(idsToDelete)
+      } catch (err) {
+        console.warn("Server batch delete failed, fallback to sync:", err)
+      }
+      await saveInventory(updated)
+      setSelectedItemIds(new Set())
+    } catch (e) {
+      alert("Failed to delete packaging: " + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const addItem=async()=>{
     if(!newItem.name.trim()||!newItem.price)return
-    const item={
-      id:"i_"+Date.now(),
-      name:newItem.name.trim(),
-      cat:"Board and Packaging",
-      unit:newItem.unit||"pcs",
-      cost:+newItem.price,
-      stock:0,
-      minStock:+newItem.minStock||5
-    }
-    const updated=[...inventory,item]
     setSaving(true)
     try {
-      setInventory(updated);await saveInventory(updated)
-      setAdding(false);setNewItem({name:"",price:"",unit:"pcs",minStock:"5"})
+      const itemToSave = {
+        name: newItem.name.trim(),
+        cat: "Board and Packaging",
+        unit: newItem.unit || "pcs",
+        cost: +newItem.price,
+        stock: 0,
+        minStock: +newItem.minStock || 5
+      }
+      const saved = await createInventoryItemOnServer(itemToSave)
+      setInventory([...inventory.filter(i => i.id !== saved.id), saved])
+      setAdding(false)
+      setNewItem({name:"",price:"",unit:"pcs",minStock:"5"})
     } catch (e) {
-      alert("Failed to add packaging: " + e.message)
+      alert("Failed to add packaging to database: " + e.message)
     } finally {
       setSaving(false)
     }
   }
   const saveEdit=async(id)=>{
-    const updated=inventory.map(i=>i.id===id?{...i,name:editRow.name.trim(),cost:+editRow.price,unit:editRow.unit||"pcs",stock:+editRow.stock||0,minStock:+editRow.minStock||5}:i)
     setSaving(true)
     try {
-      setInventory(updated);await saveInventory(updated)
+      const existing = inventory.find(i => i.id === id) || {}
+      const itemToUpdate = {
+        name: editRow.name.trim(),
+        cat: "Board and Packaging",
+        unit: editRow.unit || "pcs",
+        cost: +editRow.price,
+        stock: +editRow.stock || 0,
+        minStock: +editRow.minStock || 5
+      }
+      const updatedItem = await updateInventoryItemOnServer(id, itemToUpdate)
+      setInventory(inventory.map(i => i.id === id ? updatedItem : i))
       setEditId(null)
     } catch (e) {
-      alert("Failed to save: " + e.message)
+      alert("Failed to save packaging to database: " + e.message)
     } finally {
       setSaving(false)
     }
   }
   const deleteItem=async(id)=>{
-    if(!confirm("Remove this packaging item?"))return
-    const updated=inventory.filter(i=>i.id!==id)
+    if(!confirm("Remove this packaging item from database?"))return
     setSaving(true)
     try {
-      setInventory(updated);await saveInventory(updated)
+      await deleteInventoryItemOnServer(id)
+      setInventory(inventory.filter(i => i.id !== id))
     } catch (e) {
-      alert("Failed to delete: " + e.message)
+      alert("Failed to delete packaging from database: " + e.message)
     } finally {
       setSaving(false)
     }
@@ -1452,7 +1724,7 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
 
   const badge=(item)=>{
     if(item.stock===0)return<span style={{background:"#FDEBE9",color:"#912622",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Out of Stock</span>
-    if(item.stock<=(item.minStock||5))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Low stock ⚠</span>
+    if(item.stock<=(item.minStock||5))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600,display:"inline-flex",alignItems:"center",gap:3}}>Low stock <AlertTriangle size={10} /></span>
     return<span style={{background:"#E5F4EC",color:"#2D7A50",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>In Stock</span>
   }
 
@@ -1477,22 +1749,74 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
             <Spinner />
           ) : (
             <>
-              <Btn small variant="success" onClick={addItem}>✓ Save</Btn>
+              <Btn small variant="success" onClick={addItem} style={{display:"inline-flex",alignItems:"center",gap:4}}><Check size={11}/> Save</Btn>
               <Btn small variant="ghost" onClick={()=>setAdding(false)}>Cancel</Btn>
             </>
           )}
         </div>
       </div>
     </Card>}
+
+    {/* Bulk Actions Bar */}
+    {selectedItemIds.size > 0 && (
+      <div style={{
+        background: "#FFF9EE",
+        border: "1px solid var(--gold)",
+        borderRadius: 8,
+        padding: "10px 16px",
+        marginBottom: 12,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        flexWrap: "wrap"
+      }}>
+        <span style={{ fontWeight: 600, fontSize: 13.5 }}>
+          {selectedItemIds.size} packaging item{selectedItemIds.size !== 1 ? "s" : ""} selected
+        </span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn small variant="danger" onClick={handleBulkDelete} disabled={saving} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <Trash2 size={12} /> {saving ? "Deleting..." : `Delete Selected (${selectedItemIds.size})`}
+          </Btn>
+          <Btn small variant="ghost" onClick={() => setSelectedItemIds(new Set())} disabled={saving}>
+            Deselect All
+          </Btn>
+        </div>
+      </div>
+    )}
+
     <table style={{width:"100%",borderCollapse:"collapse",background:"var(--panel)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
-      <TH cols={["Item","Price/Cost","Unit","Stock Qty","Status",...(isOwner?["Actions"]:[])]}/>
+      <TH cols={[
+        ...(isOwner ? [
+          <input
+            key="pkg-select-all"
+            type="checkbox"
+            checked={displayItems.length > 0 && displayItems.every(i => selectedItemIds.has(i.id))}
+            onChange={toggleSelectAll}
+            title="Select / Deselect all"
+            style={{ cursor: "pointer", width: 16, height: 16, accentColor: "var(--gold)", margin: 0 }}
+          />
+        ] : []),
+        "Item","Price/Cost","Unit","Stock Qty","Status",...(isOwner?["Actions"]:[])
+      ]}/>
       <tbody>
         {displayItems.length === 0 ? (
-          <tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No board and packaging items found. Click + Add item above to create one.</td></tr>
+          <tr><td colSpan={isOwner ? 7 : 5} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No board and packaging items found. Click + Add item above to create one.</td></tr>
         ) : (
           paginatedItems.map((item,i)=>{
             const isLow = item.stock <= (item.minStock || 5)
-            return <tr key={item.id} style={{background:isLow?"#FFF9EE":i%2===0?"var(--panel)":"#F8F3EA"}}>
+            const isSelected = selectedItemIds.has(item.id)
+            return <tr key={item.id} style={{background:isSelected ? "#FFF3D6" : isLow?"#FFF9EE":i%2===0?"var(--panel)":"#F8F3EA"}}>
+              {isOwner && (
+                <td style={{ padding: "9px 10px" }} onClick={e => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelectItem(item.id)}
+                    style={{ cursor: "pointer", width: 16, height: 16, accentColor: "var(--gold)" }}
+                  />
+                </td>
+              )}
               {editId===item.id
                 ?<>
                   <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
@@ -1500,7 +1824,7 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
                   <td style={{padding:"6px 8px"}}><select value={editRow.unit||"pcs"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,fontSize:12}}>{["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
                   <td style={{padding:"6px 8px"}}><input type="number" value={editRow.stock||0} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,fontSize:12,width:70}}/></td>
                   <td style={{padding:"6px 8px"}}></td>
-                  <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={()=>saveEdit(item.id)} disabled={saving}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}>✗</Btn></div></td>
+                  <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={()=>saveEdit(item.id)} disabled={saving}><Check size={12}/></Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}><X size={12}/></Btn></div></td>
                 </>
                 :<>
                   <td style={{padding:"9px 10px",fontSize:13,fontWeight:500}}>{item.name}</td>
@@ -1508,7 +1832,7 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
                   <td style={{padding:"9px 10px",fontSize:12,color:"var(--muted)"}}>{item.unit}</td>
                   <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{item.stock||0} {item.unit}</td>
                   <td style={{padding:"9px 10px"}}>{badge(item)}</td>
-                  {isOwner&&<td style={{padding:"9px 8px"}}><div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><Btn small variant="ghost" onClick={()=>{setEditId(item.id);setEditRow({name:item.name,price:item.cost,unit:item.unit,stock:item.stock||0,minStock:item.minStock||5})}} disabled={saving}>Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(item.id)} disabled={saving}>×</Btn></div></td>}
+                  {isOwner&&<td style={{padding:"9px 8px"}}><div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><Btn small variant="ghost" onClick={()=>{setEditId(item.id);setEditRow({name:item.name,price:item.cost,unit:item.unit,stock:item.stock||0,minStock:item.minStock||5})}} disabled={saving}>Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(item.id)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn></div></td>}
                 </>}
             </tr>
           })
@@ -1581,11 +1905,19 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     if(!recipeModal.name)return showMsg("Recipe name is required")
     setSaving(true)
     try {
-      const updated = recipes.find(r=>r.id===recipeModal.id) ? recipes.map(r=>r.id===recipeModal.id?recipeModal:r) : [...recipes, recipeModal]
+      const isExisting = recipes.some(r => r.id === recipeModal.id)
+      let savedRec
+      if (isExisting) {
+        savedRec = await updateRecipeOnServer(recipeModal.id, recipeModal)
+      } else {
+        savedRec = await createRecipeOnServer(recipeModal)
+      }
+      const updated = recipes.find(r => r.id === savedRec.id)
+        ? recipes.map(r => r.id === savedRec.id ? savedRec : r)
+        : [...recipes, savedRec]
       setRecipes(updated)
-      await saveRecipes(updated)
       setRecipeModal(null)
-      showMsg("✓ Recipe saved","green")
+      showMsg("Recipe saved directly to database","green")
     } catch (e) {
       showMsg("Failed to save recipe: " + e.message, "red")
     } finally {
@@ -1593,13 +1925,13 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     }
   }
   const deleteRecipe = async (id) => {
-    if(!confirm("Delete this recipe?"))return
+    if(!confirm("Delete this recipe from database?"))return
     setSaving(true)
     try {
+      await deleteRecipeOnServer(id)
       const updated=recipes.filter(r=>r.id!==id)
       setRecipes(updated)
-      await saveRecipes(updated)
-      showMsg("Recipe deleted")
+      showMsg("Recipe deleted from database","green")
     } catch (e) {
       showMsg("Failed to delete recipe: " + e.message, "red")
     } finally {
@@ -1609,12 +1941,18 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
   const duplicateRecipe = async (r) => {
     setSaving(true)
     try {
-      const copy={...r,id:uid(),name:r.name+" (copy)",ing:r.ing?r.ing.map(i=>({...i})):[]}
-      const updated=[...recipes,copy]
-      setRecipes(updated)
-      await saveRecipes(updated)
-      setRecipeModal(copy)
-      showMsg("✓ Recipe duplicated — rename it and adjust quantities","green")
+      const copyPayload = {
+        name: r.name + " (copy)",
+        notes: r.notes || "",
+        type: r.type || "layer",
+        batchWeight: r.batchWeight,
+        batchSize: r.batchSize,
+        ing: r.ing ? r.ing.map(i => ({ ...i })) : []
+      }
+      const savedCopy = await createRecipeOnServer(copyPayload)
+      setRecipes([...recipes, savedCopy])
+      setRecipeModal(savedCopy)
+      showMsg("Recipe duplicated and saved to database — rename it and adjust quantities","green")
     } catch (e) {
       showMsg("Failed to duplicate recipe: " + e.message, "red")
     } finally {
@@ -1642,9 +1980,9 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         {searchQuery && (
           <button
             onClick={() => setSearchQuery("")}
-            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 14 }}
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--muted)", display: "flex", alignItems: "center" }}
           >
-            ✕
+            <X size={14} />
           </button>
         )}
       </div>
@@ -1687,7 +2025,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         <div style={{marginBottom:11}}>
           <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Recipe type *</label>
           <div style={{display:"flex",gap:8}}>
-            {[{v:"layer",l:"🎂 Cake layer",sub:"Vanilla, Red Velvet, Chocolate etc."},{v:"covering",l:"🍦 Covering / Filling",sub:"Buttercream, Fondant, Ganache etc."},{v:"pastry",l:"🍩 Pastry / Batch",sub:"Donuts, tarts, brownies, loaves etc."}].map(t=><div key={t.v} onClick={()=>setRecipeModal(r=>({...r,type:t.v}))} style={{flex:1,padding:"10px 12px",borderRadius:8,border:`1.5px solid ${(recipeModal.type||"layer")===t.v?"var(--gold)":"var(--border)"}`,background:(recipeModal.type||"layer")===t.v?"#FFF9EE":"var(--panel)",cursor:"pointer"}}>
+            {[{v:"layer",l:"Cake layer",sub:"Vanilla, Red Velvet, Chocolate etc."},{v:"covering",l:"Covering / Filling",sub:"Buttercream, Fondant, Ganache etc."},{v:"pastry",l:"Pastry / Batch",sub:"Donuts, tarts, brownies, loaves etc."}].map(t=><div key={t.v} onClick={()=>setRecipeModal(r=>({...r,type:t.v}))} style={{flex:1,padding:"10px 12px",borderRadius:8,border:`1.5px solid ${(recipeModal.type||"layer")===t.v?"var(--gold)":"var(--border)"}`,background:(recipeModal.type||"layer")===t.v?"#FFF9EE":"var(--panel)",cursor:"pointer"}}>
               <div style={{fontSize:13,fontWeight:500,color:(recipeModal.type||"layer")===t.v?"var(--gold)":"var(--text)"}}>{t.l}</div>
               <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{t.sub}</div>
             </div>)}
@@ -1727,13 +2065,13 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
               placeholder="Type to search ingredient..."
             />
             <input type="number" placeholder="Qty" value={ing.qty} onChange={e=>updateIng(idx,"qty",e.target.value)} style={{...iSt,width:70,fontSize:12}}/>
-            <Btn small variant="danger" onClick={()=>removeIng(idx)}>×</Btn>
+            <Btn small variant="danger" onClick={()=>removeIng(idx)} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn>
           </div>
         })}
         <Btn small variant="ghost" onClick={addIngToRecipe}>+ Add Ingredient</Btn>
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <Btn small variant="outline" onClick={() => setShowRecipeExcelImport(true)}>📋 Import from Excel</Btn>
-          <Btn small variant="outline" onClick={() => setShowRecipeScan(true)}>📸 Scan Recipe (AI)</Btn>
+          <Btn small variant="outline" onClick={() => setShowRecipeExcelImport(true)} style={{display:"inline-flex",alignItems:"center",gap:5}}><FileSpreadsheet size={13}/> Import from Excel</Btn>
+          <Btn small variant="outline" onClick={() => setShowRecipeScan(true)} style={{display:"inline-flex",alignItems:"center",gap:5}}><Camera size={13}/> Scan Recipe (AI)</Btn>
         </div>
         {recipeModal.ing.length>0&&<div style={{marginTop:10,padding:"8px 12px",background:"#F5F0E4",borderRadius:7,fontSize:13}}>
           {recipeModal.type==="pastry"
@@ -1746,7 +2084,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
             <Spinner />
           ) : (
             <>
-              <Btn variant="success" onClick={saveRecipe}>✓ Save Recipe</Btn>
+              <Btn variant="success" onClick={saveRecipe} style={{display:"inline-flex",alignItems:"center",gap:5}}><Check size={13}/> Save Recipe</Btn>
               <Btn variant="ghost" onClick={()=>setRecipeModal(null)}>Cancel</Btn>
             </>
           )}
@@ -1875,7 +2213,7 @@ export function RecipeExcelImportModal({ inventory, onClose, onImport }) {
               />
             </div>
           </div>
-          {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10 }}>⚠ {warnMsg}</div>}
+          {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {warnMsg}</div>}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <Btn onClick={doPreview} disabled={!pasteN.trim() || !!warnMsg}>Preview & Match →</Btn>
             <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
@@ -1938,8 +2276,8 @@ export function RecipeExcelImportModal({ inventory, onClose, onImport }) {
             </table>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p => p.on && p.iid)}>
-              ✓ Import Selected ({prevItems.filter(p => p.on && p.iid).length})
+            <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p => p.on && p.iid)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <Check size={13} /> Import Selected ({prevItems.filter(p => p.on && p.iid).length})
             </Btn>
             <Btn variant="ghost" onClick={() => setImportStep(1)}>← Edit</Btn>
           </div>
@@ -2075,9 +2413,9 @@ export function RecipeScanModal({ inventory, onClose, onImport }) {
                   inp.onchange = handleFile
                   inp.click()
                 }}
-                style={{ padding: "10px 14px", borderRadius: 8, border: "2px dashed var(--border)", background: "#FAF7F0", cursor: "pointer", fontSize: 12.5, fontWeight: 500 }}
+                style={{ padding: "10px 14px", borderRadius: 8, border: "2px dashed var(--border)", background: "#FAF7F0", cursor: "pointer", fontSize: 12.5, fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 6 }}
               >
-                📸 Choose image / Open camera
+                <Camera size={14} /> Choose image / Open camera
               </button>
               {photo && (
                 <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 2, background: "#fff" }}>
@@ -2087,11 +2425,32 @@ export function RecipeScanModal({ inventory, onClose, onImport }) {
             </div>
           </div>
 
-          {error && <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12.5, color: "#B03A2E", marginBottom: 12 }}>⚠ {error}</div>}
+          {error && (
+            <div style={{ padding: "8px 12px", background: error.toLowerCase().includes("token") ? "#FFF4E5" : "#FDEBE9", border: error.toLowerCase().includes("token") ? "1px solid #FFE0B2" : "1px solid #FCDAD7", borderRadius: 8, fontSize: 12.5, color: error.toLowerCase().includes("token") ? "#92400E" : "#B03A2E", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <AlertTriangle size={13} color={error.toLowerCase().includes("token") ? "#D97706" : "#B03A2E"} />
+                <span>{error}</span>
+              </div>
+              {error.toLowerCase().includes("token") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== "undefined") {
+                      window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                      window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                    }
+                  }}
+                  style={{ background: "var(--gold)", color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Buy Tokens
+                </button>
+              )}
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-            <Btn onClick={scan} disabled={loading || (!pasteText.trim() && !photoB64)}>
-              {loading ? "🔍 AI is reading recipe..." : "✦ AI Scan & Extract"}
+            <Btn onClick={scan} disabled={loading || (!pasteText.trim() && !photoB64)} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {loading ? "AI is reading recipe..." : <><Sparkles size={13} /> AI Scan & Extract <span style={{ fontSize: 10.5, opacity: 0.85 }}>(0.7 tokens)</span></>}
             </Btn>
             <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
           </div>
@@ -2148,8 +2507,8 @@ export function RecipeScanModal({ inventory, onClose, onImport }) {
             </table>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <Btn variant="success" onClick={confirmImport} disabled={!parsedItems.some(p => p.on && p.iid)}>
-              ✓ Add to Recipe ({parsedItems.filter(p => p.on && p.iid).length})
+            <Btn variant="success" onClick={confirmImport} disabled={!parsedItems.some(p => p.on && p.iid)} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Check size={13} /> Add to Recipe ({parsedItems.filter(p => p.on && p.iid).length})
             </Btn>
             <Btn variant="ghost" onClick={() => setParsedItems(null)}>← Scan again</Btn>
           </div>

@@ -10,7 +10,7 @@ const prisma = require('../prisma')
 
 async function main() {
   console.log("=========================================")
-  console.log("LayerLedger Super Admin Config System")
+  console.log("BakeWealth Super Admin Config System")
   console.log("=========================================")
   
   const email = process.env.SUPERADMIN_EMAIL

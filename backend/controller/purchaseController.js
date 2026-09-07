@@ -8,21 +8,37 @@ const { asyncHandler } = require('../middleware/custommiddleware');
  */
 const getPurchases = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { page, limit } = req.query;
+    const { page, limit, month } = req.query;
+
+    const where = { tenantId };
+    if (month && month.trim()) {
+        const startOfMonth = new Date(`${month.trim()}-01T00:00:00.000Z`);
+        const [y, m] = month.trim().split('-').map(Number);
+        const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+        const endOfMonth = new Date(`${nextMonth}-01T00:00:00.000Z`);
+        where.date = {
+            gte: startOfMonth,
+            lt: endOfMonth
+        };
+    }
 
     if (page || limit) {
         const pageNum = Math.max(1, parseInt(page) || 1);
         const limitNum = Math.max(1, parseInt(limit) || 25);
         const skip = (pageNum - 1) * limitNum;
 
-        const [purchases, total] = await Promise.all([
+        const [purchases, total, agg] = await Promise.all([
             prisma.purchase.findMany({
-                where: { tenantId },
+                where,
                 skip,
                 take: limitNum,
                 orderBy: { date: 'desc' }
             }),
-            prisma.purchase.count({ where: { tenantId } })
+            prisma.purchase.count({ where }),
+            prisma.purchase.aggregate({
+                where,
+                _sum: { amount: true }
+            })
         ]);
 
         return res.json({
@@ -30,12 +46,22 @@ const getPurchases = asyncHandler(async (req, res) => {
             total,
             page: pageNum,
             limit: limitNum,
-            totalPages: Math.ceil(total / limitNum)
+            totalPages: Math.ceil(total / limitNum),
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum)
+            },
+            stats: {
+                totalSpent: agg._sum?.amount || 0,
+                totalPurchases: total
+            }
         });
     }
 
     const purchases = await prisma.purchase.findMany({
-        where: { tenantId },
+        where,
         orderBy: { date: 'desc' }
     });
     res.json(purchases);

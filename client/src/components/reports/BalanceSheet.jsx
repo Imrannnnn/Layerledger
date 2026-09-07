@@ -10,6 +10,7 @@ import { Btn, iSt, Card, SHead } from "../common/ui.jsx"
 import { fmt, today } from "../../lib/helpers.js"
 import { mergeRevenueSources, loadOpeningBalance, PLRow } from "../../lib/costing.jsx"
 import { saveLocal, loadLocal } from "../../lib/data.js"
+import { Lightbulb, Check, AlertTriangle } from "lucide-react"
 
 export function BalanceSheet({productions,expenses,inventory,transactions,company}){
   const ob=loadOpeningBalance()
@@ -55,15 +56,16 @@ export function BalanceSheet({productions,expenses,inventory,transactions,compan
   if(editing)return <div>
     <SHead title="Balance Sheet" sub="First, set your opening balances"/>
     <Card style={{maxWidth:520}}>
-      <div style={{background:"#FEF9EE",border:"1px solid var(--gold)",borderRadius:8,padding:"11px 14px",fontSize:12.5,color:"#7A5500",lineHeight:1.7,marginBottom:16}}>
-        💡 Enter your starting position once. These are the things the app can't work out on its own: how much cash you have, what your equipment is worth, money you put in, and any outstanding loan.
+      <div style={{background:"#FEF9EE",border:"1px solid var(--gold)",borderRadius:8,padding:"11px 14px",fontSize:12.5,color:"#7A5500",lineHeight:1.7,marginBottom:16,display:"flex",alignItems:"flex-start",gap:8}}>
+        <Lightbulb size={15} style={{flexShrink:0,marginTop:2}} />
+        <span>Enter your starting position once. These are the things the app can't work out on its own: how much cash you have, what your equipment is worth, money you put in, and any outstanding loan.</span>
       </div>
       <div style={{marginBottom:12}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>As at date</label><input type="date" value={ob2.asOf} onChange={e=>setOb2(p=>({...p,asOf:e.target.value}))} style={iSt}/></div>
       <div style={{marginBottom:12}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>Cash & bank balance (₦)</label><input type="number" value={ob2.cash} onChange={e=>setOb2(p=>({...p,cash:e.target.value}))} placeholder="420000" style={iSt}/></div>
       <div style={{marginBottom:12}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>Equipment value — ovens, mixers (₦)</label><input type="number" value={ob2.equipment} onChange={e=>setOb2(p=>({...p,equipment:e.target.value}))} placeholder="650000" style={iSt}/></div>
       <div style={{marginBottom:12}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>Money you invested — owner's capital (₦)</label><input type="number" value={ob2.capital} onChange={e=>setOb2(p=>({...p,capital:e.target.value}))} placeholder="600000" style={iSt}/></div>
       <div style={{marginBottom:16}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>Outstanding loan balance (₦)</label><input type="number" value={ob2.loanBalance} onChange={e=>setOb2(p=>({...p,loanBalance:e.target.value}))} placeholder="300000" style={iSt}/></div>
-      <Btn variant="success" onClick={saveOB}>✓ Save Opening Balances</Btn>
+      <Btn variant="success" onClick={saveOB} style={{display:"inline-flex",alignItems:"center",gap:5}}><Check size={13}/> Save Opening Balances</Btn>
     </Card>
   </div>
 
@@ -94,8 +96,8 @@ export function BalanceSheet({productions,expenses,inventory,transactions,compan
       <div style={{display:"flex",justifyContent:"space-between",fontWeight:700,fontSize:15,padding:"12px 14px",background:"#FEF9EE",borderRadius:8,marginTop:14}}>
         <span>Liabilities + Equity</span><span>{fmt(totalLiabilities+totalEquity)}</span>
       </div>
-      <div style={{textAlign:"center",marginTop:10,padding:9,background:balanced?"#E4F4EC":"#FAE8E6",borderRadius:8,color:balanced?"#1D7A4A":"#B03A2E",fontSize:13,fontWeight:600}}>
-        {balanced?"✓ Balanced":"⚠ Out of balance by "+fmt(Math.abs(totalAssets-(totalLiabilities+totalEquity)))}
+      <div style={{textAlign:"center",marginTop:10,padding:9,background:balanced?"#E4F4EC":"#FAE8E6",borderRadius:8,color:balanced?"#1D7A4A":"#B03A2E",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+        {balanced ? <><Check size={13}/> Balanced</> : <><AlertTriangle size={13}/> Out of balance by {fmt(Math.abs(totalAssets-(totalLiabilities+totalEquity)))}</>}
       </div>
     </Card>
   </div>

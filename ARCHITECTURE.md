@@ -1,4 +1,4 @@
-# LayerLedger — Architecture & Roadmap
+# BakeWealth — Architecture & Roadmap
 
 This document explains how the app is built today and the plan for the backend
 migration. It is written for a software engineer picking up the project.

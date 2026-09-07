@@ -38,7 +38,7 @@ export function Login({ onLogin }) {
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.message || "Invalid email or password")
-        onLogin(data)
+        onLogin({ ...data, isNewRegistration: false })
       } catch (e) {
         setErr(e.message)
       } finally {
@@ -74,7 +74,7 @@ export function Login({ onLogin }) {
         })
         const loginData = await loginRes.json()
         if (!loginRes.ok) throw new Error("Account created, but failed to log in automatically.")
-        onLogin(loginData)
+        onLogin({ ...loginData, isNewRegistration: true })
       } catch (e) {
         setErr(e.message)
       } finally {
@@ -134,56 +134,60 @@ export function Login({ onLogin }) {
 
         {err && <Alert msg={err} color="red" onClose={() => setErr("")} />}
 
-        {tab === "register" && (
-          <>
-            <Inp label="Full Name" value={name} onChange={setName} placeholder="Enter your full name" />
-            
-            {/* Account Type Toggle */}
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 500 }}>
-                Account Type
-              </label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button 
-                  onClick={() => setTenantType("individual")} 
-                  style={{
-                    flex: 1, padding: 8, borderRadius: 8, border: `1px solid ${tenantType === 'individual' ? 'var(--gold)' : 'var(--border)'}`,
-                    background: tenantType === 'individual' ? 'rgba(200,145,42,0.08)' : 'var(--panel)',
-                    color: tenantType === 'individual' ? 'var(--gold)' : 'var(--muted)',
-                    cursor: "pointer", fontSize: 12.5, fontWeight: 500, transition: "all 0.15s"
-                  }}
-                >
-                  Individual
-                </button>
-                <button 
-                  onClick={() => setTenantType("organization")} 
-                  style={{
-                    flex: 1, padding: 8, borderRadius: 8, border: `1px solid ${tenantType === 'organization' ? 'var(--gold)' : 'var(--border)'}`,
-                    background: tenantType === 'organization' ? 'rgba(200,145,42,0.08)' : 'var(--panel)',
-                    color: tenantType === 'organization' ? 'var(--gold)' : 'var(--muted)',
-                    cursor: "pointer", fontSize: 12.5, fontWeight: 500, transition: "all 0.15s"
-                  }}
-                >
-                  Organization
-                </button>
+        <form onSubmit={(e) => { e.preventDefault(); attempt(); }}>
+          {tab === "register" && (
+            <>
+              <Inp label="Full Name" value={name} onChange={setName} placeholder="Enter your full name" />
+              
+              {/* Account Type Toggle */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 500 }}>
+                  Account Type
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button 
+                    type="button"
+                    onClick={() => setTenantType("individual")} 
+                    style={{
+                      flex: 1, padding: 8, borderRadius: 8, border: `1px solid ${tenantType === 'individual' ? 'var(--gold)' : 'var(--border)'}`,
+                      background: tenantType === 'individual' ? 'rgba(200,145,42,0.08)' : 'var(--panel)',
+                      color: tenantType === 'individual' ? 'var(--gold)' : 'var(--muted)',
+                      cursor: "pointer", fontSize: 12.5, fontWeight: 500, transition: "all 0.15s"
+                    }}
+                  >
+                    Individual
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setTenantType("organization")} 
+                    style={{
+                      flex: 1, padding: 8, borderRadius: 8, border: `1px solid ${tenantType === 'organization' ? 'var(--gold)' : 'var(--border)'}`,
+                      background: tenantType === 'organization' ? 'rgba(200,145,42,0.08)' : 'var(--panel)',
+                      color: tenantType === 'organization' ? 'var(--gold)' : 'var(--muted)',
+                      cursor: "pointer", fontSize: 12.5, fontWeight: 500, transition: "all 0.15s"
+                    }}
+                  >
+                    Organization
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {tenantType === "organization" && (
-              <Inp label="Organization / Bakery Name" value={companyName} onChange={setCompanyName} placeholder="e.g. Sweet Treats Bakery" />
-            )}
+              {tenantType === "organization" && (
+                <Inp label="Organization / Bakery Name" value={companyName} onChange={setCompanyName} placeholder="e.g. Sweet Treats Bakery" />
+              )}
 
-          </>
-        )}
+            </>
+          )}
 
-        <Inp label="Email Address" value={email} onChange={setEmail} type="email" placeholder="e.g. name@example.com" />
-        <Inp label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" />
+          <Inp label="Email Address" value={email} onChange={setEmail} type="email" placeholder="e.g. name@example.com" />
+          <Inp label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" />
 
-        <div style={{ marginTop: 8 }}>
-          <Btn full onClick={attempt} disabled={loading}>
-            {loading ? "Please wait..." : tab === "login" ? "Sign In →" : "Register & Sign In →"}
-          </Btn>
-        </div>
+          <div style={{ marginTop: 8 }}>
+            <Btn full type="submit" loading={loading} loadingText={tab === "login" ? "Signing in..." : "Creating account..."}>
+              {tab === "login" ? "Sign In →" : "Register & Sign In →"}
+            </Btn>
+          </div>
+        </form>
       </Card>
     </div>
   )

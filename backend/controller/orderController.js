@@ -90,11 +90,45 @@ const createOrder = asyncHandler(async (req, res) => {
             ingredientsDeducted = true;
         }
 
+        let effectiveClientId = clientId;
+        const clientName = req.body.clientName || metadata?.clientName;
+        const clientPhone = req.body.clientPhone || metadata?.clientPhone;
+        if (!effectiveClientId && clientName && clientName.trim() && !['walk-in', 'gift', 'sample/tasting'].includes(clientName.trim().toLowerCase())) {
+            const cleanName = clientName.trim();
+            let existingClient = await tx.client.findFirst({
+                where: { tenantId, name: { equals: cleanName, mode: 'insensitive' } }
+            });
+            if (!existingClient) {
+                existingClient = await tx.client.create({
+                    data: {
+                        tenantId,
+                        name: cleanName,
+                        phone: clientPhone || null,
+                        lastOrderDate: new Date()
+                    }
+                });
+            } else {
+                await tx.client.update({
+                    where: { id: existingClient.id },
+                    data: {
+                        lastOrderDate: new Date(),
+                        phone: clientPhone || existingClient.phone
+                    }
+                });
+            }
+            effectiveClientId = existingClient.id;
+        } else if (effectiveClientId) {
+            await tx.client.updateMany({
+                where: { id: effectiveClientId, tenantId },
+                data: { lastOrderDate: new Date() }
+            });
+        }
+
         const order = await tx.order.create({
             data: {
                 id: req.body.id || undefined,
                 tenantId,
-                clientId,
+                clientId: effectiveClientId || undefined,
                 status: status || 'quote',
                 dueDate: dueDate ? new Date(dueDate) : null,
                 totalPrice: totalPrice || 0,
@@ -128,48 +162,75 @@ const createOrder = asyncHandler(async (req, res) => {
         });
 
         if (ingredientsDeducted && usages && usages.length > 0) {
+            const usageMap = new Map();
             for (const use of usages) {
-                const invItem = await tx.inventoryItem.findFirst({
-                    where: { id: use.itemId, tenantId }
-                });
-                if (!invItem) {
-                    throw new Error(`Inventory item not found for usage: ${use.itemId}`);
-                }
+                const itemId = use.itemId;
+                const qty = Number(use.qty) || 0;
+                if (!itemId || qty <= 0) continue;
+                usageMap.set(itemId, (usageMap.get(itemId) || 0) + qty);
+            }
 
-                if (invItem.stock - use.qty < 0) {
-                    throw new Error(`Insufficient stock for ${invItem.name}. Attempted to use ${use.qty} but only ${invItem.stock} is on hand.`);
-                }
+            const normalizedUsages = Array.from(usageMap.entries()).map(([itemId, qty]) => ({ itemId, qty }));
 
-                const consumedValue = use.qty * invItem.cost;
-                const newQty = invItem.stock - use.qty;
-                const newValue = Math.max(0, invItem.totalValueOnHand - consumedValue);
-                const finalValue = newQty === 0 ? 0 : newValue;
-                const newAvgCost = invItem.cost;
-
-                await tx.inventoryItem.update({
-                    where: { id: use.itemId },
-                    data: {
-                        stock: newQty,
-                        totalValueOnHand: finalValue,
-                        cost: newAvgCost
-                    }
-                });
-
-                await tx.inventoryHistory.create({
-                    data: {
+            if (normalizedUsages.length > 0) {
+                const inventoryItems = await tx.inventoryItem.findMany({
+                    where: {
                         tenantId,
-                        inventoryItemId: use.itemId,
-                        type: 'USAGE',
-                        qtyDelta: -use.qty,
-                        valueDelta: -consumedValue,
-                        pricePerUnit: invItem.cost,
-                        qtyAfter: newQty,
-                        valueAfter: finalValue,
-                        avgCostAfter: newAvgCost,
-                        referenceId: order.id,
-                        reason: `Baking / production consumption for Order ${order.id}`
+                        id: { in: normalizedUsages.map((u) => u.itemId) }
                     }
                 });
+
+                const inventoryMap = new Map(inventoryItems.map((item) => [item.id, item]));
+
+                for (const use of normalizedUsages) {
+                    const invItem = inventoryMap.get(use.itemId);
+                    if (!invItem) {
+                        throw new Error(`Inventory item not found for usage: ${use.itemId}`);
+                    }
+                    if (invItem.stock - use.qty < 0) {
+                        throw new Error(`Insufficient stock for ${invItem.name}. Attempted to use ${use.qty} but only ${invItem.stock} is on hand.`);
+                    }
+                }
+
+                const historyRows = [];
+
+                await Promise.all(
+                    normalizedUsages.map(async (use) => {
+                        const invItem = inventoryMap.get(use.itemId);
+                        const consumedValue = use.qty * invItem.cost;
+                        const newQty = invItem.stock - use.qty;
+                        const newValue = Math.max(0, invItem.totalValueOnHand - consumedValue);
+                        const finalValue = newQty === 0 ? 0 : newValue;
+                        const newAvgCost = invItem.cost;
+
+                        await tx.inventoryItem.update({
+                            where: { id: use.itemId },
+                            data: {
+                                stock: newQty,
+                                totalValueOnHand: finalValue,
+                                cost: newAvgCost
+                            }
+                        });
+
+                        historyRows.push({
+                            tenantId,
+                            inventoryItemId: use.itemId,
+                            type: 'USAGE',
+                            qtyDelta: -use.qty,
+                            valueDelta: -consumedValue,
+                            pricePerUnit: invItem.cost,
+                            qtyAfter: newQty,
+                            valueAfter: finalValue,
+                            avgCostAfter: newAvgCost,
+                            referenceId: order.id,
+                            reason: `Baking / production consumption for Order ${order.id}`
+                        });
+                    })
+                );
+
+                if (historyRows.length > 0) {
+                    await tx.inventoryHistory.createMany({ data: historyRows });
+                }
             }
         }
 
@@ -186,169 +247,394 @@ const createOrder = asyncHandler(async (req, res) => {
  */
 const updateOrder = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { clientId, status, dueDate, items, totalPrice, totalCost, payments, notes, usages, metadata } = req.body;
+    const {
+        clientId,
+        status,
+        dueDate,
+        items,
+        totalPrice,
+        totalCost,
+        payments,
+        notes,
+        usages,
+        metadata
+    } = req.body;
 
-    const existing = await prisma.order.findFirst({ where: { id: req.params.id, tenantId } });
+    const orderId = req.params.id;
+
+    // ---------------------------------------------------------
+    // 1. Get existing order BEFORE opening the transaction
+    // ---------------------------------------------------------
+    const existing = await prisma.order.findFirst({
+        where: {
+            id: orderId,
+            tenantId
+        }
+    });
+
     if (!existing) {
         res.status(404);
         throw new Error('Order not found');
     }
 
-    const updatedOrder = await prisma.$transaction(async (tx) => {
-        let ingredientsDeducted = existing.ingredientsDeducted;
-        let shouldDeduct = false;
-        let shouldRestore = false;
+    // ---------------------------------------------------------
+    // 2. Determine inventory action
+    // ---------------------------------------------------------
+    const isProductionStatus =
+        status === 'confirmed' || status === 'baking';
 
-        if ((status === 'confirmed' || status === 'baking') && !existing.ingredientsDeducted) {
-            shouldDeduct = true;
-            ingredientsDeducted = true;
-        } else if (existing.ingredientsDeducted && status && status !== 'confirmed' && status !== 'baking') {
-            shouldRestore = true;
-            ingredientsDeducted = false;
-        }
+    const shouldDeduct =
+        isProductionStatus && !existing.ingredientsDeducted;
 
-        if (shouldDeduct && usages && usages.length > 0) {
-            for (const use of usages) {
-                const invItem = await tx.inventoryItem.findFirst({
-                    where: { id: use.itemId, tenantId }
-                });
-                if (!invItem) {
-                    throw new Error(`Inventory item not found for usage: ${use.itemId}`);
+    const shouldRestore =
+        existing.ingredientsDeducted &&
+        status &&
+        !isProductionStatus;
+
+    const ingredientsDeducted = shouldDeduct
+        ? true
+        : shouldRestore
+            ? false
+            : existing.ingredientsDeducted;
+
+    // ---------------------------------------------------------
+    // 3. Run the atomic database operation
+    // ---------------------------------------------------------
+    const updatedOrder = await prisma.$transaction(
+        async (tx) => {
+
+            /*
+             * =====================================================
+             * A. DEDUCT INVENTORY
+             * =====================================================
+             */
+
+            if (shouldDeduct && usages?.length) {
+
+                // Remove duplicate inventory IDs while preserving
+                // their total quantity.
+                const usageMap = new Map();
+
+                for (const use of usages) {
+                    const itemId = use.itemId;
+                    const qty = Number(use.qty) || 0;
+
+                    if (!itemId || qty <= 0) {
+                        continue;
+                    }
+
+                    usageMap.set(
+                        itemId,
+                        (usageMap.get(itemId) || 0) + qty
+                    );
                 }
 
-                if (invItem.stock - use.qty < 0) {
-                    throw new Error(`Insufficient stock for ${invItem.name}. Attempted to use ${use.qty} but only ${invItem.stock} is on hand.`);
+                const normalizedUsages = Array.from(
+                    usageMap.entries()
+                ).map(([itemId, qty]) => ({
+                    itemId,
+                    qty
+                }));
+
+                if (normalizedUsages.length) {
+
+                    // ---------------------------------------------
+                    // Fetch ALL inventory items in ONE query
+                    // ---------------------------------------------
+                    const inventoryItems =
+                        await tx.inventoryItem.findMany({
+                            where: {
+                                tenantId,
+                                id: {
+                                    in: normalizedUsages.map(
+                                        (use) => use.itemId
+                                    )
+                                }
+                            }
+                        });
+
+                    const inventoryMap = new Map(
+                        inventoryItems.map((item) => [
+                            item.id,
+                            item
+                        ])
+                    );
+
+                    const historyRows = [];
+
+                    // ---------------------------------------------
+                    // Validate everything BEFORE changing stock
+                    // ---------------------------------------------
+                    for (const use of normalizedUsages) {
+
+                        const invItem =
+                            inventoryMap.get(use.itemId);
+
+                        if (!invItem) {
+                            throw new Error(
+                                `Inventory item not found for usage: ${use.itemId}`
+                            );
+                        }
+
+                        if (invItem.stock - use.qty < 0) {
+                            throw new Error(
+                                `Insufficient stock for ${invItem.name}. ` +
+                                `Attempted to use ${use.qty} ` +
+                                `but only ${invItem.stock} is on hand.`
+                            );
+                        }
+                    }
+
+                    // ---------------------------------------------
+                    // Update inventory in parallel
+                    // ---------------------------------------------
+                    await Promise.all(
+                        normalizedUsages.map(async (use) => {
+                            const invItem = inventoryMap.get(use.itemId);
+                            const consumedValue = use.qty * invItem.cost;
+                            const newQty = invItem.stock - use.qty;
+                            const newValue = Math.max(
+                                0,
+                                invItem.totalValueOnHand - consumedValue
+                            );
+                            const finalValue = newQty === 0 ? 0 : newValue;
+                            const newAvgCost = invItem.cost;
+
+                            await tx.inventoryItem.update({
+                                where: { id: use.itemId },
+                                data: {
+                                    stock: newQty,
+                                    totalValueOnHand: finalValue,
+                                    cost: newAvgCost
+                                }
+                            });
+
+                            historyRows.push({
+                                tenantId,
+                                inventoryItemId: use.itemId,
+                                type: 'USAGE',
+                                qtyDelta: -use.qty,
+                                valueDelta: -consumedValue,
+                                pricePerUnit: invItem.cost,
+                                qtyAfter: newQty,
+                                valueAfter: finalValue,
+                                avgCostAfter: newAvgCost,
+                                referenceId: orderId,
+                                reason: `Baking / production consumption for Order ${orderId}`
+                            });
+                        })
+                    );
+
+                    // ---------------------------------------------
+                    // Create ALL history records together
+                    // ---------------------------------------------
+                    if (historyRows.length) {
+                        await tx.inventoryHistory.createMany({
+                            data: historyRows
+                        });
+                    }
                 }
-
-                const consumedValue = use.qty * invItem.cost;
-                const newQty = invItem.stock - use.qty;
-                const newValue = Math.max(0, invItem.totalValueOnHand - consumedValue);
-                const finalValue = newQty === 0 ? 0 : newValue;
-                const newAvgCost = invItem.cost;
-
-                await tx.inventoryItem.update({
-                    where: { id: use.itemId },
-                    data: {
-                        stock: newQty,
-                        totalValueOnHand: finalValue,
-                        cost: newAvgCost
-                    }
-                });
-
-                await tx.inventoryHistory.create({
-                    data: {
-                        tenantId,
-                        inventoryItemId: use.itemId,
-                        type: 'USAGE',
-                        qtyDelta: -use.qty,
-                        valueDelta: -consumedValue,
-                        pricePerUnit: invItem.cost,
-                        qtyAfter: newQty,
-                        valueAfter: finalValue,
-                        avgCostAfter: newAvgCost,
-                        referenceId: req.params.id,
-                        reason: `Baking / production consumption for Order ${req.params.id}`
-                    }
-                });
             }
-        }
 
-        if (shouldRestore) {
-            const usageHistory = await tx.inventoryHistory.findMany({
-                where: { referenceId: req.params.id, type: 'USAGE', tenantId }
-            });
+            /*
+             * =====================================================
+             * B. RESTORE INVENTORY
+             * =====================================================
+             */
 
-            for (const record of usageHistory) {
-                const invItem = await tx.inventoryItem.findFirst({
-                    where: { id: record.inventoryItemId, tenantId }
-                });
+            if (shouldRestore) {
 
-                if (invItem) {
-                    const restoredQty = -record.qtyDelta;
-                    const restoredValue = -record.valueDelta;
-
-                    const newQty = invItem.stock + restoredQty;
-                    const newValue = invItem.totalValueOnHand + restoredValue;
-                    const newAvgCost = newQty > 0 ? (newValue / newQty) : invItem.cost;
-
-                    await tx.inventoryItem.update({
-                        where: { id: record.inventoryItemId },
-                        data: {
-                            stock: newQty,
-                            totalValueOnHand: newValue,
-                            cost: newAvgCost
+                const usageHistory =
+                    await tx.inventoryHistory.findMany({
+                        where: {
+                            referenceId: orderId,
+                            type: 'USAGE',
+                            tenantId
                         }
                     });
 
-                    await tx.inventoryHistory.create({
-                        data: {
-                            tenantId,
-                            inventoryItemId: record.inventoryItemId,
-                            type: 'ADJUSTMENT',
-                            qtyDelta: restoredQty,
-                            valueDelta: restoredValue,
-                            pricePerUnit: record.pricePerUnit,
-                            qtyAfter: newQty,
-                            valueAfter: newValue,
-                            avgCostAfter: newAvgCost,
-                            reason: `RESTORATION: Order status changed from confirmed to ${status} for Order ${req.params.id}`
+                if (usageHistory.length) {
+
+                    const inventoryIds = [
+                        ...new Set(
+                            usageHistory.map(
+                                (record) =>
+                                    record.inventoryItemId
+                            )
+                        )
+                    ];
+
+                    // ---------------------------------------------
+                    // Fetch all inventory items in ONE query
+                    // ---------------------------------------------
+                    const inventoryItems =
+                        await tx.inventoryItem.findMany({
+                            where: {
+                                tenantId,
+                                id: {
+                                    in: inventoryIds
+                                }
+                            }
+                        });
+
+                    const inventoryMap = new Map(
+                        inventoryItems.map((item) => [
+                            item.id,
+                            item
+                        ])
+                    );
+
+                    const restorationHistory = [];
+
+                    // ---------------------------------------------
+                    // Calculate and apply restoration in parallel
+                    // ---------------------------------------------
+                    await Promise.all(
+                        usageHistory.map(async (record) => {
+                            const invItem = inventoryMap.get(record.inventoryItemId);
+                            if (!invItem) return;
+
+                            const restoredQty = -record.qtyDelta;
+                            const restoredValue = -record.valueDelta;
+                            const newQty = invItem.stock + restoredQty;
+                            const newValue = invItem.totalValueOnHand + restoredValue;
+                            const newAvgCost = newQty > 0 ? newValue / newQty : invItem.cost;
+
+                            await tx.inventoryItem.update({
+                                where: { id: record.inventoryItemId },
+                                data: {
+                                    stock: newQty,
+                                    totalValueOnHand: newValue,
+                                    cost: newAvgCost
+                                }
+                            });
+
+                            restorationHistory.push({
+                                tenantId,
+                                inventoryItemId: record.inventoryItemId,
+                                type: 'ADJUSTMENT',
+                                qtyDelta: restoredQty,
+                                valueDelta: restoredValue,
+                                pricePerUnit: record.pricePerUnit,
+                                qtyAfter: newQty,
+                                valueAfter: newValue,
+                                avgCostAfter: newAvgCost,
+                                reason: `RESTORATION: Order status changed from confirmed to ${status} for Order ${orderId}`
+                            });
+                        })
+                    );
+
+                    // ---------------------------------------------
+                    // Create restoration history together
+                    // ---------------------------------------------
+                    if (restorationHistory.length) {
+                        await tx.inventoryHistory.createMany({
+                            data: restorationHistory
+                        });
+                    }
+
+                    // ---------------------------------------------
+                    // Remove original usage records
+                    // ---------------------------------------------
+                    await tx.inventoryHistory.deleteMany({
+                        where: {
+                            referenceId: orderId,
+                            type: 'USAGE',
+                            tenantId
                         }
                     });
                 }
             }
 
-            await tx.inventoryHistory.deleteMany({
-                where: { referenceId: req.params.id, type: 'USAGE', tenantId }
+            /*
+             * =====================================================
+             * C. UPDATE ORDER ITEMS & PAYMENTS
+             * =====================================================
+             */
+
+            await tx.orderItem.deleteMany({
+                where: {
+                    orderId
+                }
             });
-        }
 
-        await tx.orderItem.deleteMany({ where: { orderId: req.params.id } });
-        await tx.orderPayment.deleteMany({ where: { orderId: req.params.id } });
+            await tx.orderPayment.deleteMany({
+                where: {
+                    orderId
+                }
+            });
 
-        const updateData = {
-            clientId,
-            status,
-            dueDate: dueDate ? new Date(dueDate) : null,
-            totalPrice,
-            totalCost,
-            notes,
-            ingredientsDeducted,
-            metadata: metadata || undefined
-        };
-
-        if (items) {
-            updateData.items = {
-                create: items.map(item => ({
-                    recipeId: item.recipeId,
-                    name: item.name,
-                    size: item.size,
-                    shape: item.shape,
-                    layers: item.layers,
-                    decorations: item.decorations,
-                    flavorExtras: item.flavorExtras,
-                    price: item.price || 0,
-                    cost: item.cost || 0
-                }))
+            const updateData = {
+                clientId,
+                status,
+                dueDate: dueDate
+                    ? new Date(dueDate)
+                    : null,
+                totalPrice,
+                totalCost,
+                notes,
+                ingredientsDeducted,
+                metadata: metadata || undefined
             };
-        }
 
-        if (payments) {
-            updateData.payments = {
-                create: payments.map(payment => ({
-                    amount: payment.amount,
-                    date: payment.date ? new Date(payment.date) : new Date(),
-                    method: payment.method,
-                    type: payment.type || 'full'
-                }))
-            };
-        }
+            if (items) {
+                updateData.items = {
+                    create: items.map((item) => ({
+                        recipeId: item.recipeId,
+                        name: item.name,
+                        size: item.size,
+                        shape: item.shape,
+                        layers: item.layers,
+                        decorations: item.decorations,
+                        flavorExtras: item.flavorExtras,
+                        price: item.price || 0,
+                        cost: item.cost || 0
+                    }))
+                };
+            }
 
-        return tx.order.update({
-            where: { id: req.params.id },
-            data: updateData,
-            include: { client: { select: { name: true, phone: true } }, items: true, payments: true }
-        });
-    }, { timeout: 30000 });
+            if (payments) {
+                updateData.payments = {
+                    create: payments.map((payment) => ({
+                        amount: payment.amount,
+                        date: payment.date
+                            ? new Date(payment.date)
+                            : new Date(),
+                        method: payment.method,
+                        type: payment.type || 'full'
+                    }))
+                };
+            }
+
+            /*
+             * =====================================================
+             * D. UPDATE ORDER
+             * =====================================================
+             */
+
+            return await tx.order.update({
+                where: {
+                    id: orderId
+                },
+                data: updateData,
+                include: {
+                    client: {
+                        select: {
+                            name: true,
+                            phone: true
+                        }
+                    },
+                    items: true,
+                    payments: true
+                }
+            });
+
+        },
+        {
+            maxWait: 10000,
+            timeout: 30000
+        }
+    );
 
     res.json(updatedOrder);
 });
@@ -367,7 +653,12 @@ const deleteOrder = asyncHandler(async (req, res) => {
         throw new Error('Order not found');
     }
 
-    await prisma.order.deleteMany({ where: { id: req.params.id, tenantId } });
+    await prisma.$transaction(async (tx) => {
+        await tx.orderItem.deleteMany({ where: { orderId: req.params.id } });
+        await tx.orderPayment.deleteMany({ where: { orderId: req.params.id } });
+        await tx.invoice.deleteMany({ where: { orderId: req.params.id } });
+        await tx.order.deleteMany({ where: { id: req.params.id, tenantId } });
+    });
     res.json({ message: 'Order removed successfully' });
 });
 

@@ -9,6 +9,7 @@
 import React, { useState, useEffect, useMemo } from "react"
 import { Btn, Card, Badge, Inp, SHead, Pagination } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
+import { Crown, AlertTriangle, LogOut, Trash2 } from "lucide-react"
 
 export function SuperAdminDashboard() {
   const [token, setToken] = useState(() => sessionStorage.getItem("ll_superadmin_token") || "")
@@ -106,7 +107,7 @@ export function SuperAdminDashboard() {
   }
 
   const deleteTenant = async (tenantId, name) => {
-    if (!confirm(`⚠ DANGER: Are you absolutely sure you want to delete ${name}? This will permanently delete ALL their recipes, orders, inventory, and accounts. This action is irreversible.`)) return
+    if (!confirm(`DANGER: Are you absolutely sure you want to delete ${name}? This will permanently delete ALL their recipes, orders, inventory, and accounts. This action is irreversible.`)) return
     if (!confirm(`Confirm a second time: Delete ${name} permanently?`)) return
     try {
       const res = await fetch(`${apiUrl}/api/superadmin/tenants/${tenantId}`, {
@@ -160,7 +161,9 @@ export function SuperAdminDashboard() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#F4EEE4", padding: 20 }}>
         <Card style={{ width: "100%", maxWidth: 400, padding: 32, boxShadow: "0 8px 30px rgba(41,22,8,0.08)" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ fontSize: 42, marginBottom: 8 }}>👑</div>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+              <Crown size={42} color="var(--gold)" />
+            </div>
             <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, fontWeight: 700, color: "var(--text)", margin: 0 }}>BakeWealth</h1>
             <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4 }}>Platform Super Admin Dashboard</p>
           </div>
@@ -169,7 +172,7 @@ export function SuperAdminDashboard() {
             <Inp label="Admin Email" type="email" value={email} onChange={setEmail} placeholder="admin@bakewealth.com" />
             <Inp label="Secure Password" type="password" value={password} onChange={setPassword} placeholder="••••••••" />
             
-            {error && <div style={{ fontSize: 12.5, color: "#B03A2E", background: "#FDEBE9", padding: "8px 12px", borderRadius: 8 }}>⚠ {error}</div>}
+            {error && <div style={{ fontSize: 12.5, color: "#B03A2E", background: "#FDEBE9", padding: "8px 12px", borderRadius: 8, display: "flex", alignItems: "center", gap: 6 }}><AlertTriangle size={13} /> {error}</div>}
             
             <Btn full type="submit" disabled={loading}>{loading ? "Verifying..." : "Secure Login"}</Btn>
           </form>
@@ -186,7 +189,9 @@ export function SuperAdminDashboard() {
           <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700, color: "var(--text)", margin: 0 }}>Super Admin Workspace</h1>
           <p style={{ fontSize: 13, color: "var(--muted)" }}>Platform Owner: Iye Ibe Achem</p>
         </div>
-        <Btn variant="outline" onClick={handleLogout}>Logout ✕</Btn>
+        <Btn variant="outline" onClick={handleLogout} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          Logout <LogOut size={13} />
+        </Btn>
       </div>
 
       {stats ? (
@@ -307,7 +312,9 @@ export function SuperAdminDashboard() {
                           >
                             {t.status === "Active" ? "Suspend" : "Activate"}
                           </Btn>
-                          <Btn small variant="danger" onClick={() => deleteTenant(t.id, t.name)}>✕</Btn>
+                          <Btn small variant="danger" onClick={() => deleteTenant(t.id, t.name)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "4px 8px" }}>
+                            <Trash2 size={12} />
+                          </Btn>
                         </div>
                       </td>
                     </tr>

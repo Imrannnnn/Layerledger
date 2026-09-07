@@ -10,8 +10,11 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert, Modal, Pagination } from "../common/ui.jsx"
 import { fmt, uid, callClaude } from "../../lib/helpers.js"
 import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, PRICING_SIZES } from "../../constants.js"
-import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, logout, loadLocal, saveInventory, deleteOpeningStockOnServer } from "../../lib/data.js"
+import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, logout, loadLocal, saveInventory, deleteOpeningStockOnServer, fetchPricingSettingsFromServer, savePricingSettingsOnServer, resetPricingSettingsOnServer } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
+import { Check, AlertTriangle, Calculator, Lock, Unlock, Save, Trash2, Pencil, FileSpreadsheet, Lightbulb, Key, Download, Upload, Coins } from "lucide-react"
+import { OpeningStock } from "../inventory/OpeningStock.jsx"
+import { TokenUsageSection } from "./TokenUsageSection.jsx"
 
 // ═══════════════════════════════════════════════════════════
 export function UserRow({ u, i, updatePin, toggleUser, deleteUser }) {
@@ -96,7 +99,7 @@ export function NotificationSettings() {
 
       <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", gap: 10, alignItems: "center" }}>
         <Btn onClick={save}>Save preferences</Btn>
-        {saved && <span style={{ fontSize: 12.5, color: "#357A52" }}>✓ Saved</span>}
+        {saved && <span style={{ fontSize: 12.5, color: "#357A52", display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={13} /> Saved</span>}
       </div>
     </Card>
 
@@ -122,985 +125,80 @@ export function NotificationSettings() {
 //  STARTING INVENTORY TAB (in Settings)
 
 // ═══════════════════════════════════════════════════════════
-export function OpeningStockTab({ inventory, setInventory, user }) {
-  const LS_KEY = "ll_opening_stock"
-  const currentMonthStr = new Date().toISOString().slice(0, 7)
-  const curMonth = new Date().toLocaleDateString("en-NG", { month: "long", year: "numeric" })
-
-  const loadOS = () => {
-    const saved = loadLocal(LS_KEY, null)
-    if (saved && saved.month === currentMonthStr && Array.isArray(saved.items)) {
-      return saved.items
-    }
-    // Automatically convert current master list to opening stock
-    const initializedItems = inventory.map(i => ({
-      id: i.id,
-      name: i.name,
-      unit: i.unit,
-      cost: i.cost,
-      openingQty: i.stock || 0
-    }))
-    saveLocal(LS_KEY, { month: currentMonthStr, items: initializedItems })
-    return initializedItems
-  }
-
-  const [items, setItems] = useState(loadOS)
-  const [saved, setSaved] = useState(() => {
-    const os = loadLocal("ll_os_" + currentMonthStr, null)
-    return !!(os && os.items && os.locked === true)
-  })
-
-  useEffect(() => {
-    async function syncAndRefresh() {
-      await syncFromBackend()
-      const savedOS = loadLocal(LS_KEY, null)
-      if (savedOS && savedOS.month === currentMonthStr && Array.isArray(savedOS.items)) {
-        setItems(savedOS.items)
-      }
-      const lockedOS = loadLocal("ll_os_" + currentMonthStr, null)
-      if (lockedOS && lockedOS.items && lockedOS.locked === true) {
-        setSaved(true)
-      }
-    }
-    syncAndRefresh()
-  }, [currentMonthStr])
-  const [showSavedMsg, setShowSavedMsg] = useState(false)
-  const [addingItem, setAddingItem] = useState(false)
-  const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
-  const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
-  const [editCosts, setEditCosts] = useState(false)
-  const [calcItem, setCalcItem] = useState(null)
-  const [loadingAction, setLoadingAction] = useState(null)
-
-  const [showImport, setShowImport] = useState(false)
-  const [importStep, setImportStep] = useState(1) // 1 = paste columns, 2 = preview, 3 = done
-  const [pasteN, setPasteN] = useState("")
-  const [pasteU, setPasteU] = useState("")
-  const [pasteQ, setPasteQ] = useState("")
-  const [pasteC, setPasteC] = useState("")
-  const [importItems, setImportItems] = useState([])
-  const [warnMsg, setWarnMsg] = useState("")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(25)
-  const [deletingAll, setDeletingAll] = useState(false)
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [searchQuery])
-
-  const filteredItems = items.filter(item =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  const paginatedItems = useMemo(() => {
-    if (pageSize === "all") return filteredItems
-    const sz = Number(pageSize) || 25
-    const start = (currentPage - 1) * sz
-    return filteredItems.slice(start, start + sz)
-  }, [filteredItems, currentPage, pageSize])
-
-  const handleDeleteAllOpeningStock = async () => {
-    if (items.length === 0) {
-      alert("Opening stock is already empty.")
-      return
-    }
-    const confirmed = window.confirm(
-      `⚠️ ARE YOU SURE YOU WANT TO DELETE ALL OPENING STOCK DIRECTLY FROM THE DATABASE?\n\nThis will remove all opening stock records and monthly snapshots from the database. This action cannot be undone.`
-    )
-    if (!confirmed) return
-    const secondCheck = window.confirm(
-      "Please confirm again: Do you really want to permanently delete all opening stock records from the database?"
-    )
-    if (!secondCheck) return
-
-    setDeletingAll(true)
-    try {
-      await deleteOpeningStockOnServer()
-      setItems([])
-      setSaved(false)
-      setCurrentPage(1)
-      alert("✓ All opening stock records deleted from database.")
-    } catch (e) {
-      alert("Failed to delete opening stock: " + e.message)
-    } finally {
-      setDeletingAll(false)
-    }
-  }
-
-
-  const L = v => v.trim().split(String.fromCharCode(10)).map(s => s.replace(/,/g, "").trim()).filter(Boolean)
-
-  const checkMatch = () => {
-    const ns = L(pasteN)
-    const qs = L(pasteQ)
-    const cs = L(pasteC)
-    const warnings = []
-    if (ns.length > 0) {
-      if (qs.length > 0 && qs.length !== ns.length) {
-        warnings.push(`Names: ${ns.length} rows — Quantities: ${qs.length} rows. Must match.`)
-      }
-      if (cs.length > 0 && cs.length !== ns.length) {
-        warnings.push(`Names: ${ns.length} rows — Costs: ${cs.length} rows. Must match.`)
-      }
-    }
-    setWarnMsg(warnings.join(" | "))
-  }
-
-  const handleOpenImportModal = async () => {
-    setLoadingAction("openImport")
-    try {
-      setShowImport(true)
-      setImportStep(1)
-      await new Promise(r => setTimeout(r, 250))
-    } finally {
-      setLoadingAction(null)
-    }
-  }
-
-  const handleOpenAddItemModal = async () => {
-    setLoadingAction("openAddItem")
-    try {
-      setAddingItem(true)
-      await new Promise(r => setTimeout(r, 250))
-    } finally {
-      setLoadingAction(null)
-    }
-  }
-
-  const doPreview = async () => {
-    const ns = L(pasteN)
-    const us = L(pasteU)
-    const qs = L(pasteQ)
-    const cs = L(pasteC)
-
-    if (!ns.length) {
-      alert("Item names are required.")
-      return
-    }
-    if (qs.length > 0 && qs.length !== ns.length) {
-      alert(`Names (${ns.length}) and quantities (${qs.length}) must have the same number of rows.`)
-      return
-    }
-    if (cs.length > 0 && cs.length !== ns.length) {
-      alert(`Names (${ns.length}) and costs (${cs.length}) must have the same number of rows.`)
-      return
-    }
-
-    setLoadingAction("doPreview")
-    try {
-      const parsed = ns.map((name, i) => {
-        const qtyStr = qs[i] || "0"
-        const qty = parseFloat(qtyStr.replace(/[^0-9.]/g, "")) || 0
-        const costStr = cs[i] || ""
-        const cost = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0
-
-        const match = items.find(it => it.name.trim().toLowerCase() === name.toLowerCase())
-
-        return {
-          id: match ? match.id : uid(),
-          name: match ? match.name : name,
-          unit: us[i] || (match ? match.unit : "kg"),
-          cost: cs.length > 0 ? cost : (match ? match.cost : 0),
-          openingQty: qs.length > 0 ? qty : (match ? match.openingQty : 0),
-          isNew: !match,
-          oldQty: match ? (match.openingQty || 0) : 0,
-          oldCost: match ? (match.cost || 0) : 0,
-          on: true
-        }
-      })
-
-      setImportItems(parsed)
-      setImportStep(2)
-      await new Promise(r => setTimeout(r, 300))
-    } finally {
-      setLoadingAction(null)
-    }
-  }
-
-  const confirmImport = async () => {
-    setLoadingAction("confirmImport")
-    try {
-      const approved = importItems.filter(x => x.on)
-      let updatedItems = [...items]
-      let updatedInventory = [...inventory]
-
-      for (const app of approved) {
-        const idx = updatedItems.findIndex(it => it.id === app.id)
-        if (idx >= 0) {
-          updatedItems[idx] = {
-            ...updatedItems[idx],
-            unit: app.unit,
-            cost: app.cost,
-            openingQty: app.openingQty
-          }
-          const invIdx = updatedInventory.findIndex(it => it.id === app.id)
-          if (invIdx >= 0) {
-            updatedInventory[invIdx] = {
-              ...updatedInventory[invIdx],
-              unit: app.unit,
-              cost: app.cost
-            }
-          }
-        } else {
-          const osItem = {
-            id: app.id,
-            name: app.name,
-            unit: app.unit,
-            cost: app.cost,
-            openingQty: app.openingQty
-          }
-          updatedItems.push(osItem)
-
-          updatedInventory.push({
-            id: app.id,
-            name: app.name,
-            cat: "Dry Goods",
-            unit: app.unit,
-            cost: app.cost,
-            stock: app.openingQty,
-            minStock: 5
-          })
-        }
-      }
-
-      setItems(updatedItems)
-      await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedItems })
-      await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedItems, locked: saved })
-
-      if (setInventory) {
-        setInventory(updatedInventory)
-      }
-      await saveInventory(updatedInventory)
-      await new Promise(r => setTimeout(r, 350))
-
-      setPasteN("")
-      setPasteU("")
-      setPasteQ("")
-      setPasteC("")
-      setImportStep(3)
-      setSaved(false)
-    } finally {
-      setLoadingAction(null)
-    }
-  }
-
-  // Check if today is the last day of the month
-  const isLastDayOfMonth = () => {
-    const today = new Date()
-    const tomorrow = new Date(today)
-    tomorrow.setDate(today.getDate() + 1)
-    return tomorrow.getDate() === 1
-  }
-
-  const isLocked = saved
-  const isEditable = !isLocked && (isLastDayOfMonth() || editCosts)
-
-  const updateOSQty = async (id, val) => {
-    const updated = items.map(item => item.id === id ? { ...item, openingQty: parseFloat(val) || 0 } : item)
-    setItems(updated)
-    await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
-  }
-
-  const updateOSCost = async (id, val) => {
-    const costVal = parseFloat(val) || 0
-    const updated = items.map(item => item.id === id ? { ...item, cost: costVal } : item)
-    setItems(updated)
-    await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
-
-    // Update cost in inventory
-    const updatedInventory = inventory.map(item => item.id === id ? { ...item, cost: costVal } : item)
-    if (setInventory) {
-      setInventory(updatedInventory)
-    }
-    await saveInventory(updatedInventory)
-  }
-
-  const updateOSUnit = async (id, val) => {
-    const updated = items.map(item => item.id === id ? { ...item, unit: val } : item)
-    setItems(updated)
-    await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
-    await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
-
-    // Update unit in inventory
-    const updatedInventory = inventory.map(item => item.id === id ? { ...item, unit: val } : item)
-    if (setInventory) {
-      setInventory(updatedInventory)
-    }
-    await saveInventory(updatedInventory)
-  }
-
-  const deleteOSItem = async (id) => {
-    if (!confirm("Are you sure you want to remove this item from opening stock?")) return
-    setLoadingAction("delete_" + id)
-    try {
-      const updated = items.filter(item => item.id !== id)
-      setItems(updated)
-      await saveLocal(LS_KEY, { month: currentMonthStr, items: updated })
-      await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updated, locked: saved })
-      await new Promise(r => setTimeout(r, 250))
-    } finally {
-      setLoadingAction(null)
-    }
-  }
-
-  const lockStock = async () => {
-    setLoadingAction("lockStock")
-    try {
-      const monthKey = "ll_os_" + currentMonthStr
-      const snapshot = {
-        date: new Date().toISOString(),
-        items: items.map(item => ({
-          id: item.id,
-          name: item.name,
-          unit: item.unit,
-          openingQty: item.openingQty,
-          cost: item.cost
-        })),
-        locked: true
-      }
-      await saveLocal(monthKey, snapshot)
-      await new Promise(r => setTimeout(r, 350))
-      setSaved(true)
-    } finally {
-      setLoadingAction(null)
-    }
-  }
-
-  const handleEditCostsToggle = async () => {
-    if (editCosts) {
-      setLoadingAction("saveCosts")
-      try {
-        setEditCosts(false)
-        const monthKey = "ll_os_" + currentMonthStr
-        const snapshot = {
-          date: new Date().toISOString(),
-          items: items.map(item => ({
-            id: item.id,
-            name: item.name,
-            unit: item.unit,
-            openingQty: item.openingQty,
-            cost: item.cost
-          })),
-          locked: saved
-        }
-        await saveLocal(monthKey, snapshot)
-        await new Promise(r => setTimeout(r, 350))
-      } finally {
-        setLoadingAction(null)
-      }
-    } else {
-      setLoadingAction("editCosts")
-      try {
-        setEditCosts(true)
-        await new Promise(r => setTimeout(r, 250))
-      } finally {
-        setLoadingAction(null)
-      }
-    }
-  }
-
-  const saveToDatabase = async () => {
-    setLoadingAction("saveSetup")
-    try {
-      await saveLocal(LS_KEY, { month: currentMonthStr, items })
-      const monthKey = "ll_os_" + currentMonthStr
-      const snapshot = {
-        date: new Date().toISOString(),
-        items: items.map(item => ({
-          id: item.id,
-          name: item.name,
-          unit: item.unit,
-          openingQty: item.openingQty,
-          cost: item.cost
-        })),
-        locked: false
-      }
-      await saveLocal(monthKey, snapshot)
-      await new Promise(r => setTimeout(r, 400))
-      setSaved(false)
-      setShowSavedMsg(true)
-      setTimeout(() => setShowSavedMsg(false), 3000)
-    } finally {
-      setLoadingAction(null)
-    }
-  }
-
-  const unlockStock = async () => {
-    if (!confirm("Are you sure you want to unlock the opening stock for this month?")) return
-    setLoadingAction("unlockStock")
-    try {
-      const monthKey = "ll_os_" + currentMonthStr
-      const snapshot = {
-        date: new Date().toISOString(),
-        items: items.map(item => ({
-          id: item.id,
-          name: item.name,
-          unit: item.unit,
-          openingQty: item.openingQty,
-          cost: item.cost
-        })),
-        locked: false
-      }
-      await saveLocal(monthKey, snapshot)
-      await new Promise(r => setTimeout(r, 350))
-      setSaved(false)
-    } finally {
-      setLoadingAction(null)
-    }
-  }
-
-  const addNewItemToOS = async () => {
-    let cost = newItem.cost
-    if (calcMode === "auto") {
-      const price = parseFloat(newItem.totalPaid)
-      const qty = parseFloat(newItem.qtyBought)
-      if (!newItem.totalPaid || !newItem.qtyBought || isNaN(price) || isNaN(qty) || qty <= 0) {
-        alert("Total amount paid and quantity bought must be valid positive numbers.")
-        return
-      }
-      cost = price / qty
-    } else {
-      cost = parseFloat(cost) || 0
-    }
-    if (!newItem.name.trim() || !cost) {
-      alert("Name and cost are required.")
-      return
-    }
-
-    setLoadingAction("addNewItem")
-    try {
-      const id = "_" + Math.random().toString(36).slice(2, 9)
-      const openingQty = parseFloat(newItem.openingQty) || 0
-
-      const osItem = {
-        id,
-        name: newItem.name.trim(),
-        unit: newItem.unit,
-        cost,
-        openingQty
-      }
-
-      const updatedOSItems = [...items, osItem]
-      setItems(updatedOSItems)
-      await saveLocal(LS_KEY, { month: currentMonthStr, items: updatedOSItems })
-      await saveLocal("ll_os_" + currentMonthStr, { date: new Date().toISOString(), items: updatedOSItems, locked: saved })
-
-      const masterItem = {
-        id,
-        name: newItem.name.trim(),
-        cat: "Dry Goods", // Default category
-        unit: newItem.unit,
-        cost,
-        stock: openingQty,
-        minStock: 5
-      }
-
-      const updatedInventory = [...inventory, masterItem]
-      if (setInventory) {
-        setInventory(updatedInventory)
-      }
-      await saveInventory(updatedInventory)
-      await new Promise(r => setTimeout(r, 350))
-
-      setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
-      setCalcMode("manual")
-      setAddingItem(false)
-    } finally {
-      setLoadingAction(null)
-    }
-  }
-
-  return <div style={{ maxWidth: 640 }}>
-    <Card style={{ marginBottom: 14, background: "#FFF9EE", borderColor: "var(--gold)" }}>
-      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Opening Stock — {curMonth}</div>
-      <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0, lineHeight: 1.7, marginBottom: 12 }}>Set this once at the start of each month — or when you first set up the app. Once locked, this record never changes. It is used to generate your monthly stock statement automatically.</p>
-      <div style={{ padding: "8px 12px", background: "#FFF3CD", borderRadius: 7, fontSize: 12, color: "#856404", marginBottom: 14 }}>⚠ Set opening stock at the beginning of each month before production starts. Once you lock it, it becomes a permanent record for that month.</div>
-      {editCosts && (
-        <div style={{ padding: "8px 12px", background: "#FDF3E5", borderRadius: 7, fontSize: 12, color: "#C8912A", marginBottom: 14, border: "1px solid rgba(200,145,42,0.2)", fontWeight: 500 }}>
-          ⚠️ You have unsaved edits. Please ensure you click the <strong>"✓ Save"</strong> button at the bottom to apply your changes.
-        </div>
-      )}
-      {/* Search Bar */}
-      <div style={{ position: "relative", marginBottom: 14 }}>
-        <input
-          type="text"
-          placeholder="🔍 Search items by name..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          style={{
-            ...iSt,
-            padding: "8px 10px 8px 30px",
-            fontSize: 13,
-            borderRadius: 8,
-            border: "1px solid var(--border)",
-            background: "var(--panel)"
-          }}
-        />
-        {searchQuery && (
-          <button
-            onClick={() => setSearchQuery("")}
-            style={{
-              position: "absolute",
-              right: 10,
-              top: "50%",
-              transform: "translateY(-50%)",
-              background: "none",
-              border: "none",
-              color: "var(--muted)",
-              cursor: "pointer",
-              fontSize: 13,
-              fontWeight: 500,
-              padding: 0
-            }}
-          >
-            Clear
-          </button>
-        )}
-      </div>
-
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead><tr style={{ background: "#EDE5D6" }}>
-            {["Item", "Unit", "Opening Stock Qty", "Cost/Unit", "Opening Value", !isLocked ? "" : null].filter(h => h !== null).map(h => <th key={h} style={{ padding: "8px 10px", textAlign: h === "Item" || h === "Unit" ? "left" : h === "" ? "center" : "right", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>)}
-          </tr></thead>
-          <tbody>
-            {filteredItems.length === 0 ? (
-              <tr>
-                <td colSpan={isLocked ? 5 : 6} style={{ padding: "16px 10px", textAlign: "center", color: "var(--muted)", fontStyle: "italic" }}>
-                  {items.length === 0 ? "No items in opening stock yet." : "No matching items found."}
-                </td>
-              </tr>
-            ) : (
-              paginatedItems.map((item, i) => {
-                const qty = item.openingQty || 0
-                return <tr key={item.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
-                  <td style={{ padding: "8px 10px", fontWeight: 500 }}>{item.name}</td>
-                  <td style={{ padding: "8px 10px", color: "var(--muted)" }}>
-                    {isEditable ? (
-                      <select value={item.unit || "kg"} onChange={e => updateOSUnit(item.id, e.target.value)} style={{ ...iSt, width: 70, padding: "2px 4px", fontSize: 12 }}>
-                        {["kg", "g", "L", "ml", "pcs", "pack", "bottle", "roll", "set", "cm"].map(u => <option key={u}>{u}</option>)}
-                      </select>
-                    ) : (
-                      item.unit
-                    )}
-                  </td>
-                  <td style={{ padding: "8px 10px", textAlign: "right" }}>
-                    <input
-                      type="number"
-                      value={qty || ""}
-                      onChange={e => updateOSQty(item.id, e.target.value)}
-                      placeholder="0"
-                      disabled={isLocked}
-                      style={{
-                        ...iSt,
-                        width: 90,
-                        padding: "4px 8px",
-                        fontSize: 13,
-                        textAlign: "right",
-                        ...(isLocked ? { background: "#F5F5F5", color: "var(--muted)", cursor: "not-allowed" } : {})
-                      }}
-                    />
-                  </td>
-                  <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--gold)", fontWeight: 500 }}>
-                    {isEditable ? (
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
-                        <button
-                          onClick={() => setCalcItem({ id: item.id, name: item.name, unit: item.unit, totalPaid: "", qtyBought: "" })}
-                          title="Calculate cost per unit"
-                          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: 0, marginRight: 4 }}
-                        >
-                          🧮
-                        </button>
-                        <span>₦</span>
-                        <input type="number" value={item.cost || ""} onChange={e => updateOSCost(item.id, e.target.value)} placeholder="0" style={{ ...iSt, width: 75, padding: "4px 8px", fontSize: 13, textAlign: "right" }} />
-                      </div>
-                    ) : (
-                      `${fmt(item.cost)}/${item.unit}`
-                    )}
-                  </td>
-                  <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--muted)", fontSize: 12 }}>{fmt(qty * item.cost)}</td>
-                  {!isLocked && (
-                    <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                      <Btn
-                        small
-                        variant="danger"
-                        onClick={() => deleteOSItem(item.id)}
-                        loading={loadingAction === "delete_" + item.id}
-                        title="Remove item from opening stock"
-                        style={{ padding: "2px 8px", minWidth: 24, fontSize: 14 }}
-                      >
-                        ×
-                      </Btn>
-                    </td>
-                  )}
-                </tr>
-              })
-            )}
-          </tbody>
-          <tfoot><tr>
-            <td colSpan={4} style={{ padding: "10px", textAlign: "right", fontWeight: 600, fontSize: 13 }}>Total opening stock value</td>
-            <td style={{ padding: "10px", textAlign: "right", fontWeight: 700, color: "var(--gold)", fontSize: 15 }}>{fmt(items.reduce((s, i) => s + (i.openingQty || 0) * i.cost, 0))}</td>
-            {!isLocked && <td />}
-          </tr></tfoot>
-        </table>
-      </div>
-
-      <Pagination
-        currentPage={currentPage}
-        totalItems={filteredItems.length}
-        pageSize={pageSize}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={(sz) => {
-          setPageSize(sz)
-          setCurrentPage(1)
-        }}
-        pageSizeOptions={[10, 25, 50, 100]}
-        itemLabel="opening stock items"
-      />
-
-      <style>{`
-        .os-btn-row {
-          margin-top: 14px;
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          justify-content: space-between;
-          flex-wrap: wrap;
-        }
-        .os-btn-group-left {
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        .os-btn-group-right {
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        @media (max-width: 600px) {
-          .os-btn-row {
-            flex-direction: column;
-            align-items: stretch;
-            gap: 12px;
-          }
-          .os-btn-group-left, .os-btn-group-right {
-            flex-direction: column;
-            align-items: stretch;
-            width: 100%;
-            gap: 8px;
-          }
-          .os-btn-group-left > button, .os-btn-group-right > button, .os-btn-group-left > div, .os-btn-group-right > div {
-            width: 100% !important;
-            text-align: center;
-            justify-content: center;
-          }
-          .os-saved-msg {
-            display: block;
-            text-align: center;
-            width: 100%;
-            margin-top: 4px;
-          }
-        }
-      `}</style>
-      <div className="os-btn-row">
-        <div className="os-btn-group-left">
-          {!isLocked ? (
-            <div className="os-btn-group-left">
-              <Btn variant="success" onClick={lockStock} loading={loadingAction === "lockStock"} loadingText="Locking...">🔒 Lock Open Stock for {curMonth}</Btn>
-              <Btn variant="outline" onClick={saveToDatabase} loading={loadingAction === "saveSetup"} loadingText="Saving Setup..." style={{ borderColor: "#28B463", color: "#28B463" }}>💾 Save Setup</Btn>
-              {showSavedMsg && <span className="os-saved-msg" style={{ fontSize: 13, color: "#28B463", fontWeight: 600 }}>✓ Saved Setup</span>}
-            </div>
-          ) : (
-            <div className="os-btn-group-left">
-              <span style={{ fontSize: 13, color: "#357A52", fontWeight: 600, background: "#EEF8F3", padding: "6px 12px", borderRadius: 8, border: "1px solid #C2E0CF" }}>🔒 Opening Stock is locked for {curMonth}</span>
-              {user?.role === "owner" && (
-                <>
-                  <Btn variant="outline" onClick={unlockStock} loading={loadingAction === "unlockStock"} loadingText="Unlocking..." style={{ padding: "4px 10px", fontSize: 12 }}>🔓 Unlock</Btn>
-                  {items.length > 0 && (
-                    <Btn
-                      variant="ghost"
-                      onClick={handleDeleteAllOpeningStock}
-                      disabled={deletingAll}
-                      style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "12px", padding: "4px 10px" }}
-                      title="Delete all opening stock directly from database"
-                    >
-                      {deletingAll ? "Deleting..." : "🗑 Delete All"}
-                    </Btn>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-        {!isLocked && (
-          <div className="os-btn-group-right">
-            <Btn
-              variant="outline"
-              onClick={handleEditCostsToggle}
-              loading={loadingAction === "editCosts" || loadingAction === "saveCosts"}
-              loadingText={editCosts ? "Saving Edits..." : "Loading..."}
-              style={editCosts ? { borderColor: "var(--gold)", background: "rgba(200,145,42,0.1)", color: "var(--gold)", fontWeight: "600" } : {}}
-            >
-              {editCosts ? "✓ Save" : "✏ Edit"}
-            </Btn>
-            <Btn
-              variant="outline"
-              onClick={handleOpenImportModal}
-              loading={loadingAction === "openImport"}
-              loadingText="Loading..."
-            >
-              📁 Import from Excel
-            </Btn>
-            <Btn
-              onClick={handleOpenAddItemModal}
-              loading={loadingAction === "openAddItem"}
-              loadingText="Loading..."
-            >
-              + Add Item
-            </Btn>
-            {user?.role === "owner" && items.length > 0 && (
-              <Btn
-                variant="ghost"
-                onClick={handleDeleteAllOpeningStock}
-                disabled={deletingAll}
-                style={{ color: "#B03A2E", borderColor: "#F2DEDE", fontSize: "12px" }}
-                title="Delete all opening stock directly from database"
-              >
-                {deletingAll ? "Deleting..." : "🗑 Delete All"}
-              </Btn>
-            )}
-          </div>
-        )}
-      </div>
-    </Card>
-    <Card>
-      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600, marginBottom: 8 }}>How this works</div>
-      <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.8 }}>
-        <div style={{ marginBottom: 6 }}>1. On the first day of each month, enter your stock quantities above</div>
-        <div style={{ marginBottom: 6 }}>2. Click Lock — this saves a permanent snapshot for that month</div>
-        <div style={{ marginBottom: 6 }}>3. As you bake, stock reduces automatically from production orders</div>
-        <div style={{ marginBottom: 6 }}>4. Purchases from receipts add back to stock automatically</div>
-        <div>5. At month end, go to Reports → Stock Statement to see your full monthly movement</div>
-      </div>
-    </Card>
-
-    {addingItem && <Modal title="Add Item directly to Opening Stock" onClose={() => { setAddingItem(false); setCalcMode("manual"); setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" }) }}>
-      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>Adding a new item here will also register it in your Master List.</div>
-      <Inp label="Item Name *" value={newItem.name} onChange={v => setNewItem(p => ({ ...p, name: v }))} placeholder="e.g. Yeast" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-        <Sel label="Unit *" value={newItem.unit} onChange={v => setNewItem(p => ({ ...p, unit: v }))} options={["kg", "g", "L", "ml", "pcs", "pack", "bottle", "roll", "set", "cm"].map(u => ({ value: u, label: u }))} />
-        <Inp label="Opening Stock Qty" type="number" value={newItem.openingQty} onChange={v => setNewItem(p => ({ ...p, openingQty: v }))} placeholder="e.g. 5" />
-      </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 500 }}>Cost Per Unit Setting</label>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            type="button"
-            onClick={() => setCalcMode("manual")}
-            style={{
-              flex: 1,
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: calcMode === "manual" ? "2px solid var(--gold)" : "1px solid var(--border)",
-              background: calcMode === "manual" ? "rgba(200,145,42,0.08)" : "transparent",
-              color: calcMode === "manual" ? "var(--gold)" : "var(--text)",
-              fontWeight: calcMode === "manual" ? "600" : "500",
-              cursor: "pointer",
-              fontSize: "12px"
-            }}
-          >
-            I know cost per unit
-          </button>
-          <button
-            type="button"
-            onClick={() => setCalcMode("auto")}
-            style={{
-              flex: 1,
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: calcMode === "auto" ? "2px solid var(--gold)" : "1px solid var(--border)",
-              background: calcMode === "auto" ? "rgba(200,145,42,0.08)" : "transparent",
-              color: calcMode === "auto" ? "var(--gold)" : "var(--text)",
-              fontWeight: calcMode === "auto" ? "600" : "500",
-              cursor: "pointer",
-              fontSize: "12px"
-            }}
-          >
-            I don't know cost per unit
-          </button>
-        </div>
-      </div>
-
-      {calcMode === "auto" ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-          <Inp label="Total Amount Paid (₦) *" type="number" value={newItem.totalPaid || ""} onChange={v => setNewItem(p => ({ ...p, totalPaid: v }))} placeholder="e.g. 5000" />
-          <Inp label="Quantity Bought *" type="number" value={newItem.qtyBought || ""} onChange={v => setNewItem(p => ({ ...p, qtyBought: v }))} placeholder="e.g. 2.5" />
-          {newItem.totalPaid && newItem.qtyBought && parseFloat(newItem.qtyBought) > 0 && (
-            <div style={{ gridColumn: "span 2", padding: "8px 12px", background: "var(--panel)", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "var(--gold)", border: "1px solid var(--border)" }}>
-              Calculated Cost per Unit: {fmt(parseFloat(newItem.totalPaid) / parseFloat(newItem.qtyBought))}/{newItem.unit}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div style={{ marginBottom: 12 }}>
-          <Inp label="Cost/Unit (₦) *" type="number" value={newItem.cost} onChange={v => setNewItem(p => ({ ...p, cost: v }))} placeholder="e.g. 500" />
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 8 }}>
-        <Btn variant="success" onClick={addNewItemToOS} loading={loadingAction === "addNewItem"} loadingText="Adding Item...">✓ Add Item</Btn>
-        <Btn variant="ghost" disabled={loadingAction === "addNewItem"} onClick={() => { setAddingItem(false); setCalcMode("manual"); setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" }) }}>Cancel</Btn>
-      </div>
-    </Modal>}
-
-    {showImport && (
-      <Modal title="Import Starting Inventory" onClose={() => setShowImport(false)}>
-        {/* Step indicators */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-          {[["1", "Paste columns"], ["2", "Preview"], ["✓", "Imported"]].map(([num, lbl], i) => {
-            const idx = i + 1
-            const done = importStep > idx, active = importStep === idx
-            return <div key={num} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <div style={{ width: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, background: done ? "#357A52" : active ? "var(--gold)" : "var(--border)", color: done || active ? "#fff" : "var(--muted)" }}>{done ? "✓" : num}</div>
-              <span style={{ fontSize: 12, color: active ? "var(--text)" : "var(--muted)", fontWeight: active ? 500 : 400 }}>{lbl}</span>
-              {i < 2 && <div style={{ width: 20, height: 1, background: "var(--border)", margin: "0 2px" }} />}
-            </div>
-          })}
-        </div>
-
-        {/* STEP 1 — paste */}
-        {importStep === 1 && <div>
-          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>Open your Excel. Copy each column and paste into its own box. Only item names and cost per unit are required.</div>
-          <div style={{ background: "#FFF9EE", border: "1px solid #E8D5A3", borderRadius: 7, padding: "8px 12px", fontSize: 12, color: "var(--gold)", marginBottom: 12 }}>💡 Just copy from Excel as-is. No reformatting needed.</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 10 }}>
-            <div>
-              <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Item Names *</label>
-              <textarea value={pasteN} onChange={e => { setPasteN(e.target.value); checkMatch() }} placeholder={"Flour\nSugar\nOil\nEggs\nButter"} style={{ width: "100%", minHeight: 150, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 11.5, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Unit <span style={{ color: "var(--muted)", fontSize: 8 }}>(opt)</span></label>
-              <textarea value={pasteU} onChange={e => setPasteU(e.target.value)} placeholder={"kg\nkg\nL\npcs\nkg"} style={{ width: "100%", minHeight: 150, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 11.5, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-              <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 3 }}>Default all to kg</div>
-            </div>
-            <div>
-              <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Opening Qty</label>
-              <textarea value={pasteQ} onChange={e => { setPasteQ(e.target.value); checkMatch() }} placeholder={"10\n5\n2\n30\n8"} style={{ width: "100%", minHeight: 150, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 11.5, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-              <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 3 }}>Default to 0</div>
-            </div>
-            <div>
-              <label style={{ fontSize: 10, color: "var(--gold)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Cost/Unit (₦) *</label>
-              <textarea value={pasteC} onChange={e => { setPasteC(e.target.value); checkMatch() }} placeholder={"1140\n1500\n3000\n20\n17500"} style={{ width: "100%", minHeight: 150, padding: "8px", borderRadius: 8, border: "1px solid #E8D5A3", background: "#FFF9EE", fontSize: 11.5, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-              <div style={{ fontSize: 9, color: "var(--gold)", marginTop: 3 }}>Bulk price ÷ qty</div>
-            </div>
-          </div>
-          {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10 }}>⚠ {warnMsg}</div>}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <Btn variant="ghost" disabled={loadingAction === "doPreview"} onClick={() => setShowImport(false)}>Cancel</Btn>
-            <Btn onClick={doPreview} disabled={!pasteN.trim() || !pasteC.trim() || !!warnMsg} loading={loadingAction === "doPreview"} loadingText="Processing...">Preview import →</Btn>
-          </div>
-        </div>}
-
-        {/* STEP 2 — preview */}
-        {importStep === 2 && <div>
-          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Check every row. Toggle off anything you don't want. Updates will edit existing item quantities/costs/units.</div>
-          <div style={{ overflowX: "auto", marginBottom: 10, maxHeight: 300 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-              <thead><tr style={{ background: "#EDE5D6", position: "sticky", top: 0, zIndex: 10 }}>
-                {["", "Item", "Type", "Unit", "Qty", "Cost/Unit"].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: h === "Cost/Unit" || h === "Qty" ? "right" : "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>)}
-              </tr></thead>
-              <tbody>{importItems.map((p, i) => <tr key={i} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA", opacity: p.on ? 1 : 0.35 }}>
-                <td style={{ padding: "6px 10px" }}><div onClick={() => setImportItems(prev => prev.map((x, j) => j === i ? { ...x, on: !x.on } : x))} style={{ width: 30, height: 16, borderRadius: 8, background: p.on ? "#357A52" : "var(--border)", cursor: "pointer", position: "relative" }}><div style={{ width: 12, height: 12, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: p.on ? 16 : 2, transition: "left 0.2s" }} /></div></td>
-                <td style={{ padding: "6px 10px", fontWeight: 500 }}>{p.name}</td>
-                <td style={{ padding: "6px 10px" }}><Badge color={p.isNew ? "green" : "gold"}>{p.isNew ? "New" : "Update"}</Badge></td>
-                <td style={{ padding: "6px 10px", color: "var(--muted)" }}>{p.unit}</td>
-                <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600 }}>{p.openingQty}</td>
-                <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 500, color: "var(--gold)" }}>{fmt(p.cost)}/{p.unit}</td>
-              </tr>)}</tbody>
-            </table>
-          </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <Btn variant="ghost" disabled={loadingAction === "confirmImport"} onClick={() => setImportStep(1)}>← Edit</Btn>
-            <Btn variant="success" onClick={confirmImport} disabled={!importItems.some(p => p.on)} loading={loadingAction === "confirmImport"} loadingText="Importing...">✓ Confirm & Import {importItems.filter(p => p.on).length} Items</Btn>
-          </div>
-        </div>}
-
-        {/* STEP 3 — done */}
-        {importStep === 3 && <div style={{ textAlign: "center", padding: "16px 0" }}>
-          <div style={{ fontSize: 16, color: "#357A52", fontWeight: 600, marginBottom: 6 }}>✓ Import complete</div>
-          <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>Starting quantities and costs have been loaded and matched.</div>
-          <Btn variant="ghost" onClick={() => { setImportStep(1); setShowImport(false) }}>Done</Btn>
-        </div>}
-      </Modal>
-    )}
-
-    {calcItem && (
-      <Modal title={`Calculate Cost/Unit — ${calcItem.name}`} onClose={() => setCalcItem(null)}>
-        <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>
-          Input the total purchase price and quantity to calculate the unit cost automatically.
-        </div>
-        <Inp
-          label="Total Amount Paid (₦) *"
-          type="number"
-          value={calcItem.totalPaid}
-          onChange={v => setCalcItem(prev => ({ ...prev, totalPaid: v }))}
-          placeholder="e.g. 5000"
-        />
-        <Inp
-          label={`Quantity Bought (${calcItem.unit}) *`}
-          type="number"
-          value={calcItem.qtyBought}
-          onChange={v => setCalcItem(prev => ({ ...prev, qtyBought: v }))}
-          placeholder="e.g. 2.5"
-        />
-        {calcItem.totalPaid && calcItem.qtyBought && parseFloat(calcItem.qtyBought) > 0 && (
-          <div style={{ padding: "10px 14px", background: "#FFF9EE", border: "1px solid var(--gold)", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "var(--gold)", marginBottom: 14 }}>
-            Calculated Cost: {fmt(parseFloat(calcItem.totalPaid) / parseFloat(calcItem.qtyBought))}/{calcItem.unit}
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" disabled={loadingAction === "applyCost"} onClick={() => setCalcItem(null)}>Cancel</Btn>
-          <Btn
-            variant="success"
-            disabled={!calcItem.totalPaid || !calcItem.qtyBought || parseFloat(calcItem.qtyBought) <= 0}
-            loading={loadingAction === "applyCost"}
-            loadingText="Applying..."
-            onClick={async () => {
-              setLoadingAction("applyCost")
-              try {
-                const cost = Math.round(parseFloat(calcItem.totalPaid) / parseFloat(calcItem.qtyBought))
-                await updateOSCost(calcItem.id, cost)
-                await new Promise(r => setTimeout(r, 250))
-                setCalcItem(null)
-              } finally {
-                setLoadingAction(null)
-              }
-            }}
-          >
-            ✓ Apply Cost
-          </Btn>
-        </div>
-      </Modal>
-    )}
-  </div>
-}
-
-// ═══════════════════════════════════════════════════════════
-//  STOCK STATEMENT (monthly — added to Reports)
+export const OpeningStockTab = OpeningStock
 
 export const SHAPES = ["round", "square", "sheet"]
 
 export function PricingSetup({ settings, setSetting }) {
   const [ptab, setPtab] = useState("mults")
-  const [mults, setMults] = useState(() => loadLocal("ll_multipliers", DEFAULT_MULTS))
+  const [mults, setMults] = useState({})
   const [saved, setSaved] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [error, setError] = useState(null)
 
-  const saveMults = async () => { await saveLocal("ll_multipliers", mults); setSaved("mults"); setTimeout(() => setSaved(""), 2000) }
+  const setSettingRef = useRef(setSetting)
+  setSettingRef.current = setSetting
+
+  const loadPricing = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const serverPricing = await fetchPricingSettingsFromServer()
+      if (serverPricing && serverPricing.multipliers) {
+        setMults(serverPricing.multipliers)
+      } else {
+        setMults(DEFAULT_MULTS)
+      }
+      const fn = setSettingRef.current
+      if (fn && serverPricing) {
+        if (serverPricing.profitPct !== undefined) fn("profitPct", serverPricing.profitPct)
+        if (serverPricing.overheadPct !== undefined) fn("overheadPct", serverPricing.overheadPct)
+        if (serverPricing.accessoryPct !== undefined) fn("accessoryPct", serverPricing.accessoryPct)
+        if (serverPricing.miscPct !== undefined) fn("miscPct", serverPricing.miscPct)
+      }
+    } catch (err) {
+      console.warn("PricingSetup loadPricing error:", err)
+      setError("Failed to load pricing settings from database.")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadPricing()
+  }, [loadPricing])
+
+  const saveMults = async () => {
+    setSaving(true)
+    try {
+      await savePricingSettingsOnServer({ multipliers: mults })
+      setSaved("mults")
+      setTimeout(() => setSaved(""), 3000)
+    } catch (err) {
+      console.error("Failed to save multipliers to server:", err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleResetDefaults = async () => {
+    if (!window.confirm("Reset all size and shape multipliers to system defaults in database?")) return
+    setResetting(true)
+    try {
+      const defaults = await resetPricingSettingsOnServer()
+      if (defaults && defaults.multipliers) {
+        setMults(defaults.multipliers)
+        setSaved("reset")
+        setTimeout(() => setSaved(""), 3000)
+      }
+    } catch (err) {
+      console.error("Failed to reset multipliers in database:", err)
+    } finally {
+      setResetting(false)
+    }
+  }
 
   const tabs = [
     { v: "mults", l: "Size multipliers" },
@@ -1112,34 +210,52 @@ export function PricingSetup({ settings, setSetting }) {
       {tabs.map(t => <button key={t.v} onClick={() => setPtab(t.v)} style={{ padding: "6px 14px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", border: ptab === t.v ? "none" : "1px solid var(--border)", background: ptab === t.v ? "var(--gold)" : "transparent", color: ptab === t.v ? "#fff" : "var(--muted)", fontFamily: "inherit" }}>{t.l}</button>)}
     </div>
 
-    {/* SIZE MULTIPLIERS */}
-    {ptab === "mults" && <div>
-      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.7 }}>Each recipe is written for a 6" round (= 1.0 base). Set multipliers for every size and shape so the recipe calculator scales ingredients and costs correctly.</div>
-      <div style={{ overflowX: "auto", marginBottom: 12 }}>
-        <table style={{ borderCollapse: "collapse", fontSize: 12.5, minWidth: 480 }}>
-          <thead><tr style={{ background: "#EDE5D6" }}>
-            <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500, width: 60 }}>Size</th>
-            {SHAPES.map(s => <th key={s} style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500, width: 80 }}>{s}</th>)}
-          </tr></thead>
-          <tbody>{PRICING_SIZES.map((size, si) => <tr key={size} style={{ background: si % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
-            <td style={{ padding: "6px 10px", fontWeight: 500 }}>{size}"</td>
-            {SHAPES.map(shape => {
-              const key = `${size}-${shape}`
-              const isBase = size === "6" && shape === "round"
-              return <td key={shape} style={{ padding: "4px 6px", textAlign: "center" }}>
-                <input type="number" step="0.1" min="0.1" value={mults[key] || ""} disabled={isBase}
-                  onChange={e => setMults(m => ({ ...m, [key]: parseFloat(e.target.value) || 0 }))}
-                  style={{ ...iSt, width: 64, textAlign: "center", padding: "4px 6px", fontSize: 12, background: isBase ? "#EDE5D6" : "var(--panel)", color: isBase ? "var(--muted)" : "var(--text)" }} />
-              </td>
-            })}
-          </tr>)}</tbody>
-        </table>
+    {loading ? (
+      <div style={{ padding: "32px 16px", textAlign: "center", background: "var(--panel)", borderRadius: 10, border: "1px solid var(--border)", color: "var(--muted)", fontSize: 13, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+        <div style={{ width: 22, height: 22, border: "2px solid var(--gold)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+        <span>Loading pricing configuration from database...</span>
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <Btn onClick={saveMults}>Save multipliers</Btn>
-        {saved === "mults" && <span style={{ fontSize: 12.5, color: "#357A52" }}>✓ Saved</span>}
+    ) : error ? (
+      <div style={{ padding: "16px 20px", background: "#FDEBE9", border: "1px solid #F0A89E", borderRadius: 8, color: "#B03A2E", fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>{error}</span>
+        <Btn variant="ghost" onClick={loadPricing}>Retry</Btn>
       </div>
-    </div>}
+    ) : (
+      <>
+        {/* SIZE MULTIPLIERS */}
+        {ptab === "mults" && <div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.7 }}>Each recipe is written for a 6" round (= 1.0 base). Set multipliers for every size and shape so the recipe calculator scales ingredients and costs correctly. All changes are saved directly to your cloud database.</div>
+          <div style={{ overflowX: "auto", marginBottom: 12 }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 12.5, minWidth: 480 }}>
+              <thead><tr style={{ background: "#EDE5D6" }}>
+                <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500, width: 60 }}>Size</th>
+                {SHAPES.map(s => <th key={s} style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500, width: 80 }}>{s}</th>)}
+              </tr></thead>
+              <tbody>{PRICING_SIZES.map((size, si) => <tr key={size} style={{ background: si % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
+                <td style={{ padding: "6px 10px", fontWeight: 500 }}>{size}"</td>
+                {SHAPES.map(shape => {
+                  const key = `${size}-${shape}`
+                  const isBase = size === "6" && shape === "round"
+                  return <td key={shape} style={{ padding: "4px 6px", textAlign: "center" }}>
+                    <input type="number" step="0.1" min="0.1" value={mults[key] !== undefined ? mults[key] : ""} disabled={isBase}
+                      onChange={e => setMults(m => ({ ...m, [key]: parseFloat(e.target.value) || 0 }))}
+                      style={{ ...iSt, width: 64, textAlign: "center", padding: "4px 6px", fontSize: 12, background: isBase ? "#EDE5D6" : "var(--panel)", color: isBase ? "var(--muted)" : "var(--text)" }} />
+                  </td>
+                })}
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
+            <Btn onClick={saveMults} disabled={saving}>
+              {saving ? "Saving to Database..." : "Save multipliers"}
+            </Btn>
+            <Btn variant="ghost" onClick={handleResetDefaults} disabled={resetting}>
+              {resetting ? "Resetting..." : "Reset to Defaults"}
+            </Btn>
+            {saved === "mults" && <span style={{ fontSize: 12.5, color: "#357A52", display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={13} /> Multipliers saved to database</span>}
+            {saved === "reset" && <span style={{ fontSize: 12.5, color: "#357A52", display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={13} /> Multipliers reset to defaults</span>}
+          </div>
+        </div>}
 
     {/* PROFIT MARGINS */}
 
@@ -1159,7 +275,7 @@ export function PricingSetup({ settings, setSetting }) {
           <input type="range" min={0} max={45} value={settings.overheadPct || 27} onChange={e => setSetting("overheadPct", +e.target.value)} style={{ flex: 1, accentColor: "var(--gold)" }} />
           <div style={{ fontSize: 22, fontWeight: 700, color: "var(--gold)", minWidth: 46 }}>{settings.overheadPct || 27}%</div>
         </div>
-        {((settings.profitPct || 50)) >= 90 && <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12, color: "#B03A2E", lineHeight: 1.6 }}>⚠ Desired profit margin is very high ({settings.profitPct || 50}%). Please keep it below 90% to leave room for costs.</div>}
+        {((settings.profitPct || 50)) >= 90 && <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12, color: "#B03A2E", lineHeight: 1.6, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> Desired profit margin is very high ({settings.profitPct || 50}%). Please keep it below 90% to leave room for costs.</div>}
         <div style={{ padding: "10px 12px", background: "#F5F0E4", borderRadius: 8, fontSize: 12.5, color: "var(--muted)", marginTop: 6, lineHeight: 1.7 }}>
           Example: if a cake costs <strong style={{ color: "var(--text)" }}>₦10,000</strong> in ingredients:
           <div style={{ marginLeft: 12, marginTop: 4, fontSize: 12 }}>
@@ -1192,7 +308,8 @@ export function PricingSetup({ settings, setSetting }) {
         </div>
       </Card>
     </div>}
-
+      </>
+    )}
   </div>
 }
 
@@ -1200,24 +317,39 @@ export function PricingSetup({ settings, setSetting }) {
 //  ONBOARDING (first-time setup checklist)
 
 // ═══════════════════════════════════════════════════════════
-export function Settings({ company, setCompany, settings, setSettings, users, setUsers, inventory, setInventory, user }) {
-  const [tab, setTab] = useState("company")
+export function Settings({ company, setCompany, settings, setSettings, users, setUsers, inventory, setInventory, user, setView, initialTab = "company" }) {
+  const [tab, setTab] = useState(initialTab)
   const [clearConfirm, setClearConfirm] = useState("")
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab)
+  }, [initialTab])
 
   const tabList = [
     { v: "company", l: "Company" },
+    { v: "tokens", l: "AI Tokens & Usage" },
     { v: "pricing", l: "Pricing & Margins" },
     { v: "stock", l: "Opening Stock" },
     { v: "notifications", l: "Notifications" }
   ]
   if (user?.role === "owner") tabList.push({ v: "users", l: "Users & Access" })
-  tabList.push({ v: "backup", l: "Backup & Data" })
+  tabList.push({ v: "backup", l: "Database & Data" })
   const logoRef = useRef()
   const [newUser, setNewUser] = useState({ name: "", role: "production", pin: "" })
   const [userMsg, setUserMsg] = useState("")
 
   const co = (field, val) => { const u = { ...company, [field]: val }; setCompany(u); saveCompany(u) }
-  const st = (field, val) => { const u = { ...settings, [field]: val }; setSettings(u); saveSetting(field, val) }
+  const st = useCallback((field, val, saveToServer = true) => {
+    setSettings(prev => {
+      if (prev && prev[field] === val) return prev
+      return { ...prev, [field]: val }
+    })
+    if (!saveToServer) return
+    saveSetting(field, val)
+    if (["profitPct", "overheadPct", "accessoryPct", "miscPct"].includes(field)) {
+      savePricingSettingsOnServer({ [field]: val }).catch(() => {})
+    }
+  }, [setSettings])
 
   const handleLogo = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => co("logo", ev.target.result); r.readAsDataURL(f) }
 
@@ -1225,7 +357,7 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
     if (!newUser.name || !newUser.pin) return setUserMsg("Name and PIN required")
     if (newUser.pin.length < 4) return setUserMsg("PIN must be at least 4 digits")
     const updated = [...users, { ...newUser, id: uid(), active: true }]
-    setUsers(updated); saveUsers(updated); setNewUser({ name: "", role: "production", pin: "" }); setUserMsg("✓ User added")
+    setUsers(updated); saveUsers(updated); setNewUser({ name: "", role: "production", pin: "" }); setUserMsg("User added")
   }
   const toggleUser = (id) => { const u = users.map(x => x.id === id ? { ...x, active: !x.active } : x); setUsers(u); saveUsers(u) }
   const deleteUser = (id) => { if (id === "owner") return; const u = users.filter(x => x.id !== id); setUsers(u); saveUsers(u) }
@@ -1236,26 +368,26 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
   const exportData = () => {
     const data = {}
     ALL_KEYS.forEach(k => { const v = loadLocal(k, null); if (v !== null) data[k] = typeof v === "string" ? v : JSON.stringify(v) })
-    data._exportedAt = new Date().toISOString(); data._version = "LayerLedger-v56"
+    data._exportedAt = new Date().toISOString(); data._version = "BakeWealth-v56"
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
-    a.href = url; a.download = "layerledger-backup-" + new Date().toISOString().slice(0, 10) + ".json"
+    a.href = url; a.download = "bakewealth-backup-" + new Date().toISOString().slice(0, 10) + ".json"
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
   }
   const importRef = useRef()
   const [importMsg, setImportMsg] = useState("")
   const handleImport = (e) => {
     const f = e.target.files[0]
-    if (!f) { setImportMsg("⚠ No file selected."); return }
+    if (!f) { setImportMsg("No file selected."); return }
     setImportMsg("Reading file...")
     const r = new FileReader()
-    r.onerror = () => { setImportMsg("⚠ Could not read the file. Try downloading it again.") }
+    r.onerror = () => { setImportMsg("Could not read the file. Try downloading it again.") }
     r.onload = ev => {
       try {
         let text = ev.target.result; if (typeof text !== "string") text = String(text); text = text.trim()
         const data = JSON.parse(text)
-        if (!data._version && !data.ll_inv && !data.ll_quotes && !data.ll_prods) { setImportMsg("⚠ This doesn't look like a LayerLedger backup file."); return }
+        if (!data._version && !data.ll_inv && !data.ll_quotes && !data.ll_prods && !data.bw_inv) { setImportMsg("This doesn't look like a BakeWealth backup file."); return }
         let count = 0
         const importPromises = Object.keys(data).map(async k => {
           if (k.startsWith("_")) return
@@ -1265,19 +397,26 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
           count++
         })
         Promise.all(importPromises).then(() => {
-          setImportMsg("✓ Imported " + count + " data sets. Reloading app...")
+          setImportMsg("Imported " + count + " data sets. Reloading app...")
           setTimeout(() => window.location.reload(), 1500)
         })
-      } catch (err) { setImportMsg("⚠ Could not read file: " + err.message + ". Make sure it's the exported backup file (.json), not the app zip.") }
+      } catch (err) { setImportMsg("Could not read file: " + err.message + ". Make sure it's the exported backup file (.json), not the app zip.") }
     }
     r.readAsText(f)
   }
 
+  const [clearing, setClearing] = useState(false)
   const clearAllData = async () => {
     if (clearConfirm !== (company.name || "BakeWealth")) return
-    await clearAllDataOnServer()
-    logout()
-    window.location.reload()
+    setClearing(true)
+    try {
+      await clearAllDataOnServer()
+      logout()
+      window.location.reload()
+    } catch (e) {
+      alert("Failed to clear data from database: " + e.message)
+      setClearing(false)
+    }
   }
 
   return <div>
@@ -1308,22 +447,30 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
         </div>
       </Card>
       <Card style={{ marginTop: 14 }}>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6 }}>🔑 AI Features</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+          <Key size={15} /> AI Features
+        </div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.7 }}>
           BakeWealth uses AI to scan receipts, read bank statements, and generate smart reports. AI features are enabled and utilize the company's secure global API key.
         </div>
-        <Btn onClick={async () => {
-          try {
-            const text = await callClaude([{ role: "user", content: "respond with exactly OK" }], "Respond with exactly OK")
-            if (text.trim() === "OK") {
-              alert("✅ AI Features are working correctly!")
-            } else {
-              alert("⚠️ Received response, but unexpected output: " + text)
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <Btn onClick={async () => {
+            try {
+              const text = await callClaude([{ role: "user", content: "respond with exactly OK" }], "Respond with exactly OK")
+              if (text.trim() === "OK") {
+                alert("AI Features are working correctly!")
+              } else {
+                alert("Received response, but unexpected output: " + text)
+              }
+            } catch (e) {
+              alert("AI Features connection error: " + e.message)
             }
-          } catch (e) {
-            alert("❌ AI Features connection error: " + e.message)
-          }
-        }}>Test Connection</Btn>
+          }}>Test Connection</Btn>
+          <Btn variant="outline" onClick={() => setTab("tokens")} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <Coins size={13} color="var(--gold)" />
+            <span>Manage Tokens & Usage</span>
+          </Btn>
+        </div>
       </Card>
       <Card style={{ marginTop: 14 }}>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Invoice Template</div>
@@ -1355,16 +502,18 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
 
     </div>}
 
+    {tab === "tokens" && <TokenUsageSection company={company} />}
+
     {tab === "pricing" && <PricingSetup settings={settings} setSetting={st} />}
 
-    {tab === "stock" && <OpeningStockTab inventory={inventory} setInventory={setInventory} user={user} />}
+    {tab === "stock" && <OpeningStock inventory={inventory} setInventory={setInventory} user={user} />}
     {tab === "notifications" && <NotificationSettings />}
 
     {tab === "users" && <div>
       <div style={{ marginBottom: 14, padding: "10px 14px", background: "#EEF8F3", borderRadius: 8, fontSize: 13, color: "#2D7A50", border: "1px solid #C2E0CF" }}>
         <strong>Access Levels:</strong> Owner = full access. Production = can log cakes & scan receipts only (no prices visible, no delete). Customer Service = can view orders & create invoices only.
       </div>
-      {userMsg && <Alert msg={userMsg} color={userMsg.startsWith("✓") ? "green" : "red"} onClose={() => setUserMsg("")} />}
+      {userMsg && <Alert msg={userMsg} color="green" onClose={() => setUserMsg("")} />}
       <Card style={{ marginBottom: 14, background: "#FFF9EE", borderColor: "var(--gold)" }}>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Add New User</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
@@ -1384,39 +533,40 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
 
     {tab === "backup" && <div style={{ maxWidth: 540 }}>
       <Card style={{ marginBottom: 14 }}>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Backup Your Data</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Export Database Snapshot</div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7, marginBottom: 14 }}>
-          Your data is stored on this device only. Export a backup file to keep it safe, move it to another device (your phone, a business centre computer), or hand it to your accountant. Do this regularly — it's your safety net.
+          All your bakery data (inventory, recipes, orders, quotes, expenses, clients, purchases, and settings) is stored securely in your cloud PostgreSQL database in real time. You can export a snapshot backup file of your database records at any time for offline archiving or to hand to your accountant.
         </div>
-        <Btn onClick={exportData}>📥 Export All Data</Btn>
-        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>Downloads a single file containing inventory, recipes, orders, quotes, transactions, purchases, payables, and all settings.</div>
+        <Btn onClick={exportData} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Download size={13} /> Export Database Snapshot</Btn>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>Downloads a JSON file containing all your live database records.</div>
       </Card>
       <Card>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Restore From Backup</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Restore Database Records</div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7, marginBottom: 14 }}>
-          Import a backup file to load all that data into this browser. Use this to set up the app on a new device, or to give your accountant a working copy.
+          Import a BakeWealth JSON backup file directly into your cloud database. This will restore and persist your dataset in the database.
         </div>
-        <div style={{ background: "#FDEBE9", border: "1px solid #F0A89E", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#B03A2E", lineHeight: 1.6, marginBottom: 14 }}>
-          ⚠ Importing replaces the data currently in this browser with the data from the file. If this browser already has data you want to keep, export it first.
+        <div style={{ background: "#FDEBE9", border: "1px solid #F0A89E", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#B03A2E", lineHeight: 1.6, marginBottom: 14, display: "flex", alignItems: "center", gap: 6 }}>
+          <AlertTriangle size={14} style={{ flexShrink: 0 }} /> Importing writes records directly to the database. If your database already contains live data you want to keep, export a snapshot first.
         </div>
         <input ref={importRef} type="file" onChange={handleImport} style={{ display: "none" }} />
-        <Btn variant="ghost" onClick={() => importRef.current?.click()}>📤 Import Data From File</Btn>
-        {importMsg && <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500, color: importMsg.startsWith("✓") ? "#357A52" : "#B03A2E" }}>{importMsg}</div>}
+        <Btn variant="ghost" onClick={() => importRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <Upload size={13} /> Import Data to Database
+        </Btn>
+        {importMsg && <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500, color: importMsg.includes("Imported") ? "#357A52" : "#B03A2E" }}>{importMsg}</div>}
       </Card>
-      <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 12, lineHeight: 1.6, fontStyle: "italic", marginBottom: 24 }}>
-        Note: this is a manual backup for now. A cloud version with automatic sync across all your devices is planned as the next major step.
-      </div>
 
-      <Card style={{ border: "1px solid #F0A89E" }}>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6, color: "#B03A2E" }}>Danger Zone</div>
+      <Card style={{ border: "1px solid #F0A89E", marginTop: 16 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6, color: "#B03A2E" }}>Danger Zone: Clear Database</div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7, marginBottom: 14 }}>
-          Clear all data from this device. This will delete all inventory, orders, quotes, recipes, and settings. <strong>This cannot be undone.</strong>
+          Clear all records directly from the database. This will permanently delete all inventory, orders, quotes, recipes, expenses, and settings for this account from the database. <strong>This cannot be undone.</strong>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
           <div style={{ flex: 1 }}>
             <Inp label={`Type "${company.name || 'BakeWealth'}" to confirm`} value={clearConfirm} onChange={setClearConfirm} />
           </div>
-          <Btn variant="danger" disabled={clearConfirm !== (company.name || 'BakeWealth')} onClick={clearAllData}>Clear All Data</Btn>
+          <Btn variant="danger" disabled={clearing || clearConfirm !== (company.name || 'BakeWealth')} onClick={clearAllData}>
+            {clearing ? "Clearing Database..." : "Clear All Data from Database"}
+          </Btn>
         </div>
       </Card>
     </div>}

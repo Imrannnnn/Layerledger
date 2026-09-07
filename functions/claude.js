@@ -10,7 +10,7 @@
  * ANTHROPIC_API_KEY environment variable configured in the Cloudflare project.
  *
  * NOTE: the main app currently points callClaude() at a standalone Worker
- * (layerledger-ai...workers.dev). This Pages function is kept as a compatible
+ * (bakewealth-ai...workers.dev). This Pages function is kept as a compatible
  * fallback. Both do the same job.
  * ----------------------------------------------------------------------------
  */

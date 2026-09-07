@@ -8,8 +8,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Steps, Spinner } from "../common/ui.jsx"
 import { fmt, uid, today, calcFullCost, callClaude, compressImage } from "../../lib/helpers.js"
-import { DECORATION_ITEMS, FLAVOR_EXTRAS, PAYMENT_TYPES, DEFAULT_MULTS, DEFAULT_COVERINGS } from "../../constants.js"
-import { saveInventory, saveProduction, loadLocal, saveLocal } from "../../lib/data.js"
+import { saveInventory, saveProduction, loadLocal, saveLocal, loadClients, upsertClient } from "../../lib/data.js"
+import { Camera, Sparkles, Check, Lightbulb, AlertTriangle } from "lucide-react"
 
 // ═══════════════════════════════════════════════════════════
 export function ProductionEntry({inventory,setInventory,recipes,productions,setProductions,settings,setView,user}){
@@ -84,6 +84,29 @@ export function ProductionEntry({inventory,setInventory,recipes,productions,setP
   const topperCost=(+topper.make||0)+(+topper.deliver||0)
   const newTotalCost=Math.round((tierTotalCost+topperCost)*(1+(settings.accessoryPct||10)/100))
   const [client,setClient]=useState(()=>prefillClient||"");const [clientPhone,setClientPhone]=useState(()=>prefillPhone||"");const [clientEmail,setClientEmail]=useState("")
+  const [savedClients]=useState(()=>loadClients())
+  const [showClientSuggestions,setShowClientSuggestions]=useState(false)
+  const [autoFilledBadge,setAutoFilledBadge]=useState(false)
+
+  const clientSuggestions=useMemo(()=>{
+    if(!client.trim())return []
+    const q=client.toLowerCase()
+    return savedClients.filter(c=>
+      (c.name||"").toLowerCase().includes(q) ||
+      (c.phone||"").toLowerCase().includes(q)
+    ).slice(0,5)
+  },[client,savedClients])
+
+  const selectClient=(c)=>{
+    setClient(c.name)
+    if(c.phone)setClientPhone(c.phone)
+    if(c.email)setClientEmail(c.email)
+    if(c.notes||c.address)setNotes(c.notes||c.address)
+    setShowClientSuggestions(false)
+    setAutoFilledBadge(true)
+    setTimeout(()=>setAutoFilledBadge(false),4000)
+  }
+
   const [orderDate,setOrderDate]=useState(today());const [delivDate,setDelivDate]=useState("")
   const [salePrice,setSalePrice]=useState("");const [deliveryCost,setDeliveryCost]=useState("0")
   const [paymentType,setPaymentType]=useState("full");const [discountPct,setDiscountPct]=useState("0")
@@ -153,8 +176,8 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
         else if(fc.includes("carrot"))setFlavors("Carrot")
         else setFlavors("Vanilla")
       }
-      setAiMsg("✓ AI has pre-filled size, covering, decorations and flavour from the photo. Review and confirm below.")
-    }catch(err){setAiMsg("⚠ Could not read photo automatically. Fields have not been pre-filled — please fill in manually below. (Error: "+err.message+")")}
+      setAiMsg({ text: "AI has pre-filled size, covering, decorations and flavour from the photo. Review and confirm below.", isError: false })
+    }catch(err){setAiMsg({ text: "Could not read photo automatically. Fields have not been pre-filled — please fill in manually below. (Error: "+err.message+")", isError: true })}
     finally{setAiLoading(false)}
   }
 
@@ -175,7 +198,11 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
       const updInv=inventory.map(item=>{const ing=deductions.find(i=>i.iid===item.id);return ing?{...item,stock:Math.max(0,parseFloat((item.stock-ing.qty).toFixed(3)))}:item})
       setInventory(updInv);await saveInventory(updInv)
     }
-    setProductions(prev=>[prod,...prev]);await saveProduction(prod);setSaving(false)
+    setProductions(prev=>[prod,...prev]);await saveProduction(prod)
+    if(client && client.trim()){
+      upsertClient(client, clientPhone, clientEmail, "", notes).catch(console.error)
+    }
+    setSaving(false)
     // Reset
     setStep(1);setPhoto(null);setPhotoB64(null);setAiObs(null);setAiMsg("");setRecipeId("");setLayers("1");setSize("");setCovering("");setFlavors("");setDecorIds([]);setClient("");setClientPhone("");setClientEmail("");setOrderDate(today());setDelivDate("");setSalePrice("");setDeliveryCost("0");setPaymentType("full");setDiscountPct("0");setNotes("")
     setView("records")
@@ -187,22 +214,42 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
 
     {step===1&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
       <Card>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:12}}>📸 Cake Photo <span style={{fontSize:11,color:"var(--muted)"}}>(recommended)</span></div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+          <Camera size={16} /> Cake Photo <span style={{fontSize:11,color:"var(--muted)"}}>(recommended)</span>
+        </div>
         <div onClick={()=>fileRef.current?.click()} style={{border:"2px dashed var(--border)",borderRadius:10,padding:photo?4:36,textAlign:"center",cursor:"pointer",background:"#FAF7F0",marginBottom:10,minHeight:120,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          {photo?<img src={photo} alt="cake" style={{maxHeight:180,maxWidth:"100%",borderRadius:8}}/>:<div><div style={{fontSize:36,marginBottom:6}}>🎂</div><div style={{fontSize:13,color:"var(--muted)"}}>Tap to upload cake photo</div></div>}
+          {photo?<img src={photo} alt="cake" style={{maxHeight:180,maxWidth:"100%",borderRadius:8}}/>:<div style={{display:"flex",flexDirection:"column",alignItems:"center"}}><Camera size={32} color="var(--muted)" style={{marginBottom:6}}/><div style={{fontSize:13,color:"var(--muted)"}}>Tap to upload cake photo</div></div>}
         </div>
         <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
-        {photo&&!aiObs&&!aiLoading&&<Btn full onClick={analyzePhoto}>✦ Let AI Read This Photo</Btn>}
-        {aiLoading&&<div style={{textAlign:"center",padding:"10px",color:"var(--muted)",fontSize:13}}>🔍 AI is reading the photo...</div>}
-        {aiMsg&&<div style={{marginTop:8,padding:"8px 12px",background:aiMsg.startsWith("✓")?"#EEF8F3":"#FDEBE9",borderRadius:8,fontSize:12.5,color:aiMsg.startsWith("✓")?"#357A52":"#B03A2E",lineHeight:1.5}}>{aiMsg}</div>}
+        {photo&&!aiObs&&!aiLoading&&<Btn full onClick={analyzePhoto}><Sparkles size={14} /> Let AI Read This Photo <span style={{ fontSize: 11, opacity: 0.85 }}>(0.7 tokens)</span></Btn>}
+        {aiLoading&&<div style={{textAlign:"center",padding:"10px",color:"var(--muted)",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Sparkles size={14} /> AI is reading the photo...</div>}
+        {aiMsg&&<div style={{marginTop:8,padding:"8px 12px",background:aiMsg.isError?(aiMsg.text.toLowerCase().includes("token")?"#FFF4E5":"#FDEBE9"):"#EEF8F3",borderRadius:8,fontSize:12.5,color:aiMsg.isError?(aiMsg.text.toLowerCase().includes("token")?"#92400E":"#B03A2E"):"#357A52",lineHeight:1.5,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            {aiMsg.isError?<AlertTriangle size={14}/>:<Check size={14}/>} {aiMsg.text}
+          </div>
+          {aiMsg.isError&&aiMsg.text.toLowerCase().includes("token")&&(
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                  window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                }
+              }}
+              style={{ background: "var(--gold)", color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+            >
+              Buy Tokens
+            </button>
+          )}
+        </div>}
         {aiObs&&<div style={{marginTop:8,background:"#FFF9EE",borderRadius:8,padding:10,border:"1px solid var(--gold)",fontSize:12.5}}>
-          <div style={{fontWeight:600,marginBottom:6,color:"var(--text)"}}>✦ AI observed from photo:</div>
+          <div style={{fontWeight:600,marginBottom:6,color:"var(--text)",display:"flex",alignItems:"center",gap:6}}><Sparkles size={14} color="var(--gold)"/> AI observed from photo:</div>
           {[["Size",aiObs.estimatedSize],["Covering",aiObs.covering],["Colour",aiObs.colorDescription],["Flavour clues",aiObs.flavorClues],["Decorations",aiObs.accessoriesDescription]].filter(([,v])=>v).map(([k,v])=><div key={k} style={{marginBottom:3,display:"flex",gap:6}}><span style={{color:"var(--muted)",minWidth:80}}>{k}:</span><span style={{color:"var(--text)"}}>{v}</span></div>)}
         </div>}
       </Card>
 
-      {fromQuote&&<div style={{background:"#E8EFFC",border:"1px solid #B5D4F4",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12.5,color:"#2355A0"}}>
-        ✓ Pre-filled from saved quote. Review details and add anything extra before confirming.
+      {fromQuote&&<div style={{background:"#E8EFFC",border:"1px solid #B5D4F4",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12.5,color:"#2355A0",display:"flex",alignItems:"center",gap:6}}>
+        <Check size={14} /> Pre-filled from saved quote. Review details and add anything extra before confirming.
       </div>}
       <Card>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:12}}>Cakes</div>
@@ -269,8 +316,57 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
           <strong style={{color:"#357A52"}}>{fmt(newTotalCost)}</strong>
         </div>
 
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:10}}>Order details</div>
-        <Inp label="Client Name *" value={client} onChange={setClient} placeholder="Mrs. Chioma Okafor"/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600}}>Order details</span>
+            {autoFilledBadge&&<span style={{fontSize:11,background:"#E1F5EE",color:"#085041",padding:"2px 8px",borderRadius:12,fontWeight:600,display:"inline-flex",alignItems:"center",gap:3}}><Check size={11}/> Auto-filled</span>}
+          </div>
+          {savedClients.length>0&&(
+            <select
+              style={{fontSize:12,padding:"3px 8px",borderRadius:6,border:"1px solid var(--border)",background:"#fff",color:"var(--gold)",fontWeight:500,cursor:"pointer",outline:"none"}}
+              value=""
+              onChange={e=>{
+                const picked=savedClients.find(c=>c.id===e.target.value)
+                if(picked)selectClient(picked)
+              }}
+            >
+              <option value="">Saved clients ({savedClients.length})…</option>
+              {savedClients.map(c=>(
+                <option key={c.id} value={c.id}>{c.name} {c.phone?`(${c.phone})`:""}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        <div style={{position:"relative",marginBottom:8}}>
+          <Inp
+            label="Client Name *"
+            value={client}
+            onChange={v=>{
+              setClient(v)
+              setShowClientSuggestions(true)
+            }}
+            placeholder="Mrs. Chioma Okafor"
+          />
+          {showClientSuggestions&&clientSuggestions.length>0&&(
+            <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:"1px solid var(--border)",borderRadius:8,boxShadow:"0 6px 16px rgba(0,0,0,0.12)",zIndex:100,overflow:"hidden",marginTop:2}}>
+              <div style={{padding:"4px 10px",fontSize:10.5,fontWeight:600,color:"var(--muted)",background:"#FAF7F0",borderBottom:"1px solid var(--border)",textTransform:"uppercase"}}>
+                Matching saved clients:
+              </div>
+              {clientSuggestions.map(c=>(
+                <div
+                  key={c.id}
+                  onMouseDown={(e)=>{e.preventDefault();selectClient(c)}}
+                  style={{padding:"8px 12px",cursor:"pointer",borderBottom:"1px solid #f0f0f0",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12.5}}
+                  onMouseEnter={e=>e.currentTarget.style.background="#FFF9EE"}
+                  onMouseLeave={e=>e.currentTarget.style.background="#fff"}
+                >
+                  <span style={{fontWeight:600,color:"var(--text)"}}>{c.name}</span>
+                  <span style={{fontSize:11.5,color:"var(--muted)"}}>{c.phone||"No phone"}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Phone" value={clientPhone} onChange={setClientPhone} placeholder="+234…"/>
           <Inp label="Email" value={clientEmail} onChange={setClientEmail} placeholder="optional"/>
@@ -292,7 +388,7 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
         <Sel label="Payment Type" value={paymentType} onChange={setPaymentType} options={PAYMENT_TYPES.map(p=>({value:p.v,label:p.l}))}/>
         {paymentType==="discount"&&<Inp label="Discount %" type="number" value={discountPct} onChange={setDiscountPct}/>}
         <Inp label="Notes" value={notes} onChange={setNotes} placeholder="Colour theme, special requests…"/>
-        {newTotalCost>0&&!salePrice&&<div style={{padding:"7px 12px",background:"#E8EFFC",borderRadius:8,fontSize:12.5,marginBottom:10,color:"#2355A0"}}>💡 Suggested price ({profitPct}% profit + {overheadPct}% overhead): <strong>{fmt(customSuggestedPrice)}</strong></div>}
+        {newTotalCost>0&&!salePrice&&<div style={{padding:"7px 12px",background:"#E8EFFC",borderRadius:8,fontSize:12.5,marginBottom:10,color:"#2355A0",display:"flex",alignItems:"center",gap:6}}><Lightbulb size={13}/> <span>Suggested price ({profitPct}% profit + {overheadPct}% overhead): <strong>{fmt(customSuggestedPrice)}</strong></span></div>}
         <Btn full onClick={()=>setStep(2)} disabled={!client||!delivDate||!tiers.some(t=>t.layers.some(l=>l.flavour))}>Review Cost Breakdown →</Btn>
       </Card>
     </div>}
@@ -332,19 +428,25 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:600,marginBottom:12}}>Order Summary</div>
         {[["Cake",tiers.map((t,i)=>`Cake ${i+1}: ${t.size}" ${t.shape} ${t.covering} (${t.layers.map(l=>(l.qty > 1 ? l.qty + "×" : "") + (l.flavour||"?")).join("/")})`).join(" | ")],["Client",client],["Phone",clientPhone||"—"],["Order Date",orderDate],["Delivery Date",delivDate],["Payment",PAYMENT_TYPES.find(p=>p.v===paymentType)?.l||paymentType],["Notes",notes||"—"]].map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid var(--border)",fontSize:12.5}}><span style={{color:"var(--muted)"}}>{k}</span><span style={{fontWeight:500,textAlign:"right",maxWidth:"60%"}}>{v}</span></div>)}
         {photo&&<img src={photo} alt="" style={{width:"100%",borderRadius:8,marginTop:10}}/>}
-        <div style={{marginTop:10,fontSize:12,color:"var(--muted)",background:"#FFF9EE",borderRadius:6,padding:"7px 10px"}}>⚠ Saving will deduct ingredients from inventory based on recipe quantities.</div>
+        <div style={{marginTop:10,fontSize:12,color:"var(--muted)",background:"#FFF9EE",borderRadius:6,padding:"7px 10px",display:"flex",alignItems:"center",gap:6}}>
+          <AlertTriangle size={13} style={{flexShrink:0}}/> Saving will deduct ingredients from inventory based on recipe quantities.
+        </div>
         <div style={{marginTop:12,display:"flex",gap:8}}><Btn onClick={()=>setStep(3)}>Confirm →</Btn><Btn variant="ghost" onClick={()=>setStep(1)}>← Edit</Btn></div>
       </Card>
     </div>}
 
     {step===3&&<div style={{maxWidth:460}}>
       <Card style={{borderColor:"#357A52",background:"#F2FAF6"}}>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:600,marginBottom:6}}>✓ Ready to Save</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:600,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+          <Check size={18} color="#357A52" /> Ready to Save
+        </div>
         <p style={{fontSize:13,color:"var(--muted)",marginTop:0}}>This will create a production record and deduct all ingredients from inventory.</p>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,padding:"12px 0",borderTop:"1px solid var(--border)"}}>
           {[["Prod. Cost",fmt(totalProdCost)],["Sale Price",fmt(effectiveSale)],["Gross Profit",fmt(effectiveSale-totalProdCost)]].map(([k,v])=><div key={k} style={{background:"var(--panel)",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:0.8}}>{k}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:700,color:"var(--gold)",marginTop:3}}>{v}</div></div>)}
         </div>
-        <div style={{display:"flex",gap:8,marginTop:4}}>{saving?<Spinner/>:<><Btn variant="success" onClick={doSave}>✓ Save Production Record</Btn><Btn variant="ghost" onClick={()=>setStep(2)}>← Back</Btn></>}</div>
+        <div style={{display:"flex",gap:8,marginTop:4}}>
+          {saving?<Spinner/>:<><Btn variant="success" onClick={doSave} style={{display:"inline-flex",alignItems:"center",gap:6}}><Check size={14} /> Save Production Record</Btn><Btn variant="ghost" onClick={()=>setStep(2)}>← Back</Btn></>}
+        </div>
       </Card>
     </div>}
   </div>

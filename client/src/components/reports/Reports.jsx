@@ -7,6 +7,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, Card, SHead } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
+import { Download, Calendar, AlertTriangle, Check } from "lucide-react"
+import { loadOpeningStock } from "../../lib/data.js"
 
 // ═══════════════════════════════════════════════════════════
 export function Reports({productions,transactions,expenses,company,inventory}){
@@ -58,8 +60,13 @@ export function Reports({productions,transactions,expenses,company,inventory}){
 
   // Monthly stock statement data
   const mInv = inventory => {
+    const osItems = loadOpeningStock(sel)
+    const getOSQty = (id, name) => {
+      const found = osItems.find(i => i.id === id || (name && i.name && i.name.toLowerCase() === name.toLowerCase()))
+      return found ? (Number(found.openingQty) || 0) : 0
+    }
     return inventory.map(item => {
-      const opening = item.openingStock || item.stock || 0
+      const opening = getOSQty(item.id, item.name)
       const used = productions.filter(p=>p.deliveryDate?.startsWith(sel)).reduce((s,p)=>{
         if(!p.recipeId) return s
         return s // deductions tracked per production — simplified here
@@ -71,6 +78,11 @@ export function Reports({productions,transactions,expenses,company,inventory}){
   const dlStock=()=>{
     const w=window.open("","_blank")
     const monthLabel2=sel?new Date(sel+"-02").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):""
+    const osItems = loadOpeningStock(sel)
+    const getOSQty = (id, name) => {
+      const found = osItems.find(i => i.id === id || (name && i.name && i.name.toLowerCase() === name.toLowerCase()))
+      return found ? (Number(found.openingQty) || 0) : 0
+    }
     w.document.write(`<!DOCTYPE html><html><head><title>Stock Statement ${monthLabel2}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;color:#291608;padding:40px;max-width:780px;margin:0 auto}h1{font-size:20px;font-weight:700;color:${company.primaryColor||"var(--gold)"}}h2{font-size:13px;color:#888;font-weight:normal;margin:4px 0 20px}table{width:100%;border-collapse:collapse;margin:14px 0}th{background:#EDE5D6;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:#888}td{padding:8px 10px;border-bottom:1px solid #E0D3BB;font-size:13px}.right{text-align:right}.total{font-weight:bold;background:#F5F0E4}@media print{button{display:none}}</style></head><body>
       ${company.logo?`<img src="${company.logo}" style="height:50px;display:block;margin-bottom:10px" alt="logo"/>`:""}
       <h1>${company.name||"Bakery"} — Monthly Stock Statement</h1>
@@ -78,7 +90,7 @@ export function Reports({productions,transactions,expenses,company,inventory}){
       <table>
         <tr><th>Item</th><th>Unit</th><th class="right">Opening Stock</th><th class="right">+ Purchased</th><th class="right">− Used in Production</th><th class="right">Closing Stock</th><th class="right">Cost/Unit</th><th class="right">Closing Value</th></tr>
         ${inventory.map(item=>{
-          const opening=item.openingStock||item.stock||0
+          const opening = getOSQty(item.id, item.name)
           const purchased=expenses.filter(e=>e.date?.startsWith(sel)&&(e.description?.toLowerCase().includes(item.name.toLowerCase()))).reduce((s,e)=>s+(e.amount||0),0)
           const closing=item.stock||0
           const used=Math.max(0,opening-closing)
@@ -98,8 +110,12 @@ export function Reports({productions,transactions,expenses,company,inventory}){
       <select value={sel} onChange={e=>setSel(e.target.value)} style={{padding:"7px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",fontSize:13,color:"var(--text)"}}>
         {(allMonths.length?allMonths:[cur]).map(m=><option key={m} value={m}>{new Date(m+"-02").toLocaleDateString("en-NG",{month:"long",year:"numeric"})}</option>)}
       </select>
-      <Btn onClick={dl} variant="outline">📥 Download P&L Report</Btn>
-      <Btn onClick={dlStock} variant="ghost">📥 Download Stock Statement</Btn>
+      <Btn onClick={dl} variant="outline" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+        <Download size={13} /> Download P&L Report
+      </Btn>
+      <Btn onClick={dlStock} variant="ghost" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+        <Download size={13} /> Download Stock Statement
+      </Btn>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:16}}>
       {[{l:"Revenue",v:fmt(rev),s:`${paid.length} paid`,c:"var(--gold)"},{l:"Prod. Cost",v:fmt(prodCost),s:"ingredients",c:"#2A5F9A"},{l:"Delivery",v:fmt(delivCosts),s:"all orders",c:"#8C6E52"},{l:"Other Exp.",v:fmt(manualExp+bankDebits),s:"cash+bank",c:"#8C6E52"},{l:"Gross Profit",v:fmt(gross),s:margin+"% margin",c:"#357A52"},{l:"Net Profit",v:fmt(net),s:"after all costs",c:net>=0?"#357A52":"#B03A2E"}].map(s=><Card key={s.l} style={{borderBottom:`3px solid ${s.c}`}}><div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:1,marginBottom:5}}>{s.l}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:s.c}}>{s.v}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{s.s}</div></Card>)}
@@ -125,9 +141,11 @@ export function Reports({productions,transactions,expenses,company,inventory}){
           </div>)}
         </Card>
         {bankCredits>0&&<Card style={{background:"#FFF9EE",borderColor:"var(--gold)"}}>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,fontWeight:600,marginBottom:8}}>📅 Bank Reconciliation</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,fontWeight:600,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+            <Calendar size={14} /> Bank Reconciliation
+          </div>
           {[["Production records",fmt(rev)],["Bank credits received",fmt(bankCredits)]].map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:12.5,marginBottom:4}}><span style={{color:"var(--muted)"}}>{k}</span><strong>{v}</strong></div>)}
-          {Math.abs(rev-bankCredits)>1000?<div style={{background:"#FEF3DC",borderRadius:6,padding:"7px 10px",fontSize:12,color:"#8A5F10",marginTop:4}}>⚠ {fmt(Math.abs(rev-bankCredits))} difference — check Bank Import for unmatched payments.</div>:<div style={{color:"#357A52",fontSize:12,fontWeight:500,marginTop:4}}>✓ Reconciled</div>}
+          {Math.abs(rev-bankCredits)>1000?<div style={{background:"#FEF3DC",borderRadius:6,padding:"7px 10px",fontSize:12,color:"#8A5F10",marginTop:4,display:"flex",alignItems:"center",gap:5}}><AlertTriangle size={12}/> {fmt(Math.abs(rev-bankCredits))} difference — check Bank Import for unmatched payments.</div>:<div style={{color:"#357A52",fontSize:12,fontWeight:500,marginTop:4,display:"flex",alignItems:"center",gap:4}}><Check size={12}/> Reconciled</div>}
         </Card>}
       </div>
     </div>

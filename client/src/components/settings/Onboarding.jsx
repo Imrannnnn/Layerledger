@@ -11,6 +11,7 @@ import React, { useState, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, Modal, Alert } from "../common/ui.jsx"
 import { saveCompany, saveSetting, saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
 import { uid, fmt, parseCSV } from "../../lib/helpers.js"
+import { AlertTriangle, Check, FileSpreadsheet, PenLine, Lock, Calculator, BookOpen, Receipt, Search } from "lucide-react"
 
 export function Onboarding({ gold, company, setCompany, inventory, setInventory, recipes, setRecipes, settings, setSettings, onComplete, onSkip, setView }) {
   const [step, setStep] = useState(1)
@@ -350,7 +351,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                     <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
                       Open your Excel. Copy each column and paste into its own box. Only item names and cost per unit are required.
                     </div>
-                    {importMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10 }}>⚠ {importMsg}</div>}
+                    {importMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {importMsg}</div>}
                     
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
                       <div>
@@ -367,7 +368,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                         <textarea value={pasteC} onChange={e => { setPasteC(e.target.value); checkMatch() }} placeholder={"1140\n1500\n3000\n700"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid #E8D5A3", background: "#FFF9EE", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
                       </div>
                     </div>
-                    {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10 }}>⚠ {warnMsg}</div>}
+                    {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {warnMsg}</div>}
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
                       <Btn onClick={doPreview} disabled={!pasteN.trim() || !pasteC.trim() || !!warnMsg}>Preview import →</Btn>
                       <Btn variant="ghost" onClick={() => setShowImport(false)}>Cancel</Btn>
@@ -402,7 +403,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                       </table>
                     </div>
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                      <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p => p.on)}>✓ Import {prevItems.filter(p => p.on).length} Items</Btn>
+                      <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p => p.on)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <Check size={13} /> Import {prevItems.filter(p => p.on).length} Items
+                      </Btn>
                       <Btn variant="ghost" onClick={() => setImportStep(1)}>← Edit</Btn>
                     </div>
                   </div>
@@ -410,7 +413,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
                 {importStep === 3 && (
                   <div style={{ textAlign: "center", padding: "16px 0" }}>
-                    <div style={{ fontSize: 16, color: "#357A52", fontWeight: 600, marginBottom: 6 }}>✓ Import complete!</div>
+                    <div style={{ fontSize: 16, color: "#357A52", fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <Check size={18} /> Import complete!
+                    </div>
                     <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>Ingredients added to your inventory list. You can configure their stock next.</div>
                     <Btn onClick={() => { setImportStep(1); setShowImport(false) }}>Done</Btn>
                   </div>
@@ -431,8 +436,12 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>Inventory Items</div>
               <div style={{ display: "flex", gap: 8 }}>
-                <Btn small variant="outline" onClick={() => { setImportStep(1); setShowImport(true) }}>📥 Import — Excel, PDF or a photo</Btn>
-                <Btn small variant="outline" onClick={() => setShowManualAdd(true)}>✍️ Add manually</Btn>
+                <Btn small variant="outline" onClick={() => { setImportStep(1); setShowImport(true) }} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <FileSpreadsheet size={13} /> Import — Excel, PDF or a photo
+                </Btn>
+                <Btn small variant="outline" onClick={() => setShowManualAdd(true)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <PenLine size={13} /> Add manually
+                </Btn>
               </div>
             </div>
 
@@ -440,7 +449,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             <div style={{ position: "relative", marginBottom: 12 }}>
               <input
                 type="text"
-                placeholder="🔍 Search items by name..."
+                placeholder="Search items by name..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 style={{
@@ -528,8 +537,10 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             <div style={{ marginTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <Btn variant="ghost" onClick={() => setStep(1)}>← Back</Btn>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {savedOS && <span style={{ fontSize: 12.5, color: "#357A52", fontWeight: 500 }}>✓ Locked permanently</span>}
-                <Btn variant="success" onClick={lockOpeningStock}>🔒 Lock Open Stock for {curMonth}</Btn>
+                {savedOS && <span style={{ fontSize: 12.5, color: "#357A52", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={13} /> Locked permanently</span>}
+                <Btn variant="success" onClick={lockOpeningStock} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Lock size={13} /> Lock Open Stock for {curMonth}
+                </Btn>
               </div>
             </div>
 
@@ -601,7 +612,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                 <Inp label="Opening Qty (optional)" type="number" value={manualItem.openingQty} onChange={v => setManualItem(m => ({ ...m, openingQty: v }))} placeholder="e.g. 5" />
                 
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-                  <Btn variant="success" onClick={handleManualAdd} disabled={!manualItem.name.trim() || (calcMode === "auto" ? (!manualItem.totalPaid || !manualItem.qtyBought) : !manualItem.cost)}>✓ Add Item</Btn>
+                  <Btn variant="success" onClick={handleManualAdd} disabled={!manualItem.name.trim() || (calcMode === "auto" ? (!manualItem.totalPaid || !manualItem.qtyBought) : !manualItem.cost)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <Check size={13} /> Add Item
+                  </Btn>
                   <Btn variant="ghost" onClick={() => setShowManualAdd(false)}>Cancel</Btn>
                 </div>
               </Modal>
@@ -641,8 +654,12 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
               <div style={{ display: "flex", gap: 8 }}>
-                <Btn small variant="outline" onClick={() => { setRecipeImportStep(1); setShowRecipeImport(true) }}>📥 Import — Excel, PDF or a photo</Btn>
-                <Btn small variant="outline" onClick={() => openRecipe(null)}>✍️ Add manually</Btn>
+                <Btn small variant="outline" onClick={() => { setRecipeImportStep(1); setShowRecipeImport(true) }} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <FileSpreadsheet size={13} /> Import — Excel, PDF or a photo
+                </Btn>
+                <Btn small variant="outline" onClick={() => openRecipe(null)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <PenLine size={13} /> Add manually
+                </Btn>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn variant="ghost" onClick={() => setStep(2)}>← Back</Btn>
@@ -658,7 +675,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                     <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
                       Paste your recipe names (one per line) from Excel, PDF, or type them out.
                     </div>
-                    {recipeImportMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10 }}>⚠ {recipeImportMsg}</div>}
+                    {recipeImportMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {recipeImportMsg}</div>}
                     
                     <textarea 
                       value={pasteRecipeNames} 
@@ -699,7 +716,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                       </table>
                     </div>
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                      <Btn variant="success" onClick={confirmRecipeImport} disabled={!prevRecipes.some(r => r.on)}>✓ Import {prevRecipes.filter(r => r.on).length} Recipes</Btn>
+                      <Btn variant="success" onClick={confirmRecipeImport} disabled={!prevRecipes.some(r => r.on)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <Check size={13} /> Import {prevRecipes.filter(r => r.on).length} Recipes
+                      </Btn>
                       <Btn variant="ghost" onClick={() => setRecipeImportStep(1)}>← Edit</Btn>
                     </div>
                   </div>
@@ -707,7 +726,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
                 {recipeImportStep === 3 && (
                   <div style={{ textAlign: "center", padding: "16px 0" }}>
-                    <div style={{ fontSize: 16, color: "#357A52", fontWeight: 600, marginBottom: 6 }}>✓ Import complete!</div>
+                    <div style={{ fontSize: 16, color: "#357A52", fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <Check size={18} /> Import complete!
+                    </div>
                     <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>Recipes added to your list. You can edit their ingredients manually from the main list.</div>
                     <Btn onClick={() => { setRecipeImportStep(1); setShowRecipeImport(false) }}>Done</Btn>
                   </div>
@@ -781,7 +802,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
         {step === 5 && (
           <div style={{ textAlign: "center" }}>
             <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#E5F4EC", border: "2px solid #357A52", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-              <span style={{ fontSize: 28, color: "#2D7A50" }}>✓</span>
+              <Check size={32} color="#2D7A50" />
             </div>
 
             <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>You're all set!</div>
@@ -790,22 +811,22 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             </div>
 
             <div style={{ textAlign: "left", background: "#FAF7F0", padding: 18, borderRadius: 12, border: "1px solid var(--border)", marginBottom: 24 }}>
-              <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-                <span style={{ fontSize: 16 }}>🧮</span>
+              <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "flex-start" }}>
+                <span style={{ marginTop: 2 }}><Calculator size={18} color="var(--gold)" /></span>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Calculate Tiered Orders</div>
                   <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>Head straight to the **Order Calculator** to build pricing quotes for multi-tiered cakes.</div>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-                <span style={{ fontSize: 16 }}>📖</span>
+              <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "flex-start" }}>
+                <span style={{ marginTop: 2 }}><BookOpen size={18} color="var(--gold)" /></span>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Add more recipes</div>
                   <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>Visit the **Master List** → **Base Recipes** tab to add custom batch recipes.</div>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 12 }}>
-                <span style={{ fontSize: 16 }}>🧾</span>
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <span style={{ marginTop: 2 }}><Receipt size={18} color="var(--gold)" /></span>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Scan purchase receipts</div>
                   <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>Scan or log purchases to automatically restock inventory items.</div>

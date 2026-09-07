@@ -9,6 +9,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Card, Badge, SHead, TH, TR2 } from "../common/ui.jsx"
 import { fmt, uid, today } from "../../lib/helpers.js"
 import { saveInventory, saveLocal, loadLocal } from "../../lib/data.js"
+import { Lightbulb, Check, X } from "lucide-react"
 
 // ═══════════════════════════════════════════════════════════
 export function Payables({inventory,setInventory}){
@@ -58,8 +59,9 @@ export function Payables({inventory,setInventory}){
 
   return <div>
     <SHead title="Credit Purchases" sub="Track what you owe suppliers — buy now, pay later"/>
-    <div style={{background:"#FEF9EE",border:"1px solid var(--gold)",borderRadius:8,padding:"11px 14px",fontSize:12.5,color:"#7A5500",lineHeight:1.7,marginBottom:14}}>
-      💡 A credit purchase records goods you've taken now but will pay for later. It adds to what you owe (Accounts Payable). When you pay, the debt and your cash both go down — the cost only hits your P&L through COGS when you sell the cake.
+    <div style={{background:"#FEF9EE",border:"1px solid var(--gold)",borderRadius:8,padding:"11px 14px",fontSize:12.5,color:"#7A5500",lineHeight:1.7,marginBottom:14,display:"flex",alignItems:"flex-start",gap:8}}>
+      <Lightbulb size={15} style={{flexShrink:0,marginTop:2}} />
+      <span>A credit purchase records goods you've taken now but will pay for later. It adds to what you owe (Accounts Payable). When you pay, the debt and your cash both go down — the cost only hits your P&L through COGS when you sell the cake.</span>
     </div>
 
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
@@ -93,7 +95,7 @@ export function Payables({inventory,setInventory}){
         <div><label style={{fontSize:10,color:"var(--muted)"}}>Pack size</label><input type="number" value={f.unitSize} onChange={e=>setF(p=>({...p,unitSize:e.target.value}))} style={iSt}/></div>
       </div>}
       <div style={{display:"flex",gap:8}}>
-        <Btn variant="success" onClick={addBill}>✓ Record Bill</Btn>
+        <Btn variant="success" onClick={addBill} style={{display:"inline-flex",alignItems:"center",gap:5}}><Check size={13}/> Record Bill</Btn>
         <Btn variant="ghost" onClick={()=>setShowForm(false)}>Cancel</Btn>
       </div>
     </Card>}
@@ -106,7 +108,7 @@ export function Payables({inventory,setInventory}){
             const owing=b.amount-(b.paid||0)
             const isOverdue=b.dueDate&&b.dueDate<today_&&owing>0
             const status=owing<=0?"paid":b.paid>0?"part":isOverdue?"overdue":"unpaid"
-            const statusLabel={paid:"Paid ✓",part:"Part-paid",overdue:"Overdue",unpaid:"Unpaid"}[status]
+            const statusLabel={paid:"Paid",part:"Part-paid",overdue:"Overdue",unpaid:"Unpaid"}[status]
             const statusColor={paid:"green",part:"gold",overdue:"red",unpaid:"red"}[status]
             return <TR2 key={b.id} i={i} row={[
               <span style={{color:"var(--muted)",fontSize:12}}>{b.date}</span>,
@@ -115,7 +117,7 @@ export function Payables({inventory,setInventory}){
               <span>{fmt(b.amount)}</span>,
               <span style={{fontWeight:600,color:owing>0?"#B03A2E":"var(--muted)"}}>{fmt(owing)}</span>,
               owing>0?<span onClick={()=>payBill(b.id)} style={{cursor:"pointer"}}><Badge color={statusColor}>{statusLabel}</Badge></span>:<Badge color="green">{statusLabel}</Badge>,
-              <Btn small variant="ghost" onClick={()=>delBill(b.id)}>×</Btn>,
+              <Btn small variant="ghost" onClick={()=>delBill(b.id)} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn>,
             ]}/>
           })
         }</tbody>

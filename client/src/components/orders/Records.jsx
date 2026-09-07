@@ -8,6 +8,7 @@ import React, { useState, useEffect, useMemo } from "react"
 import { Btn, Card, Badge, SHead, Tabs, TH, TR2, iSt, Pagination } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { updateProdStatus } from "../../lib/data.js"
+import { Check } from "lucide-react"
 
 export function Records({ productions, setProductions, setView, setPrefillProd, user }) {
   const [clientSearch, setClientSearch] = useState("")
@@ -173,8 +174,8 @@ export function Records({ productions, setProductions, setView, setPrefillProd, 
                       <Badge color={isDelivered ? "green" : "gold"}>{p.status || "pending"}</Badge>,
                       <div style={{ display: "flex", gap: 4 }}>
                         {!isDelivered && (
-                          <Btn small variant="success" onClick={() => handleMarkDelivered(p.id)}>
-                            ✓ Mark Delivered
+                          <Btn small variant="success" onClick={() => handleMarkDelivered(p.id)} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <Check size={12} /> Mark Delivered
                           </Btn>
                         )}
                       </div>

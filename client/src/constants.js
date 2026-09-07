@@ -1,19 +1,10 @@
 /**
  * constants.js
  * ----------------------------------------------------------------------------
- * Seed/reference data and fixed configuration values for LayerLedger.
+ * Seed/reference data and fixed configuration values for BakeWealth.
  *
- * These are the DEFAULT values the app ships with. Once the user edits their
- * inventory, recipes, etc. in the app, their changes are saved to the browser
- * (see lib/storage.js) and these defaults are only used on very first run.
- *
- * NOTE ON THE DATABASE:
- *   LayerLedger currently has NO server-side database. All live data is stored
- *   in the browser's sessionStorage (a small key/value store built into every
- *   web browser, unique to each device + browser). The constants below are the
- *   initial seed values used to populate that store the first time the app runs
- *   on a new device. Moving to a real database (e.g. Cloudflare D1 or Supabase)
- *   is planned as a separate "Stage 2" backend project.
+ * All live tenant data (inventory, recipes, orders, quotes, expenses, clients,
+ * and settings) is stored and synchronized directly with the Neon PostgreSQL database.
  * ----------------------------------------------------------------------------
  */
 

@@ -8,10 +8,11 @@
  */
 import React, { useState, useEffect, useMemo } from "react"
 import { Btn, Card, SHead, iSt, Pagination } from "../common/ui.jsx"
-import { fmt, uid } from "../../lib/helpers.js"
-import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal } from "../../lib/data.js"
+import { fmt, uid, parseSpecialDate } from "../../lib/helpers.js"
+import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal, calculateOrderUsages, updateInventoryItemOnServer } from "../../lib/data.js"
 import { DEFAULT_MULTS } from "../../constants.js"
 import { Invoices } from "./Invoices.jsx"
+import { ChevronUp, ChevronDown, Clock, Check, CreditCard, Pencil, Receipt, AlertTriangle, MessageSquare, Cake, Heart } from "lucide-react"
 
 const QUOTE_STATUSES = [
   { v: "pending", l: "Pending", c: "#BA7517", bg: "#FAEEDA" },
@@ -88,72 +89,55 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
 
     setConfirming(true)
     try {
+      const usages = calculateOrderUsages(q, inventory, recipes)
       const outOfStock = []
       const lowStock = []
-      try {
-        const mults = loadLocal("ll_multipliers", DEFAULT_MULTS)
-        const checkInv = [...inventory]
-        if (q.tiers?.length > 0) {
-          q.tiers.forEach(tier => {
-            const size = String(tier.size).replace(/"/g, "").trim()
-            const shape = (tier.shape || "round").toLowerCase()
-            const mult = mults[size + "-" + shape] || 1
-            tier.layers?.forEach(layer => {
-              if (!layer.flavour) return
-              const recipe = recipes.find(r => r.name.toLowerCase().includes(layer.flavour.toLowerCase()))
-              if (!recipe) return
-              recipe.ing?.forEach(ing => {
-                const item = checkInv.find(i => i.id === ing.iid)
-                if (!item) return
-                const needed = ing.qty * mult
-                if (item.stock <= 0) {
-                  if (!outOfStock.find(x => x.name === item.name)) outOfStock.push({ name: item.name, stock: item.stock, unit: item.unit })
-                } else if (item.stock < needed) {
-                  if (!lowStock.find(x => x.name === item.name)) lowStock.push({ name: item.name, stock: item.stock, needed: needed.toFixed(2), unit: item.unit })
-                }
-              })
-            })
-          })
+
+      usages.forEach(u => {
+        const item = inventory.find(i => i.id === u.itemId)
+        if (!item) return
+        if (item.stock <= 0) {
+          if (!outOfStock.find(x => x.name === item.name)) {
+            outOfStock.push({ name: item.name, stock: item.stock, unit: item.unit })
+          }
+        } else if (item.stock < u.qty) {
+          if (!lowStock.find(x => x.name === item.name)) {
+            lowStock.push({ name: item.name, stock: item.stock, needed: u.qty.toFixed(2), unit: item.unit })
+          }
         }
-      } catch (e) {
-        console.error("Stock check error", e)
-      }
+      })
 
       // Block if anything is completely out of stock
       if (outOfStock.length > 0) {
-        alert("❌ Cannot confirm order — the following ingredients are completely out of stock:\n\n" + outOfStock.map(i => "• " + i.name + " (0 " + i.unit + " remaining)").join("\n") + "\n\nPlease restock before confirming.")
+        alert("Cannot confirm order — the following ingredients are completely out of stock:\n\n" + outOfStock.map(i => "• " + i.name + " (0 " + i.unit + " remaining)").join("\n") + "\n\nPlease restock before confirming.")
         return
       }
 
       // Warn if anything is below minimum or needed quantity but allow proceeding
       if (lowStock.length > 0) {
-        const proceed = window.confirm("⚠️ Warning — the following ingredients are insufficient for this order:\n\n" + lowStock.map(i => "• " + i.name + " (needed: " + i.needed + " " + i.unit + ", in stock: " + i.stock + " " + i.unit + ")").join("\n") + "\n\nYou can still confirm but please restock soon.\n\nClick OK to confirm anyway, or Cancel to go back.")
+        const proceed = window.confirm("Warning — the following ingredients are insufficient for this order:\n\n" + lowStock.map(i => "• " + i.name + " (needed: " + i.needed + " " + i.unit + ", in stock: " + i.stock + " " + i.unit + ")").join("\n") + "\n\nYou can still confirm but please restock soon.\n\nClick OK to confirm anyway, or Cancel to go back.")
         if (!proceed) return
       }
 
       // Deduct ingredients from inventory
       try {
-        const mults = loadLocal("ll_multipliers", DEFAULT_MULTS)
-        let updInv = [...inventory]
-        if (updInv.length > 0 && q.tiers?.length > 0) {
-          q.tiers.forEach(tier => {
-            const size = String(tier.size).replace(/"/g, "").trim()
-            const shape = (tier.shape || "round").toLowerCase()
-            const mult = mults[size + "-" + shape] || 1
-            tier.layers?.forEach(layer => {
-              if (!layer.flavour) return
-              const recipe = recipes.find(r => r.name.toLowerCase().includes(layer.flavour.toLowerCase()))
-              if (!recipe) return
-              recipe.ing?.forEach(ing => {
-                const idx = updInv.findIndex(i => i.id === ing.iid)
-                if (idx >= 0) {
-                  updInv[idx] = { ...updInv[idx], stock: Math.max(0, parseFloat((updInv[idx].stock - (ing.qty * mult)).toFixed(3))) }
-                }
-              })
-            })
+        if (usages.length > 0) {
+          let updInv = [...inventory]
+          const changedItems = []
+          usages.forEach(u => {
+            const idx = updInv.findIndex(i => i.id === u.itemId)
+            if (idx >= 0) {
+              const newStock = Math.max(0, parseFloat((updInv[idx].stock - u.qty).toFixed(3)))
+              updInv[idx] = { ...updInv[idx], stock: newStock }
+              changedItems.push(updInv[idx])
+            }
           })
           setInventory(updInv)
           await saveInventory(updInv)
+          // Also sync changed items directly to server database if logged in
+          for (const item of changedItems) {
+            updateInventoryItemOnServer(item.id, item).catch(err => console.warn("Failed direct DB update for item stock:", err))
+          }
         }
       } catch (e) {
         console.error("Ingredient deduction error", e)
@@ -170,6 +154,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
         orderDate: q.date,
         confirmedAt: new Date().toISOString(),
         deliveryDate: q.deliveryDate || "",
+        items: q.items || [],
+        hasMultiDeliveryDates: !!q.hasMultiDeliveryDates,
+        deliveryDates: q.deliveryDates || (q.deliveryDate ? [q.deliveryDate] : []),
         cost: q.totalCost || 0,
         deliveryCost: 0,
         salePrice: q.salePrice || q.quotePrice || 0,
@@ -232,12 +219,12 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
       await saveQuotes(updated)
 
       const msg = (q.orderPurpose === "gift" || q.orderPurpose === "sample")
-        ? "✓ " + (q.orderPurpose === "gift" ? "Gift" : "Sample") + " logged! Ingredients deducted from inventory and cost recorded as a " + q.orderPurpose + " expense (no revenue)."
-        : "✓ Order confirmed for " + q.clientName + "! Ingredients deducted and order added to Production List."
+        ? (q.orderPurpose === "gift" ? "Gift" : "Sample") + " logged! Ingredients deducted from inventory and cost recorded as a " + q.orderPurpose + " expense (no revenue)."
+        : "Order confirmed for " + q.clientName + "! Ingredients deducted and order added to Production List."
       alert(msg)
     } catch (e) {
       console.error(e)
-      alert("❌ Confirmation failed: " + e.message)
+      alert("Confirmation failed: " + e.message)
     } finally {
       setConfirming(false)
     }
@@ -322,7 +309,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
 
       {sorted.length === 0 ? (
         <Card style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ fontSize: 24, marginBottom: 10 }}>💬</div>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+            <MessageSquare size={26} color="var(--gold)" />
+          </div>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>
             {filter === "all" ? "No quotes yet" : "No " + filter + " quotes match your search"}
           </div>
@@ -358,7 +347,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                     <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 700, color: "var(--gold)" }}>{fmt(q.salePrice || q.quotePrice || 0)}</div>
                     <div style={{ fontSize: 11, color: "var(--muted)" }}>Cost: {fmt(q.totalCost || 0)}</div>
                   </div>
-                  <span style={{ fontSize: 12, color: "var(--muted)" }}>{isExp ? "▲" : "▼"}</span>
+                  <span style={{ fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center" }}>
+                    {isExp ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </span>
                 </div>
 
                 {/* Expanded Details */}
@@ -370,7 +361,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                     {/* Days pending alert prompt */}
                     {currentStatus === "pending" && daysPending > 3 && (
                       <div style={{ background: "#FFEBE5", color: "#D12400", border: "1px solid #F0A89E", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, marginBottom: 14, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
-                        ⏳ Pending for {daysPending} days. Follow up with {q.clientName} via WhatsApp or call to finalize!
+                        <Clock size={13} style={{ flexShrink: 0 }} /> Pending for {daysPending} days. Follow up with {q.clientName} via WhatsApp or call to finalize!
                       </div>
                     )}
 
@@ -379,42 +370,125 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                       <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .8, fontWeight: 600, marginBottom: 6 }}>Order Details</div>
                       <div style={{ fontSize: 13, lineHeight: 1.8, color: "var(--text)" }}>
                         <div><span style={{ color: "var(--muted)" }}>Phone: </span>{q.clientPhone || "—"}</div>
-                        <div><span style={{ color: "var(--muted)" }}>Email: </span>{q.clientEmail || "—"}</div>
-                        <div><span style={{ color: "var(--muted)" }}>Delivery date: </span>{q.deliveryDate || "—"}{q.collectionTime ? ` at ${q.collectionTime}` : ""}</div>
-                        <div><span style={{ color: "var(--muted)" }}>Product: </span>{q.productType || "Cake"}</div>
-                        {q.tiers?.map((t, i) => (
-                          <div key={i}>
-                            <span style={{ color: "var(--muted)" }}>Cake {i + 1}: </span>
-                            {t.size}" {t.shape} • {t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + l.flavour).filter(Boolean).join(", ") || "—"}
-                            {t.coverings?.length ? " • " + t.coverings.map(c => c.type).join("+") : ""}
-                          </div>
-                        ))}
-                        {q.pastryItems?.length > 0 ? (
-                          q.pastryItems.map((p, i) => (
-                            <div key={i}>
-                              <span style={{ color: "var(--muted)" }}>Pastry {i + 1}: </span>
-                              {p.qty}× {p.flavour || "Plain"}{p.filling ? ` • Filling: ${p.filling}${p.fillingGrams ? ` (${p.fillingGrams}g)` : ""}` : ""}
+                        {q.clientBirthday && (() => {
+                          const spec = parseSpecialDate(q.clientBirthday)
+                          if (!spec.formatted) return null
+                          return (
+                            <div>
+                              <span style={{ color: "var(--muted)" }}>Special Date: </span>
+                              <span style={{ fontWeight: 600, color: spec.type === "Anniversary" ? "#8A2BE2" : "var(--gold)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                {spec.type === "Anniversary" ? <Heart size={12} /> : <Cake size={12} />}
+                                <span>{spec.type}: {spec.formatted}</span>
+                              </span>
                             </div>
-                          ))
+                          )
+                        })()}
+                        <div><span style={{ color: "var(--muted)" }}>Email: </span>{q.clientEmail || "—"}</div>
+                        {q.hasMultiDeliveryDates ? (
+                          <div style={{ margin: "4px 0" }}>
+                            <span style={{ fontSize: 11, background: "#FEF9EE", color: "var(--gold)", border: "1px solid var(--gold)", padding: "2px 8px", borderRadius: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              <Calendar size={11} /> Multi-Date Delivery Schedule ({q.items?.length || 0} cakes)
+                            </span>
+                          </div>
+                        ) : (
+                          <div><span style={{ color: "var(--muted)" }}>Delivery date: </span>{q.deliveryDate || "—"}{q.collectionTime ? ` at ${q.collectionTime}` : ""}</div>
+                        )}
+                        <div><span style={{ color: "var(--muted)" }}>Product: </span>{q.productType || "Cake"}</div>
+                        {q.items && q.items.length > 0 ? (
+                          <div style={{ marginTop: 6, marginBottom: 6 }}>
+                            {q.items.map((it, idx) => (
+                              <div key={it.id || idx} style={{ marginTop: 8, padding: "8px 10px", background: "#fff", borderLeft: "3px solid var(--gold)", borderRadius: "0 6px 6px 0" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
+                                  <div style={{ fontWeight: 600, fontSize: 13, color: "var(--gold)" }}>
+                                    {it.type === "cake" ? "🎂 " : "🍩 "}{it.name || `Item ${idx + 1}`}
+                                  </div>
+                                  <span style={{ fontSize: 11, background: it.sameDeliveryAsFirst ? "#F5F0E4" : (it.deliveryDate ? "#EBF7F0" : "#FAF6EC"), color: it.sameDeliveryAsFirst ? "var(--charcoal-soft, #6B6151)" : (it.deliveryDate ? "#1E6B37" : "var(--muted)"), border: "1px solid " + (it.deliveryDate ? "#C2E0CF" : "var(--border)"), borderRadius: 12, padding: "2px 8px", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                                    <Calendar size={10} /> {it.deliveryDetailsText || (it.sameDeliveryAsFirst ? `Same as above (${q.items?.[0]?.deliveryDate || q.deliveryDate || ""})` : (it.deliveryDate ? `${it.deliveryDate}${it.collectionTime ? " @ " + it.collectionTime : ""}` : (q.deliveryDate || "Date not set")))}
+                                  </span>
+                                </div>
+                                {it.type === "cake" ? (
+                                  it.tiers?.map((t, ti) => {
+                                    const tThumb = (t.photos && t.photos.length > 0) ? t.photos[0] : t.photo
+                                    return (
+                                      <div key={ti} style={{ fontSize: 12, color: "var(--text)", display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                                        <div>
+                                          Cake {ti + 1}: {t.size}" {t.shape} • {t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + l.flavour).filter(Boolean).join(", ") || "—"}
+                                          {t.coverings?.length ? " • " + t.coverings.map(c => c.type).join("+") : ""}
+                                        </div>
+                                        {tThumb && (
+                                          <img
+                                            src={tThumb}
+                                            alt={`Cake ${ti + 1}`}
+                                            onClick={() => window.open(tThumb, "_blank")}
+                                            style={{ width: 34, height: 34, borderRadius: 5, objectFit: "cover", border: "1px solid var(--border)", cursor: "pointer", flexShrink: 0, marginLeft: 8 }}
+                                            title={`Cake ${ti + 1} inspiration photo`}
+                                          />
+                                        )}
+                                      </div>
+                                    )
+                                  })
+                                ) : (
+                                  it.pastryItems?.map((p, pi) => (
+                                    <div key={pi} style={{ fontSize: 12, color: "var(--text)" }}>
+                                      {p.qty}× {p.flavour || "Pastry"}{p.filling ? ` (${p.filling})` : ""}
+                                    </div>
+                                  ))
+                                )}
+                                {it.itemNote && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>Note: {it.itemNote}</div>}
+                                {((it.photos && it.photos.length > 0) ? it.photos : (it.photo ? [it.photo] : [])).length > 0 && (
+                                  <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                                    {((it.photos && it.photos.length > 0) ? it.photos : [it.photo]).map((ph, phi) => (
+                                      <img
+                                        key={phi}
+                                        src={ph}
+                                        alt={`Item ${idx + 1} design ${phi + 1}`}
+                                        style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", border: "1px solid var(--border)", cursor: "pointer" }}
+                                        onClick={() => window.open(ph, "_blank")}
+                                        title="Click to view full photo"
+                                      />
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         ) : (
                           <>
-                            {q.donutGroups?.map((g, i) => (
+                            {q.tiers?.map((t, i) => (
                               <div key={i}>
-                                <span style={{ color: "var(--muted)" }}>Donuts Group {i + 1}: </span>
-                                {g.qty}× {g.flavour || "Plain"}{g.filling ? ` • Filling: ${g.filling}${g.fillingGrams ? ` (${g.fillingGrams}g)` : ""}` : ""}
+                                <span style={{ color: "var(--muted)" }}>Cake {i + 1}: </span>
+                                {t.size}" {t.shape} • {t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + l.flavour).filter(Boolean).join(", ") || "—"}
+                                {t.coverings?.length ? " • " + t.coverings.map(c => c.type).join("+") : ""}
                               </div>
                             ))}
-                            {q.loaves?.map((l, i) => (
-                              <div key={i}>
-                                <span style={{ color: "var(--muted)" }}>Loaf {i + 1}: </span>
-                                {l.flavour || "Classic"}
-                              </div>
-                            ))}
-                            {q.tartQty > 0 && (
-                              <div>
-                                <span style={{ color: "var(--muted)" }}>Tarts: </span>
-                                {q.tartQty} shells • {q.tartFillings?.map(f => f.type).join(", ") || "No filling"}
-                              </div>
+                            {q.pastryItems?.length > 0 ? (
+                              q.pastryItems.map((p, i) => (
+                                <div key={i}>
+                                  <span style={{ color: "var(--muted)" }}>Pastry {i + 1}: </span>
+                                  {p.qty}× {p.flavour || "Plain"}{p.filling ? ` • Filling: ${p.filling}${p.fillingGrams ? ` (${p.fillingGrams}g)` : ""}` : ""}
+                                </div>
+                              ))
+                            ) : (
+                              <>
+                                {q.donutGroups?.map((g, i) => (
+                                  <div key={i}>
+                                    <span style={{ color: "var(--muted)" }}>Donuts Group {i + 1}: </span>
+                                    {g.qty}× {g.flavour || "Plain"}{g.filling ? ` • Filling: ${g.filling}${g.fillingGrams ? ` (${g.fillingGrams}g)` : ""}` : ""}
+                                  </div>
+                                ))}
+                                {q.loaves?.map((l, i) => (
+                                  <div key={i}>
+                                    <span style={{ color: "var(--muted)" }}>Loaf {i + 1}: </span>
+                                    {l.flavour || "Classic"}
+                                  </div>
+                                ))}
+                                {q.tartQty > 0 && (
+                                  <div>
+                                    <span style={{ color: "var(--muted)" }}>Tarts: </span>
+                                    {q.tartQty} shells • {q.tartFillings?.map(f => f.type).join(", ") || "No filling"}
+                                  </div>
+                                )}
+                              </>
                             )}
                           </>
                         )}
@@ -426,7 +500,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                     {/* Lock message or status update buttons */}
                     {isConfirmed ? (
                       <div style={{ background: "#E5F4EC", border: "1px solid #C2E2D0", borderRadius: 8, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 4, marginBottom: 14 }}>
-                        <div style={{ color: "#2D7A50", fontWeight: 700, fontSize: 13 }}>✓ Confirmed on {new Date(q.confirmedAt || q.date).toLocaleString("en-NG")}</div>
+                        <div style={{ color: "#2D7A50", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                          <Check size={14} /> Confirmed on {new Date(q.confirmedAt || q.date).toLocaleString("en-NG")}
+                        </div>
                         <div style={{ fontSize: 11.5, color: "var(--muted)" }}>The Edit and Confirm buttons are permanently locked. This protects inventory count accuracy.</div>
                       </div>
                     ) : (
@@ -464,8 +540,8 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                         padding: 14,
                         marginBottom: 14
                       }}>
-                        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "var(--text)" }}>
-                          💳 Payment Details (Set before converting)
+                        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "var(--text)", display: "flex", alignItems: "center", gap: 6 }}>
+                          <CreditCard size={14} /> Payment Details (Set before converting)
                         </div>
                         
                         {/* Toggle for Full or Advance payment */}
@@ -578,10 +654,12 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                         {isConfirmed ? null : (
                           <>
-                             <Btn small variant="success" onClick={() => confirmOrder(q)} disabled={confirming}>
-                               {confirming ? "⌛ Confirming..." : "✓ Confirm order"}
+                             <Btn small variant="success" onClick={() => confirmOrder(q)} disabled={confirming} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                               {confirming ? <Clock size={12} /> : <Check size={12} />} {confirming ? "Confirming..." : "Confirm order"}
                              </Btn>
-                             <Btn small variant="ghost" onClick={async () => { await saveLocal("ll_calc_edit", q); setView("calculator") }}>✏ Edit quote</Btn>
+                             <Btn small variant="ghost" onClick={async () => { await saveLocal("ll_calc_edit", q); setView("calculator") }} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                               <Pencil size={12} /> Edit quote
+                             </Btn>
                           </>
                         )}
                         <button
@@ -636,44 +714,71 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               + "</div>"
                               + "<div style='margin-bottom:18px'>"
                               + "<div style='font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid " + gold + ";padding-bottom:4px;margin-bottom:10px'>Order details</div>"
-                              // Cake/Cupcake tiers
-                              + ((!q.productType || q.productType === "Cake" || q.productType === "Cupcakes" || q.productType === "Cake & Pastry")
-                                ? trs.map((t, i) => "<div class='tier'><strong>Cake " + (i + 1) + " — " + t.size + "\" " + (t.shape || "") + "</strong>"
-                                  + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
-                                  + "Flavours: " + (t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + l.flavour).filter(Boolean).join(", ") || "—") + "<br>"
-                                  + (t.fillings?.length ? "Filling: " + t.fillings.map(f => f.type + (f.grams ? " (" + f.grams + "g)" : "")).join(", ") + "<br>" : "")
-                                  + "Covering: " + (t.coverings?.map(c => c.type).join(" + ") || t.covering || "—")
-                                  + "</div></div>").join("")
-                                : "")
-                              // Donuts
-                              + (q.productType === "Donuts"
-                                ? (q.donutGroups || []).map((g, i) => "<div class='tier'><strong>Group " + (i + 1) + ": " + g.qty + " donuts</strong>"
-                                  + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
-                                  + "Base: " + (g.flavour || "—") + (g.filling ? "<br>Filling: " + g.filling + (g.fillingGrams ? " (" + g.fillingGrams + "g)" : "") : "")
-                                  + "</div></div>").join("")
-                                : "")
-                              // Cake Loaf
-                              + (q.productType === "Cake Loaf"
-                                ? "<div class='tier'><strong>" + (q.loaves?.length || 0) + " Cake Loaves</strong>"
-                                  + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
-                                  + (q.loaves || []).map((l, i) => "Loaf " + (i + 1) + ": " + (l.flavour || "?")).join("<br>")
-                                  + "</div></div>"
-                                : "")
-                              // Tarts/Pastry
-                              + (q.productType === "Tarts / Pastry"
-                                ? "<div class='tier'><strong>" + (q.tartQty || 0) + " Tart Shells</strong>"
-                                  + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
-                                  + (q.tartFillings || []).filter(f => f.type).map(f => f.type + (f.grams ? " (" + f.grams + "g)" : "")).join("<br>")
-                                  + (q.tartGarnish ? "<br>Garnish: " + q.tartGarnish : "")
-                                  + "</div></div>"
-                                : "")
-                              // Unified Pastries
-                              + ((q.productType === "Pastry" || q.productType === "Cake & Pastry" || q.pastryItems?.length > 0)
-                                ? (q.pastryItems || []).map((p, i) => "<div class='tier'><strong>Pastry " + (i + 1) + ": " + p.qty + "× " + (p.flavour || "Plain") + "</strong>"
-                                  + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
-                                  + (p.filling ? "Filling: " + p.filling + (p.fillingGrams ? " (" + p.fillingGrams + "g)" : "") : "")
-                                  + "</div></div>").join("")
-                                : "")
+                              + (q.items && q.items.length > 0
+                                ? q.items.map((it, idx) => {
+                                    const delivText = it.deliveryDetailsText || (it.sameDeliveryAsFirst ? `Same as above (${q.items[0]?.deliveryDate || q.deliveryDate || ""})` : (it.deliveryDate ? `${it.deliveryDate}${it.collectionTime ? " @ " + it.collectionTime : ""}` : (q.deliveryDate || "Date not set")))
+                                    const thumb = it.photos?.[0] || it.photo
+                                    const imgTag = thumb ? `<div style='margin:6px 0'><img src='${thumb}' style='height:75px;border-radius:6px;border:1px solid #E3D6B3;object-fit:cover'/></div>` : ""
+                                    const content = it.type === "cake"
+                                      ? (it.tiers || []).map((t, ti) => {
+                                          const tThumb = (t.photos && t.photos.length > 0) ? t.photos[0] : t.photo
+                                          const tImg = tThumb ? `<div style='margin:4px 0'><img src='${tThumb}' style='height:65px;border-radius:4px;border:1px solid #E3D6B3;object-fit:cover'/></div>` : ""
+                                          return `<div><strong>Cake ${ti + 1}: ${t.size}" ${t.shape || "Round"}</strong><br>`
+                                            + tImg
+                                            + `Flavours: ${t.layers?.map(l => (l.qty > 1 ? l.qty + "× " : "") + l.flavour).filter(Boolean).join(", ") || "—"}<br>`
+                                            + (t.fillings?.length ? `Fillings: ${t.fillings.map(f => f.type + (f.grams ? ` (${f.grams}g)` : "")).join(", ")}<br>` : "")
+                                            + `Covering: ${t.coverings?.map(c => c.type).join(" + ") || "—"}</div>`
+                                        }).join("<hr style='border:none;border-top:1px dashed #EDE5D6;margin:6px 0'/>")
+                                      : (it.pastryItems || []).map(p =>
+                                          `<div>${p.qty}× ${p.flavour || "Pastry"}${p.filling ? ` (${p.filling})` : ""}</div>`
+                                        ).join("")
+                                    const notePart = it.itemNote ? `<div style='font-size:11.5px;color:#777;margin-top:4px'>Note: ${it.itemNote}</div>` : ""
+                                    return `<div class='tier' style='margin-bottom:12px'>`
+                                      + `<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px'>`
+                                      + `<strong style='font-size:13.5px;color:${gold}'>${it.type === "cake" ? "🎂 " : "🍩 "}${it.name || `Item ${idx + 1}`}</strong>`
+                                      + `<span style='font-size:11px;background:#F5F0E4;padding:2px 8px;border-radius:4px;font-weight:600'>📅 ${delivText}</span>`
+                                      + `</div>`
+                                      + imgTag
+                                      + `<div style='font-size:12px;color:#555;line-height:1.7'>${content}</div>`
+                                      + notePart
+                                      + `</div>`
+                                  }).join("")
+                                : (
+                                  ((!q.productType || q.productType === "Cake" || q.productType === "Cupcakes" || q.productType === "Cake & Pastry")
+                                    ? trs.map((t, i) => "<div class='tier'><strong>Cake " + (i + 1) + " — " + t.size + "\" " + (t.shape || "") + "</strong>"
+                                      + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
+                                      + "Flavours: " + (t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + l.flavour).filter(Boolean).join(", ") || "—") + "<br>"
+                                      + (t.fillings?.length ? "Filling: " + t.fillings.map(f => f.type + (f.grams ? " (" + f.grams + "g)" : "")).join(", ") + "<br>" : "")
+                                      + "Covering: " + (t.coverings?.map(c => c.type).join(" + ") || t.covering || "—")
+                                      + "</div></div>").join("")
+                                    : "")
+                                  + (q.productType === "Donuts"
+                                    ? (q.donutGroups || []).map((g, i) => "<div class='tier'><strong>Group " + (i + 1) + ": " + g.qty + " donuts</strong>"
+                                      + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
+                                      + "Base: " + (g.flavour || "—") + (g.filling ? "<br>Filling: " + g.filling + (g.fillingGrams ? " (" + g.fillingGrams + "g)" : "") : "")
+                                      + "</div></div>").join("")
+                                    : "")
+                                  + (q.productType === "Cake Loaf"
+                                    ? "<div class='tier'><strong>" + (q.loaves?.length || 0) + " Cake Loaves</strong>"
+                                      + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
+                                      + (q.loaves || []).map((l, i) => "Loaf " + (i + 1) + ": " + (l.flavour || "?")).join("<br>")
+                                      + "</div></div>"
+                                    : "")
+                                  + (q.productType === "Tarts / Pastry"
+                                    ? "<div class='tier'><strong>" + (q.tartQty || 0) + " Tart Shells</strong>"
+                                      + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
+                                      + (q.tartFillings || []).filter(f => f.type).map(f => f.type + (f.grams ? " (" + f.grams + "g)" : "")).join("<br>")
+                                      + (q.tartGarnish ? "<br>Garnish: " + q.tartGarnish : "")
+                                      + "</div></div>"
+                                    : "")
+                                  + ((q.productType === "Pastry" || q.productType === "Cake & Pastry" || q.pastryItems?.length > 0)
+                                    ? (q.pastryItems || []).map((p, i) => "<div class='tier'><strong>Pastry " + (i + 1) + ": " + p.qty + "× " + (p.flavour || "Plain") + "</strong>"
+                                      + "<div style='font-size:12px;color:#555;margin-top:4px;line-height:1.8'>"
+                                      + (p.filling ? "Filling: " + p.filling + (p.fillingGrams ? " (" + p.fillingGrams + "g)" : "") : "")
+                                      + "</div></div>").join("")
+                                    : "")
+                                )
+                              )
 
                               + (q.topper?.enabled ? "<div class='row'><span>Custom topper</span><span>" + (q.topper.description || "Yes") + "</span></div>" : "")
                               + (q.notes ? "<div class='row'><span>Special requests</span><span>" + q.notes + "</span></div>" : "")
@@ -710,8 +815,8 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               + "</div>"
                               + "</div>"
                               + "<div class='no-print' style='margin-top:24px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap'>"
-                              + "<button id='shareBtn' style='padding:11px 22px;background:#25D366;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600'>📤 Share Invoice</button>"
-                              + "<button onclick='window.print()' style='padding:11px 22px;background:" + gold + ";color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600'>💾 Save as PDF</button>"
+                              + "<button id='shareBtn' style='padding:11px 22px;background:#25D366;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600'>Share Invoice</button>"
+                              + "<button onclick='window.print()' style='padding:11px 22px;background:" + gold + ";color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600'>Save as PDF</button>"
                               + "</div>"
                               + "<div class='no-print' id='shareHelp' style='margin-top:12px;font-size:12px;color:#666;text-align:center;line-height:1.7;max-width:440px;margin-left:auto;margin-right:auto'>Tap <b>Share Invoice</b> to send the PDF to WhatsApp, email or anywhere.</div>"
                               + "<div style='margin-top:16px;font-size:11px;color:#aaa;text-align:center'>" + (co.name || "Bakery") + " &nbsp;·&nbsp; Generated by BakeWealth</div>"
@@ -725,7 +830,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               + "var AMT='" + ((q.grandTotal || ((q.salePrice || q.quotePrice || 0) + (q.deliveryCharge || 0) + (q.vatAmount || 0))).toLocaleString()) + "';"
                               + "var BIZ='" + (co.name || 'Fayvouree Cakes').replace(/'/g, '') + "';"
                               + "async function makePDF(){var el=document.getElementById('invoice-body');var canvas=await html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true});var img=canvas.toDataURL('image/jpeg',0.92);var pdf=new jspdf.jsPDF('p','mm','a4');var pw=pdf.internal.pageSize.getWidth();var ph=pdf.internal.pageSize.getHeight();var imgH=canvas.height*pw/canvas.width;pdf.addImage(img,'JPEG',0,0,pw,imgH);var left=imgH-ph;while(left>0){pdf.addPage();pdf.addImage(img,'JPEG',0,left-imgH,pw,imgH);left-=ph;}return pdf;}"
-                              + "document.getElementById('shareBtn').onclick=async function(){var btn=this;btn.textContent='Preparing...';btn.disabled=true;try{var pdf=await makePDF();var blob=pdf.output('blob');var file=new File([blob],INV_NUM+'.pdf',{type:'application/pdf'});var msg='Hello '+CLIENT+'! Your invoice '+INV_NUM+' for ₦'+AMT+' is attached. Thank you for choosing '+BIZ+'!';if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:INV_NUM,text:msg});btn.textContent='✓ Shared';}else{pdf.save(INV_NUM+'.pdf');var wa=PHONE?('https://wa.me/'+PHONE+'?text='+encodeURIComponent(msg)):('https://wa.me/?text='+encodeURIComponent(msg));window.open(wa,'_blank');document.getElementById('shareHelp').innerHTML='PDF downloaded and WhatsApp opened. Attach the downloaded PDF in the chat.';btn.textContent='📤 Share Invoice';btn.disabled=false;}}catch(e){if(e.name!=='AbortError'){document.getElementById('shareHelp').innerHTML='Could not auto-share. Tap Save as PDF then attach it in WhatsApp.';}btn.textContent='📤 Share Invoice';btn.disabled=false;}};"
+                              + "document.getElementById('shareBtn').onclick=async function(){var btn=this;btn.textContent='Preparing...';btn.disabled=true;try{var pdf=await makePDF();var blob=pdf.output('blob');var file=new File([blob],INV_NUM+'.pdf',{type:'application/pdf'});var msg='Hello '+CLIENT+'! Your invoice '+INV_NUM+' for ₦'+AMT+' is attached. Thank you for choosing '+BIZ+'!';if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:INV_NUM,text:msg});btn.textContent='Shared';}else{pdf.save(INV_NUM+'.pdf');var wa=PHONE?('https://wa.me/'+PHONE+'?text='+encodeURIComponent(msg)):('https://wa.me/?text='+encodeURIComponent(msg));window.open(wa,'_blank');document.getElementById('shareHelp').innerHTML='PDF downloaded and WhatsApp opened. Attach the downloaded PDF in the chat.';btn.textContent='Share Invoice';btn.disabled=false;}}catch(e){if(e.name!=='AbortError'){document.getElementById('shareHelp').innerHTML='Could not auto-share. Tap Save as PDF then attach it in WhatsApp.';}btn.textContent='Share Invoice';btn.disabled=false;}};"
                               + "</scr" + "ipt>"
                               + "</body></html>"
                             const w = window.open("", "_blank")
@@ -746,6 +851,10 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               vatRate: q.vatRate || 0, 
                               productType: q.productType || "Cake", 
                               cakeSummary: q.cakeSummary || "", 
+                              items: q.items || [],
+                              hasMultiDeliveryDates: !!q.hasMultiDeliveryDates,
+                              deliveryDates: q.deliveryDates || (q.deliveryDate ? [q.deliveryDate] : []),
+                              cakePhotos: q.cakePhotos || [],
                               notes: q.notes || "", 
                               status: pType === "full" ? "paid" : "partially_paid",
                               paymentType: pType,
@@ -760,9 +869,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                             const existing = loadLocal("ll_quote_invoices", [])
                             if (!existing.find(i => i.id === invoiceNum)) { await saveLocal("ll_quote_invoices", [savedInv, ...existing]) }
                           }}
-                          style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: "#1D9E75", color: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}
+                          style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: "#1D9E75", color: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 5 }}
                         >
-                          🧾 Convert to invoice
+                          <Receipt size={13} /> Convert to invoice
                         </button>
                       </div>
                     </div>

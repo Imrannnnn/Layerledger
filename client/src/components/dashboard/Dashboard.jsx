@@ -10,6 +10,7 @@ import React, { useState } from "react"
 import { Btn, Card, Badge } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { loadLocal, saveLocal } from "../../lib/data.js"
+import { AlertTriangle, Coins, Truck, Calendar, ClipboardList, Zap, Calculator, ShoppingCart, Banknote, Cake } from "lucide-react"
 
 export function Dashboard({ productions, inventory, expenses, setView, user, tenantInfo }) {
   const today = new Date()
@@ -19,73 +20,81 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
   // 1. This week at a glance calculations
   const next7Days = new Date()
   next7Days.setDate(today.getDate() + 7)
-  const endOfWeekStr = next7Days.toISOString().slice(0, 10)
+  const next7DaysStr = next7Days.toISOString().slice(0, 10)
 
-  const thisWeekOrders = productions.filter(p => p.deliveryDate && p.deliveryDate >= todayStr && p.deliveryDate <= endOfWeekStr && (p.status || "").toLowerCase() !== "cancelled")
+  const thisWeekOrders = productions.filter(p => {
+    if (!p.deliveryDate) return false
+    return p.deliveryDate >= todayStr && p.deliveryDate <= next7DaysStr && !["delivered", "cancelled"].includes((p.status || "").toLowerCase())
+  })
   const numThisWeek = thisWeekOrders.length
 
-  const futureDeliveries = productions
-    .filter(p => p.deliveryDate && p.deliveryDate >= todayStr && !["delivered", "cancelled"].includes((p.status || "").toLowerCase()))
-    .map(p => p.deliveryDate)
-    .sort()
-  const nextDeliveryDate = futureDeliveries[0] || "No upcoming deliveries"
+  const sortedThisWeek = [...thisWeekOrders].sort((a, b) => (a.deliveryDate || "").localeCompare(b.deliveryDate || ""))
+  const nextDeliveryDate = sortedThisWeek.length > 0 ? sortedThisWeek[0].deliveryDate : "None scheduled"
 
-  const pendingThisWeek = thisWeekOrders.filter(p => ["pending", "in progress"].includes((p.status || "pending").toLowerCase())).length
+  const pendingThisWeek = thisWeekOrders.filter(p => (p.status || "").toLowerCase() === "pending").length
   const readyThisWeek = thisWeekOrders.filter(p => (p.status || "").toLowerCase() === "ready").length
 
-  // 2. Low stock alert calculations
-  const lowStockCount = inventory.filter(i => i.stock <= (i.minStock || 5)).length
+  // 2. Next 3 orders due calculations
+  const upcomingOrders = productions
+    .filter(p => !["delivered", "cancelled"].includes((p.status || "").toLowerCase()))
+    .sort((a, b) => (a.deliveryDate || "9999").localeCompare(b.deliveryDate || "9999"))
+  const next3Orders = upcomingOrders.slice(0, 3)
 
-  // 3. Revenue this month (confirmed orders total - Owner only)
-  const confirmedOrders = productions.filter(p => p.deliveryDate?.startsWith(currentMonthStr) && (p.status || "").toLowerCase() !== "cancelled")
-  const rev = confirmedOrders.reduce((s, p) => s + (p.salePrice || 0), 0)
-  
-  // Cost calculations
-  const cost = confirmedOrders.reduce((s, p) => s + (p.cost || 0) + (p.deliveryCost || 0), 0)
-  const expTotal = expenses.filter(e => e.date?.startsWith(currentMonthStr) && e.category !== "Ingredients" && e.source !== "purchase" && e.source !== "receipt").reduce((s, e) => s + (e.amount || 0), 0)
-  const profit = rev - cost - expTotal
-  const margin = rev > 0 ? Math.round((profit / rev) * 100) : 0
-  
-  const monthLabel = today.toLocaleDateString("en-NG", { month: "long", year: "numeric" })
+  // 3. Month-end Lock Banner calculations
+  const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+  const currentDay = today.getDate()
+  const daysLeft = lastDayOfMonth - currentDay
+  const isFirstOfMonth = currentDay === 1
 
-  // Month-end notification banner
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
-  const dayOfMonth = today.getDate()
-  const daysLeft = daysInMonth - dayOfMonth
-  const isFirstOfMonth = dayOfMonth === 1
-  const notifDays = parseInt(loadLocal("ll_notif_days", "2"))
-  const notifEnabled = loadLocal("ll_notif_enabled", true) !== false
+  const currentMonthName = today.toLocaleString('default', { month: 'long' })
+  const prevMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+  const prevMonthName = prevMonthDate.toLocaleString('default', { month: 'long' })
+  const prevMonth = prevMonthName
+
+  // Check if previous month is locked
+  const lockKey = `ll_lock_${prevMonthDate.toISOString().slice(0, 7)}`
+  const isPrevMonthLocked = loadLocal(lockKey, false)
+
   const [bannerDismissed, setBannerDismissed] = useState(() => {
-    const dismissed = loadLocal("ll_banner_dismissed", "")
-    return dismissed === today.toISOString().slice(0, 10)
+    return loadLocal(`ll_dismiss_banner_${currentMonthStr}_${currentDay}`, false)
+  })
+  const dismissBanner = () => {
+    setBannerDismissed(true)
+    saveLocal(`ll_dismiss_banner_${currentMonthStr}_${currentDay}`, true)
+  }
+
+  const showBanner = !bannerDismissed && (daysLeft <= 2 || (isFirstOfMonth && !isPrevMonthLocked))
+
+  // 4. Financial Calculations for Current Month (Confirmed Orders Only)
+  const currentMonthProds = productions.filter(p => {
+    const isDelivered = (p.status || "").toLowerCase() === "delivered"
+    const matchesMonth = p.deliveryDate ? p.deliveryDate.startsWith(currentMonthStr) : (p.orderDate && p.orderDate.startsWith(currentMonthStr))
+    return isDelivered && matchesMonth
   })
 
-  const showBanner = notifEnabled && user?.role === "owner" && !bannerDismissed && (daysLeft <= (+notifDays) || isFirstOfMonth)
-  const dismissBanner = async () => { await saveLocal("ll_banner_dismissed", today.toISOString().slice(0, 10)); setBannerDismissed(true) }
-  const prevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1).toLocaleDateString("en-NG", { month: "long", year: "numeric" })
+  const currentMonthExpenses = expenses.filter(e => e.date && e.date.startsWith(currentMonthStr))
 
-  // Greeting
-  const hr = today.getHours()
-  const greetWord = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening"
-  const firstName = user?.name?.split(" ")[0] || "Business"
+  const rev = currentMonthProds.reduce((s, p) => s + (p.salePrice || 0), 0)
+  const cost = currentMonthProds.reduce((s, p) => s + (p.cost || 0) + (p.deliveryCost || 0), 0)
+  const expTotal = currentMonthExpenses.reduce((s, e) => s + (e.amount || 0), 0)
+  const profit = rev - cost - expTotal
+  const margin = rev > 0 ? Math.round((profit / rev) * 100) : 0
+  const monthLabel = today.toLocaleString('default', { month: 'short', year: 'numeric' })
+
+  // Greeting logic
+  const hour = today.getHours()
+  const greetWord = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
+  const firstName = user?.name ? user.name.split(" ")[0] : "Baker"
   const quotes = [
-    "A great cake starts with great numbers.",
-    "Every slice tells a story — make yours profitable.",
-    "The secret ingredient is knowing your costs.",
-    "Beautiful cakes, beautiful books.",
-    "Bake with love, price with confidence.",
-    "Success is baked in, one order at a time.",
-    "Know your numbers, grow your bakery."
+    "Every great cake begins with precise numbers.",
+    "Bake with passion, account with precision.",
+    "Small savings in ingredients build big profits.",
+    "Your recipes are your trade secrets — cost them well.",
+    "Consistency in measurements creates consistency in success."
   ]
-  const quote = quotes[today.getDay() % quotes.length]
+  const quote = quotes[today.getDate() % quotes.length]
 
-  // 4. Next 3 orders due
-  const next3Orders = productions
-    .filter(p => p.deliveryDate && p.deliveryDate >= todayStr && !["delivered", "completed", "cancelled"].includes((p.status || "").toLowerCase()))
-    .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
-    .slice(0, 3)
-
-  // 5. In-App Notifications
+  // 5. Smart Notifications / Action Triggers
   const notifications = []
   
   // - Low stock alert
@@ -94,7 +103,7 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
     notifications.push({
       id: "low_stock",
       type: "warning",
-      icon: "⚠️",
+      icon: <AlertTriangle size={20} color="#BA7517" />,
       title: "Low Stock Alert",
       message: `${lowStockItems.length} ingredient${lowStockItems.length !== 1 ? 's are' : ' is'} below minimum stock level.`,
       action: () => setView("shopping"),
@@ -107,7 +116,7 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
     notifications.push({
       id: "low_tokens",
       type: "danger",
-      icon: "🪙",
+      icon: <Coins size={20} color="#A32D2D" />,
       title: "Low Token Balance",
       message: `You have ${tenantInfo.tokenBalance} token${tenantInfo.tokenBalance !== 1 ? 's' : ''} remaining. Top up soon to avoid interruption.`,
       action: () => setView("settings"),
@@ -121,7 +130,7 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
     notifications.push({
       id: "orders_due",
       type: "info",
-      icon: "🚚",
+      icon: <Truck size={20} color="#2D5AA3" />,
       title: "Orders Due Today",
       message: `You have ${ordersDueToday.length} order${ordersDueToday.length !== 1 ? 's' : ''} due for delivery today.`,
       action: () => setView("prodlist"),
@@ -133,7 +142,9 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
     <div>
       {/* Greeting Header */}
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, fontWeight: 600, color: "var(--text)" }}>{greetWord}, {firstName}! 🎂</div>
+        <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, fontWeight: 600, color: "var(--text)", display: "flex", alignItems: "center", gap: 8 }}>
+          {greetWord}, {firstName}! <Cake size={22} color="var(--gold)" />
+        </div>
         <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4, fontStyle: "italic" }}>"{quote}"</div>
       </div>
 
@@ -170,7 +181,9 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
       {/* Week At A Glance */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14, marginBottom: 14 }}>
         <Card style={{ padding: "16px 20px", borderLeft: "4px solid var(--gold)" }}>
-          <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 600, marginBottom: 10 }}>📅 This Week At A Glance</div>
+          <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 600, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+            <Calendar size={14} /> This Week At A Glance
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 16 }}>
             <div>
               <div style={{ fontSize: 24, fontWeight: 700, color: "var(--text)" }}>{numThisWeek}</div>
@@ -209,8 +222,8 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
               onMouseEnter={e => e.currentTarget.style.background = n.type === "danger" ? "#FCEBEB" : n.type === "warning" ? "#FDF2DC" : "#EBF2FF"} 
               onMouseLeave={e => e.currentTarget.style.background = n.type === "danger" ? "#FFF1F1" : n.type === "warning" ? "#FFF9EE" : "#F4F8FF"}>
               
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <span style={{ fontSize: 20 }}>{n.icon}</span>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <span style={{ display: "flex", alignItems: "center" }}>{n.icon}</span>
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 600, color: n.type === "danger" ? "#A32D2D" : n.type === "warning" ? "#7B5A3A" : "#2D5AA3" }}>{n.title}</div>
                   <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{n.message}</div>
@@ -246,7 +259,9 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
         {/* Next 3 Orders Card */}
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 15, fontWeight: 600 }}>📋 Next 3 Orders Due</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "'Playfair Display', serif", fontSize: 15, fontWeight: 600 }}>
+              <ClipboardList size={16} /> Next 3 Orders Due
+            </div>
             <span style={{ fontSize: 11, color: "var(--muted)", cursor: "pointer", textDecoration: "underline" }} onClick={() => setView("records")}>View all</span>
           </div>
 
@@ -273,12 +288,16 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
 
         {/* Quick Actions Grid */}
         <Card>
-          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 15, fontWeight: 600, marginBottom: 14 }}>⚡ Quick Actions</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "'Playfair Display', serif", fontSize: 15, fontWeight: 600, marginBottom: 14 }}>
+            <Zap size={16} color="var(--gold)" /> Quick Actions
+          </div>
           
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {/* Primary Action - Order Calculator */}
             <div onClick={() => setView("calculator")} style={{ cursor: "pointer", background: "linear-gradient(135deg, #FAF1DC, #F5E3BD)", border: "1px solid var(--gold)", borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14, transition: "transform 0.15s ease", boxShadow: "0 2px 8px rgba(200,145,42,0.06)" }} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"} onMouseLeave={e => e.currentTarget.style.transform = "none"}>
-              <div style={{ width: 42, height: 42, borderRadius: "50%", background: "var(--gold)", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center", fontSize: 20, color: "#fff", flexShrink: 0 }}>🧮</div>
+              <div style={{ width: 42, height: 42, borderRadius: "50%", background: "var(--gold)", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center", color: "#fff", flexShrink: 0 }}>
+                <Calculator size={20} />
+              </div>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#7B5A3A" }}>Order Calculator</div>
                 <div style={{ fontSize: 11.5, color: "#8C6E52", marginTop: 2 }}>Build custom multi-tier pricing quotes instantly</div>
@@ -288,13 +307,13 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
             {/* Grid of secondary actions */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {[
-                { label: "Production List", view: "prodlist", icon: "📅", bg: "#F8F3EA", border: "1px solid var(--border)" },
-                { label: "Shopping List", view: "shopping", icon: "🛒", bg: "#F8F3EA", border: "1px solid var(--border)" },
-                { label: "View Quotes", view: "quotes", icon: "📋", bg: "#F8F3EA", border: "1px solid var(--border)" },
-                { label: "Log Expense", view: "expenses", icon: "💸", bg: "#F8F3EA", border: "1px solid var(--border)", roles: ["owner"] },
+                { label: "Production List", view: "prodlist", icon: Calendar, bg: "#F8F3EA", border: "1px solid var(--border)" },
+                { label: "Shopping List", view: "shopping", icon: ShoppingCart, bg: "#F8F3EA", border: "1px solid var(--border)" },
+                { label: "View Quotes", view: "quotes", icon: ClipboardList, bg: "#F8F3EA", border: "1px solid var(--border)" },
+                { label: "Log Expense", view: "expenses", icon: Banknote, bg: "#F8F3EA", border: "1px solid var(--border)", roles: ["owner"] },
               ].filter(a => !a.roles || a.roles.includes(user?.role)).map(a => (
                 <div key={a.view} onClick={() => setView(a.view)} style={{ cursor: "pointer", background: a.bg, border: a.border, borderRadius: 10, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, transition: "transform 0.15s ease" }} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"} onMouseLeave={e => e.currentTarget.style.transform = "none"}>
-                  <span style={{ fontSize: 16 }}>{a.icon}</span>
+                  <a.icon size={16} color="var(--gold)" style={{ flexShrink: 0 }} />
                   <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text)" }}>{a.label}</span>
                 </div>
               ))}

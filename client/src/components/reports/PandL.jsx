@@ -10,6 +10,7 @@ import React, { useState, useMemo } from "react"
 import { Btn, Card, SHead } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { mergeRevenueSources, PLSection, PLRow } from "../../lib/costing.jsx"
+import { Download } from "lucide-react"
 
 export function PandL({ productions, expenses, company }) {
   const allRevenue = useMemo(() => mergeRevenueSources(productions), [productions])
@@ -180,7 +181,9 @@ export function PandL({ productions, expenses, company }) {
             </option>
           ))}
         </select>
-        <Btn onClick={dl}>📥 Download PDF</Btn>
+        <Btn onClick={dl} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <Download size={13} /> Download PDF
+        </Btn>
       </div>
 
       {/* SUMMARY CARDS */}

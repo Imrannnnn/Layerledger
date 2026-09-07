@@ -1,4 +1,16 @@
-require('dotenv').config();
+const mockPrisma = {
+    tenant: {
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({ tokenBalance: 4.3 })
+    },
+    tokenTransaction: {
+        create: jest.fn().mockResolvedValue({ id: 'tx-1' })
+    },
+    $transaction: jest.fn(callback => callback(mockPrisma))
+};
+
+jest.mock('../prisma', () => mockPrisma);
+const prisma = require('../prisma');
 const { handleClaudeProxy } = require('../controller/claudeController');
 
 describe('Claude Controller Unit Tests', () => {
@@ -6,15 +18,20 @@ describe('Claude Controller Unit Tests', () => {
     let res;
 
     beforeEach(() => {
+        jest.clearAllMocks();
         req = {
             body: {
                 messages: [{ role: 'user', content: 'Say hello' }]
+            },
+            user: {
+                tenantId: 'test-tenant-123'
             }
         };
         res = {
             status: jest.fn().mockReturnThis(),
             json: jest.fn().mockReturnThis(),
-            send: jest.fn().mockReturnThis()
+            send: jest.fn().mockReturnThis(),
+            setHeader: jest.fn()
         };
     });
 
@@ -26,18 +43,42 @@ describe('Claude Controller Unit Tests', () => {
         expect(next.mock.calls[0][0].message).toMatch(/Messages array is required/);
     });
 
-    test('should attempt Claude API request when key and messages are valid', async () => {
-        // If API key is present in environment, test calling proxy
-        if (process.env.CLAUDE_API || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY) {
-            const next = jest.fn();
-            await handleClaudeProxy(req, res, next);
-            // res.json or next will be called
-            if (res.json.mock.calls.length > 0) {
-                expect(res.json).toHaveBeenCalled();
-            } else if (next.mock.calls.length > 0) {
-                // Network/auth error from Anthropic
-                expect(next.mock.calls[0][0]).toBeDefined();
-            }
-        }
+    test('should return 402 with INSUFFICIENT_TOKENS if tenant balance is less than 0.7', async () => {
+        prisma.tenant.findUnique.mockResolvedValue({ tokenBalance: 0.5 });
+        const next = jest.fn();
+
+        await handleClaudeProxy(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(402);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'INSUFFICIENT_TOKENS',
+            requiredTokens: 0.7,
+            currentBalance: 0.5
+        }));
+    });
+
+    test('should return 402 with INSUFFICIENT_TOKENS if tenant balance is 0', async () => {
+        prisma.tenant.findUnique.mockResolvedValue({ tokenBalance: 0 });
+        const next = jest.fn();
+
+        await handleClaudeProxy(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(402);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'INSUFFICIENT_TOKENS',
+            requiredTokens: 0.7,
+            currentBalance: 0
+        }));
+    });
+
+    test('should proceed past token check when tenant balance is >= 0.7', async () => {
+        prisma.tenant.findUnique.mockResolvedValue({ tokenBalance: 5.0 });
+        const next = jest.fn();
+
+        // Will attempt Claude API request (or fail if API key not present, but past 402)
+        await handleClaudeProxy(req, res, next);
+
+        expect(res.status).not.toHaveBeenCalledWith(402);
     });
 });
+

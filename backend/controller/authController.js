@@ -73,8 +73,20 @@ const registerUser = asyncHandler(async (req, res) => {
 const loginUser = asyncHandler(async (req, res) => {
     const { email, password } = req.body;
 
-    // 1. Find user by email
-    const user = await prisma.user.findUnique({ where: { email } });
+    // 1. Find user by email with tenant
+    const user = await prisma.user.findUnique({
+        where: { email },
+        include: {
+            tenant: {
+                select: {
+                    id: true,
+                    name: true,
+                    settings: true,
+                    createdAt: true
+                }
+            }
+        }
+    });
 
     // 2. Verify password using bcrypt
     let isMatch = false;
@@ -96,7 +108,8 @@ const loginUser = asyncHandler(async (req, res) => {
             email: user.email,
             tenantId: user.tenantId,
             role: user.role,
-            token
+            token,
+            tenant: user.tenant
         });
     } else {
         res.status(401);

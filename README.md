@@ -1,4 +1,4 @@
-# LayerLedger
+# BakeWealth
 
 Bakery management and accounting web app for **Fayvouree Luxe Cakes Studio** (Abuja, Nigeria).
 

@@ -11,6 +11,8 @@ import * as dataLib from "../../lib/data"
 jest.mock("../../lib/data", () => ({
   saveInventory: jest.fn().mockResolvedValue(true),
   saveExpenses: jest.fn().mockResolvedValue(true),
+  savePurchases: jest.fn().mockResolvedValue(true),
+  fetchPaginatedPurchases: jest.fn(),
   saveLocal: jest.fn().mockResolvedValue(true),
   loadLocal: jest.fn().mockImplementation((key, fallback) => fallback)
 }))
@@ -19,8 +21,10 @@ jest.mock("../../lib/data", () => ({
 jest.mock("../common/ui.jsx", () => {
   const React = require("react")
   return {
-    Btn: ({ children, onClick, disabled }) => (
-      <button onClick={onClick} disabled={disabled}>{children}</button>
+    Btn: ({ children, onClick, disabled, loading, loadingText }) => (
+      <button onClick={onClick} disabled={disabled || loading}>
+        {loadingText && loading ? loadingText : children}
+      </button>
     ),
     Inp: ({ label, value, onChange, type }) => (
       <div>
@@ -63,7 +67,12 @@ jest.mock("../common/ui.jsx", () => {
     TH: ({ cols }) => <thead><tr>{cols.map((c, idx) => <th key={idx}>{c}</th>)}</tr></thead>,
     TR2: ({ row, i }) => <tr>{row.map((c, idx) => <td key={idx}>{c}</td>)}</tr>,
     Spinner: () => <div>Loading...</div>,
-    Pagination: ({ currentPage, totalItems }) => <div data-testid="pagination">Page {currentPage} of {totalItems}</div>
+    Pagination: ({ currentPage, totalItems, onPageChange }) => (
+      <div data-testid="pagination">
+        Page {currentPage} of {totalItems}
+        <button data-testid="purchases-page-2" onClick={() => onPageChange && onPageChange(2)}>Page 2</button>
+      </div>
+    )
   }
 })
 
@@ -210,9 +219,10 @@ describe("Expenses and Purchases Bulk / Batch Operations", () => {
   })
 
   it("should bulk update categories and bulk delete overhead expenses", async () => {
+    const curMonth = new Date().toISOString().slice(0, 7)
     const mockExpenses = [
-      { id: "e-1", date: "2026-08-26", description: "Rent", amount: 50000, category: "Utilities", paymentMethod: "cash", source: "manual" },
-      { id: "e-2", date: "2026-08-26", description: "Internet", amount: 15000, category: "Utilities", paymentMethod: "cash", source: "manual" }
+      { id: "e-1", date: `${curMonth}-10`, description: "Rent", amount: 50000, category: "Utilities", paymentMethod: "cash", source: "manual" },
+      { id: "e-2", date: `${curMonth}-11`, description: "Internet", amount: 15000, category: "Utilities", paymentMethod: "cash", source: "manual" }
     ]
     const mockSetExpenses = jest.fn()
 
@@ -251,8 +261,8 @@ describe("Expenses and Purchases Bulk / Batch Operations", () => {
 
     // Verify setExpenses was called with updated categories
     expect(mockSetExpenses).toHaveBeenCalledWith([
-      { id: "e-1", date: "2026-08-26", description: "Rent", amount: 50000, category: "Rent", paymentMethod: "cash", source: "manual" },
-      { id: "e-2", date: "2026-08-26", description: "Internet", amount: 15000, category: "Rent", paymentMethod: "cash", source: "manual" }
+      { id: "e-1", date: `${curMonth}-10`, description: "Rent", amount: 50000, category: "Rent", paymentMethod: "cash", source: "manual" },
+      { id: "e-2", date: `${curMonth}-11`, description: "Internet", amount: 15000, category: "Rent", paymentMethod: "cash", source: "manual" }
     ])
 
     // Clean up states and mock bulk delete
@@ -356,5 +366,166 @@ describe("Expenses and Purchases Bulk / Batch Operations", () => {
     expect(dataLib.saveInventory).toHaveBeenCalled()
     expect(mockSetExpenses).toHaveBeenCalled()
     expect(dataLib.saveExpenses).toHaveBeenCalled()
+  })
+
+  it("should select purchases and delete selected items", async () => {
+    const curMonth = new Date().toISOString().slice(0, 7)
+    const mockInventory = [
+      { id: "i-1", name: "Flour", cat: "Dry Goods", unit: "kg", cost: 1000, stock: 10 }
+    ]
+    const initialPurchases = [
+      { id: "p-1", date: `${curMonth}-05`, item: "Flour", itemId: "i-1", category: "Dry Goods", unit: "kg", unitSize: 10, qty: 2, price: 12000, total: 24000, cpu: 1200 },
+      { id: "p-2", date: `${curMonth}-06`, item: "Flour", itemId: "i-1", category: "Dry Goods", unit: "kg", unitSize: 10, qty: 1, price: 12000, total: 12000, cpu: 1200 }
+    ]
+    dataLib.loadLocal.mockImplementation((key, fallback) => {
+      if (key === "ll_purchases") return initialPurchases
+      return fallback
+    })
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <Purchases
+          inventory={mockInventory}
+          setInventory={jest.fn()}
+          expenses={[]}
+          setExpenses={jest.fn()}
+          isOwner={true}
+        />
+      )
+    })
+
+    // Check all purchases using header checkbox
+    const checkboxes = container.querySelectorAll("input[type='checkbox']")
+    expect(checkboxes.length).toBe(3) // 1 in header, 2 in rows
+
+    await act(async () => {
+      checkboxes[0].click() // select all
+    })
+
+    // Verify bulk action bar appeared
+    expect(container.textContent).toContain("2 purchases selected")
+
+    // Click "Delete Selected"
+    const deleteBtn = Array.from(container.querySelectorAll("button")).find(
+      el => el.textContent.includes("Delete Selected")
+    )
+    expect(deleteBtn).toBeDefined()
+
+    await act(async () => {
+      deleteBtn.click()
+    })
+
+    // Verify saveLocal was called with empty array
+    expect(dataLib.saveLocal).toHaveBeenCalledWith("ll_purchases", [])
+  })
+
+  it("should show loading indicator and prevent duplicate submissions when Log Purchase is clicked", async () => {
+    let resolveSave;
+    const pendingPromise = new Promise(resolve => { resolveSave = resolve });
+    dataLib.saveInventory.mockReturnValueOnce(pendingPromise);
+
+    const mockInventory = [
+      { id: "i-1", name: "Flour", cat: "Dry Goods", unit: "kg", cost: 1000, stock: 10 }
+    ]
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <Purchases
+          inventory={mockInventory}
+          setInventory={jest.fn()}
+          expenses={[]}
+          setExpenses={jest.fn()}
+          isOwner={true}
+        />
+      )
+    })
+
+    // Open Add Purchase Form
+    const addBtn = Array.from(container.querySelectorAll("button")).find(
+      el => el.textContent.includes("+ Log Purchase")
+    )
+    await act(async () => {
+      addBtn.click()
+    })
+
+    // Fill form
+    const selects = container.querySelectorAll("select")
+    const packInput = container.querySelector("input[data-testid='inp-Pack size *']")
+    const qtyInput = container.querySelector("input[data-testid='inp-Qty bought *']")
+    const priceInput = container.querySelector("input[data-testid='inp-Price / pack (₦) *']")
+
+    await act(async () => {
+      selectOption(selects[0], "i-1")
+      selectOption(selects[1], "Dry Goods")
+      typeIntoInput(packInput, "10")
+      typeIntoInput(qtyInput, "2")
+      typeIntoInput(priceInput, "12000")
+    })
+
+    const saveBtn = Array.from(container.querySelectorAll("button")).find(
+      el => el.textContent.includes("Update Inventory")
+    )
+    expect(saveBtn).toBeDefined()
+
+    // First click triggers loading
+    act(() => {
+      saveBtn.click()
+    })
+
+    // Verify button shows loading state and is disabled
+    expect(saveBtn.disabled).toBe(true)
+    expect(saveBtn.textContent).toContain("Saving & Updating Inventory...")
+
+    // Second click while loading should be ignored
+    act(() => {
+      saveBtn.click()
+    })
+
+    // Only 1 saveInventory call should have occurred
+    expect(dataLib.saveInventory).toHaveBeenCalledTimes(1)
+
+    // Complete the async operation
+    await act(async () => {
+      resolveSave()
+    })
+  })
+
+  test("Purchases: true server-side pagination requests page 2 from server", async () => {
+    dataLib.fetchPaginatedPurchases.mockResolvedValue({
+      data: [
+        { id: "pur-page-2", date: "2026-08-20", item: "Flour 50kg", total: 45000, qty: 1 }
+      ],
+      pagination: { page: 2, limit: 25, total: 30, totalPages: 2 },
+      stats: { totalSpent: 45000, totalPurchases: 30 }
+    })
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <Purchases
+          inventory={[]}
+          setInventory={jest.fn()}
+          expenses={[]}
+          setExpenses={jest.fn()}
+          isOwner={true}
+        />
+      )
+    })
+
+    const p2Btn = container.querySelector('[data-testid="purchases-page-2"]')
+    expect(p2Btn).toBeDefined()
+
+    await act(async () => {
+      p2Btn.click()
+    })
+
+    expect(dataLib.fetchPaginatedPurchases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 2,
+        limit: 25
+      })
+    )
   })
 })
