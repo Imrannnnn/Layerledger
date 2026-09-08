@@ -88,6 +88,105 @@ export const fmt = n => `₦${Math.round(n || 0).toLocaleString("en")}`
 export const uid = () => "_" + Math.random().toString(36).slice(2, 9)
 export const today = () => new Date().toISOString().slice(0, 10)
 
+// Normalizes various date formats (DD/MM/YYYY, YYYY/MM/DD, natural text) to ISO YYYY-MM-DD
+export function normalizeToIsoDate(inputDate) {
+  if (!inputDate) return today()
+  if (inputDate instanceof Date && !isNaN(inputDate.getTime())) {
+    const y = inputDate.getFullYear()
+    const m = String(inputDate.getMonth() + 1).padStart(2, "0")
+    const d = String(inputDate.getDate()).padStart(2, "0")
+    return `${y}-${m}-${d}`
+  }
+  if (typeof inputDate !== "string") return today()
+  const trimmed = inputDate.trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
+
+  // DD/MM/YYYY or DD-MM-YYYY or D/M/YYYY
+  const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
+  }
+
+  // YYYY/MM/DD or YYYY-MM-DD
+  const ymdMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)
+  if (ymdMatch) {
+    const [, y, m, d] = ymdMatch
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
+  }
+
+  // General Date parsing fallback
+  try {
+    const d = new Date(trimmed)
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, "0")
+      const day = String(d.getDate()).padStart(2, "0")
+      return `${y}-${m}-${day}`
+    }
+  } catch {}
+
+  return today()
+}
+
+// Formats any date string (ISO, timestamp, or natural) into standard Nigerian DD/MM/YYYY format
+export function formatDateDMY(inputDate) {
+  if (!inputDate) return ""
+  if (typeof inputDate === "string") {
+    const trimmed = inputDate.trim()
+    if (!trimmed) return ""
+    // Already DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+    if (dmyMatch) {
+      const [, d, m, y] = dmyMatch
+      return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`
+    }
+    // ISO YYYY-MM-DD or ISO timestamp
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      const [y, m, d] = trimmed.slice(0, 10).split("-")
+      return `${d}/${m}/${y}`
+    }
+    // YYYY/MM/DD
+    const ymdMatch = trimmed.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/)
+    if (ymdMatch) {
+      const [, y, m, d] = ymdMatch
+      return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`
+    }
+    // Try Date parsing
+    try {
+      const d = new Date(trimmed)
+      if (!isNaN(d.getTime())) {
+        const day = String(d.getDate()).padStart(2, "0")
+        const month = String(d.getMonth() + 1).padStart(2, "0")
+        const year = d.getFullYear()
+        return `${day}/${month}/${year}`
+      }
+    } catch {}
+    return trimmed
+  }
+  if (inputDate instanceof Date && !isNaN(inputDate.getTime())) {
+    const day = String(inputDate.getDate()).padStart(2, "0")
+    const month = String(inputDate.getMonth() + 1).padStart(2, "0")
+    const year = inputDate.getFullYear()
+    return `${day}/${month}/${year}`
+  }
+  return String(inputDate)
+}
+
+export const todayDMY = () => formatDateDMY(new Date())
+
+export function isDateInMonth(dateStr, monthStr) {
+  if (!dateStr || !monthStr) return false
+  const iso = normalizeToIsoDate(dateStr)
+  return iso.startsWith(monthStr.trim())
+}
+
+export function getMonthKeyFromDate(dateStr) {
+  if (!dateStr) return ""
+  const iso = normalizeToIsoDate(dateStr)
+  return iso.slice(0, 7)
+}
+
 export const recipeCost = (r, inv) => !r ? 0 : r.ing.reduce((s, i) => { const it = inv.find(x => x.id === i.iid); return s + (it ? it.cost * i.qty : 0) }, 0)
 
 export const calcFullCost = (recipe, inv, flavors, decorationIds, accessoryPct, miscPct = 0) => {

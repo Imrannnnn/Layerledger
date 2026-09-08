@@ -84,13 +84,17 @@ jest.mock("../common/ui.jsx", () => {
 })
 
 // Mock helpers
-jest.mock("../../lib/helpers.js", () => ({
-  fmt: val => val,
-  uid: () => "test-uid",
-  today: () => "2026-08-17",
-  callClaude: jest.fn(),
-  compressImage: jest.fn(img => Promise.resolve(img))
-}))
+jest.mock("../../lib/helpers.js", () => {
+  const actual = jest.requireActual("../../lib/helpers.js")
+  return {
+    ...actual,
+    fmt: val => val,
+    uid: () => "test-uid",
+    today: () => "2026-08-17",
+    callClaude: jest.fn(),
+    compressImage: jest.fn(img => Promise.resolve(img))
+  }
+})
 
 // Helper to simulate input change in React 16+ / React 18
 const typeIntoInput = (input, value) => {

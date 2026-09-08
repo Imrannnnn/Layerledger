@@ -6,7 +6,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, Card, SHead, TH, TR2, Alert } from "../common/ui.jsx"
-import { fmt } from "../../lib/helpers.js"
+import { fmt, isDateInMonth } from "../../lib/helpers.js"
 import { loadLocal, calculateOrderUsages, loadOpeningStock } from "../../lib/data.js"
 import { Download } from "lucide-react"
 
@@ -25,17 +25,12 @@ export function StockStatement({inventory, productions = [], expenses = [], comp
   // Purchases this month
   const mPurchases = loadLocal("ll_purchases", []).filter(p => {
     if (!p.date) return false
-    if (typeof p.date === "string" && p.date.startsWith(sel)) return true
-    try {
-      return new Date(p.date).toISOString().slice(0, 7) === sel
-    } catch {
-      return false
-    }
+    return isDateInMonth(p.date, sel)
   })
   const getBought = id => mPurchases.filter(p => p.itemId === id).reduce((s, p) => s + (Number(p.stockAdded ?? p.qty) || 0), 0)
 
   // Calculate purchased this month from expenses
-  const monthExp=expenses.filter(e=>e.date?.startsWith(sel)&&(e.source==="receipt"||e.source==="purchase"))
+  const monthExp=expenses.filter(e=>isDateInMonth(e.date, sel)&&(e.source==="receipt"||e.source==="purchase"))
   const totalPurchased=monthExp.reduce((s,e)=>s+(e.amount||0),0)
 
   // Calculate used in production this month per item via Order Calculator recipes

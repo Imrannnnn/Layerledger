@@ -11,9 +11,10 @@ const getPurchases = asyncHandler(async (req, res) => {
     const { page, limit, month } = req.query;
 
     const where = { tenantId };
-    if (month && month.trim()) {
-        const startOfMonth = new Date(`${month.trim()}-01T00:00:00.000Z`);
-        const [y, m] = month.trim().split('-').map(Number);
+    const monthStr = month ? month.trim() : '';
+    if (monthStr && monthStr !== 'all' && /^\d{4}-\d{2}$/.test(monthStr)) {
+        const startOfMonth = new Date(`${monthStr}-01T00:00:00.000Z`);
+        const [y, m] = monthStr.split('-').map(Number);
         const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
         const endOfMonth = new Date(`${nextMonth}-01T00:00:00.000Z`);
         where.date = {
@@ -27,19 +28,29 @@ const getPurchases = asyncHandler(async (req, res) => {
         const limitNum = Math.max(1, parseInt(limit) || 25);
         const skip = (pageNum - 1) * limitNum;
 
-        const [purchases, total, agg] = await Promise.all([
+        const [purchases, total, agg, allDates] = await Promise.all([
             prisma.purchase.findMany({
                 where,
                 skip,
                 take: limitNum,
-                orderBy: { date: 'desc' }
+                orderBy: { date: 'desc' },
+                include: { inventoryItem: true }
             }),
             prisma.purchase.count({ where }),
             prisma.purchase.aggregate({
                 where,
                 _sum: { amount: true }
+            }),
+            prisma.purchase.findMany({
+                where: { tenantId },
+                select: { date: true },
+                orderBy: { date: 'desc' }
             })
         ]);
+
+        const availableMonths = [...new Set(
+            allDates.map(d => (d.date ? d.date.toISOString().slice(0, 7) : null)).filter(Boolean)
+        )];
 
         return res.json({
             data: purchases,
@@ -55,14 +66,16 @@ const getPurchases = asyncHandler(async (req, res) => {
             },
             stats: {
                 totalSpent: agg._sum?.amount || 0,
-                totalPurchases: total
+                totalPurchases: total,
+                availableMonths
             }
         });
     }
 
     const purchases = await prisma.purchase.findMany({
         where,
-        orderBy: { date: 'desc' }
+        orderBy: { date: 'desc' },
+        include: { inventoryItem: true }
     });
     res.json(purchases);
 });

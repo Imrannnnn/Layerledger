@@ -15,19 +15,26 @@ import { Camera, Upload, PenLine, Sparkles, AlertTriangle, Check } from "lucide-
 
 // Normalizes various date string formats (DD/MM/YYYY, YYYY/MM/DD, natural text) to ISO YYYY-MM-DD
 export function normalizeToIsoDate(inputDate) {
-  if (!inputDate || typeof inputDate !== "string") return today()
+  if (!inputDate) return today()
+  if (inputDate instanceof Date && !isNaN(inputDate.getTime())) {
+    const y = inputDate.getFullYear()
+    const m = String(inputDate.getMonth() + 1).padStart(2, "0")
+    const d = String(inputDate.getDate()).padStart(2, "0")
+    return `${y}-${m}-${d}`
+  }
+  if (typeof inputDate !== "string") return today()
   const trimmed = inputDate.trim()
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
 
-  // DD/MM/YYYY or DD-MM-YYYY
+  // DD/MM/YYYY or DD-MM-YYYY or D/M/YYYY
   const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
   if (dmyMatch) {
     const [, d, m, y] = dmyMatch
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
   }
 
-  // YYYY/MM/DD
-  const ymdMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/)
+  // YYYY/MM/DD or YYYY-MM-DD
+  const ymdMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)
   if (ymdMatch) {
     const [, y, m, d] = ymdMatch
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
@@ -37,12 +44,58 @@ export function normalizeToIsoDate(inputDate) {
   try {
     const d = new Date(trimmed)
     if (!isNaN(d.getTime())) {
-      return d.toISOString().slice(0, 10)
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, "0")
+      const day = String(d.getDate()).padStart(2, "0")
+      return `${y}-${m}-${day}`
     }
   } catch {}
 
   return today()
 }
+
+// Formats any date string (ISO, timestamp, or natural) into standard Nigerian DD/MM/YYYY format
+export function formatDateDMY(inputDate) {
+  if (!inputDate) return ""
+  if (typeof inputDate === "string") {
+    const trimmed = inputDate.trim()
+    if (!trimmed) return ""
+    const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+    if (dmyMatch) {
+      const [, d, m, y] = dmyMatch
+      return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`
+    }
+    // ISO YYYY-MM-DD or ISO timestamp
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      const [y, m, d] = trimmed.slice(0, 10).split("-")
+      return `${d}/${m}/${y}`
+    }
+    const ymdMatch = trimmed.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/)
+    if (ymdMatch) {
+      const [, y, m, d] = ymdMatch
+      return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`
+    }
+    try {
+      const d = new Date(trimmed)
+      if (!isNaN(d.getTime())) {
+        const day = String(d.getDate()).padStart(2, "0")
+        const month = String(d.getMonth() + 1).padStart(2, "0")
+        const year = d.getFullYear()
+        return `${day}/${month}/${year}`
+      }
+    } catch {}
+    return trimmed
+  }
+  if (inputDate instanceof Date && !isNaN(inputDate.getTime())) {
+    const day = String(inputDate.getDate()).padStart(2, "0")
+    const month = String(inputDate.getMonth() + 1).padStart(2, "0")
+    const year = inputDate.getFullYear()
+    return `${day}/${month}/${year}`
+  }
+  return String(inputDate)
+}
+
+export const todayDMY = () => formatDateDMY(new Date())
 
 // Helper to extract and repair common LLM JSON syntax flaws (trailing commas, unquoted keys, comments, truncated outputs)
 export function extractAndRepairJson(rawText) {
@@ -142,7 +195,7 @@ function normalizeItem(r) {
   }
 }
 
-export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses }) {
+export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses, setView }) {
   const [photo, setPhoto] = useState(null)
   const [photoB64, setPhotoB64] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -207,10 +260,15 @@ Extraction Instructions:
    - If price is missing or unclear, set unit_price: 0 and line_total: 0.
 
 2. BANK TRANSFER / POS SCREENSHOTS:
-   - If it is a payment receipt or debit alert without individual line items, create one entry representing the payment:
-     - item_on_receipt: "Payment to [Beneficiary or Merchant name if visible, else 'Supplier Payment']"
-     - qty: 1, unit: "tx", unit_size: 1, unit_price: [amount paid], line_total: [amount paid]
-     - type: "expense", category: "Miscellaneous"
+   - If it is a payment receipt or debit alert without individual line items:
+     - Check beneficiary or shop name. If it is a bakery supplier, ingredient vendor, or supermarket, set:
+       - item_on_receipt: "Supplies from [Beneficiary or Merchant name if visible, else 'Supplier']"
+       - qty: 1, unit: "pack", unit_size: 1, unit_price: [amount paid], line_total: [amount paid]
+       - type: "purchase", category: "Ingredients / Supplies"
+     - If it is clearly an overhead expense (power, diesel/fuel, delivery, rent, salary, maintenance), set:
+       - item_on_receipt: "Payment to [Beneficiary or Merchant name if visible, else 'Payee']"
+       - qty: 1, unit: "tx", unit_size: 1, unit_price: [amount paid], line_total: [amount paid]
+       - type: "expense", category: [appropriate overhead category]
 
 3. PHOTOS OF PHYSICAL PRODUCTS / SUPPLIES:
    - Identify each distinct bakery item visible (e.g. "Flour", "Margarine", "Eggs", "Cake Box").
@@ -221,6 +279,12 @@ Extraction Instructions:
 Classification:
 - "purchase": Baking ingredients, packaging materials, or supplies (flour, sugar, butter, eggs, oil, cocoa, milk, food colour, cake boards, boxes, ribbons, decorations, etc.).
 - "expense": Overhead costs (delivery/transport fee, electricity, diesel/fuel, salary, cleaning, maintenance, market levy, etc.).
+
+Receipt Date Instruction:
+- In Nigeria, dates are written as Day/Month/Year (DD/MM/YYYY).
+- ALWAYS return "receipt_date" in "DD/MM/YYYY" format (e.g. 08/09/2026).
+- If day or month is a single digit, pad with leading zero (e.g. 05/09/2026).
+- If the date is missing, illegible, or unclear, use today's date in "DD/MM/YYYY" format.
 
 Return ONLY valid JSON with this exact structure, no preamble:
 {
@@ -239,7 +303,7 @@ Return ONLY valid JSON with this exact structure, no preamble:
     }
   ],
   "receipt_total": 114000,
-  "receipt_date": "YYYY-MM-DD",
+  "receipt_date": "DD/MM/YYYY",
   "supplier": "Vendor or shop name if visible, else empty",
   "scan_notes": "One short sentence summarizing what was detected"
 }`
@@ -267,7 +331,7 @@ Return ONLY valid JSON with this exact structure, no preamble:
         setError(notes)
         setParsed({
           supplier: result?.supplier || "",
-          receipt_date: normalizeToIsoDate(result?.receipt_date),
+          receipt_date: formatDateDMY(result?.receipt_date) || todayDMY(),
           scan_notes: notes,
           items: [
             { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
@@ -294,7 +358,7 @@ Return ONLY valid JSON with this exact structure, no preamble:
 
         setParsed({
           supplier: result.supplier || "",
-          receipt_date: normalizeToIsoDate(result.receipt_date),
+          receipt_date: formatDateDMY(result.receipt_date) || todayDMY(),
           ...result,
           items: matchedItems
         })
@@ -311,7 +375,7 @@ Return ONLY valid JSON with this exact structure, no preamble:
   const startManualEntry = () => {
     setParsed({
       supplier: "",
-      receipt_date: today(),
+      receipt_date: todayDMY(),
       items: [
         { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
       ]
@@ -401,7 +465,8 @@ Return ONLY valid JSON with this exact structure, no preamble:
       const receiptDate = normalizeToIsoDate(parsed.receipt_date)
       const monthStr = receiptDate.slice(0, 7)
       const approved = parsed.items.filter(r => r.approved)
-      const purchases = approved.filter(r => r.type === "purchase")
+      // Both explicit stock purchases and items categorized as ingredients belong in Purchases
+      const purchases = approved.filter(r => r.type === "purchase" || r.category === "Ingredients / Supplies" || r.category === "Ingredients")
 
       // Update inventory: stock + cost/unit for purchases
       let updInv = [...inventory]
@@ -410,16 +475,17 @@ Return ONLY valid JSON with this exact structure, no preamble:
       purchases.forEach(r => {
         let invItem = updInv.find(i => i.id === r.overrideId)
         const unitSize = +r.unit_size || +r.qty || 1
-        const cpu = parseFloat((+r.unit_price / unitSize).toFixed(2))
+        const cpu = parseFloat(((+r.unit_price || +r.line_total || 0) / unitSize).toFixed(2))
         const stockAdded = parseFloat((unitSize * (+r.qty || 1)).toFixed(3))
+        const itemName = (r.item_on_receipt || "").trim() || (invItem ? invItem.name : (parsed.supplier ? `${parsed.supplier} Item` : "Ingredient"))
 
         // If item not yet in inventory, auto-create it so it's not lost
-        if (!invItem && (r.item_on_receipt || "").trim()) {
+        if (!invItem && itemName) {
           const newId = uid()
           invItem = {
             id: newId,
-            name: r.item_on_receipt.trim(),
-            cat: "Dry Goods",
+            name: itemName,
+            cat: r.category || "Dry Goods",
             unit: r.unit || "kg",
             cost: cpu || 0,
             stock: stockAdded,
@@ -431,21 +497,22 @@ Return ONLY valid JSON with this exact structure, no preamble:
           updInv = updInv.map(i => i.id === r.overrideId ? { ...i, cost: cpu || i.cost, stock: parseFloat((i.stock + stockAdded).toFixed(3)) } : i)
         }
 
-        if (invItem) {
-          purchaseLog.push({
-            id: uid(),
-            date: receiptDate,
-            itemId: invItem.id,
-            item: invItem.name,
-            unit: invItem.unit || r.unit || "kg",
-            unitSize,
-            qty: +r.qty || 1,
-            price: +r.unit_price,
-            total: +r.line_total || 0,
-            cpu,
-            stockAdded
-          })
-        }
+        const lineTotal = +r.line_total || (+r.unit_price ? +r.unit_price * (+r.qty || 1) : 0)
+        purchaseLog.push({
+          id: uid(),
+          date: receiptDate,
+          supplier: parsed.supplier || "Market Run",
+          itemId: invItem ? invItem.id : null,
+          item: invItem ? invItem.name : itemName,
+          category: invItem?.cat || r.category || "Ingredients / Supplies",
+          unit: invItem?.unit || r.unit || "kg",
+          unitSize,
+          qty: +r.qty || 1,
+          price: +r.unit_price || lineTotal,
+          total: lineTotal,
+          cpu,
+          stockAdded
+        })
       })
 
       if (purchases.length > 0) {
@@ -459,7 +526,7 @@ Return ONLY valid JSON with this exact structure, no preamble:
 
       // Save purchase logs to database & local storage (via savePurchases which triggers sync & event)
       if (purchaseLog.length > 0) {
-        const existing = loadLocal("ll_purchases", [])
+        const existing = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
         const allPurchases = [...purchaseLog, ...existing]
         if (typeof savePurchases === "function") {
           await savePurchases(allPurchases)
@@ -467,13 +534,14 @@ Return ONLY valid JSON with this exact structure, no preamble:
           await saveLocal("ll_purchases", allPurchases)
         }
         if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("layerledger:purchases-updated", { detail: { purchases: allPurchases } }))
+          window.dispatchEvent(new CustomEvent("layerledger:purchases-updated", { detail: { purchases: allPurchases, month: monthStr } }))
         }
       }
 
       // Log expense records grouped by category
       const totalCalc = parsed.items.reduce((s, r) => s + (r.approved ? (+r.line_total || 0) : 0), 0)
       const amt = +totalAmount || totalCalc
+      let newExps = []
       if (amt > 0) {
         const categoriesMap = {}
         approved.forEach(r => {
@@ -498,7 +566,6 @@ Return ONLY valid JSON with this exact structure, no preamble:
         })
 
         const scaleFactor = totalCalc > 0 ? amt / totalCalc : 1
-        const newExps = []
 
         Object.values(categoriesMap).forEach(data => {
           const scaledAmt = Math.round(data.amount * scaleFactor)
@@ -520,13 +587,11 @@ Return ONLY valid JSON with this exact structure, no preamble:
           const updExp = [...newExps, ...expenses]
           setExpenses(updExp)
           await saveExpenses(updExp)
-          alert(`Logged ${newExps.length} expense(s) to ${monthStr.slice(0, 7)}: ` + newExps.map(ne => `${ne.category} (source: ${ne.source}): ₦${ne.amount}`).join(', '));
-        } else {
-          alert("Info: No overhead expenses were logged from this receipt.");
         }
       }
 
-      setSavedMonth(monthStr.slice(0, 7))
+      sessionStorage.setItem("ll_active_purchases_month", monthStr)
+      setSavedMonth(monthStr)
       setParsed(null)
       setPhoto(null)
       setPhotoB64(null)
@@ -732,11 +797,28 @@ Return ONLY valid JSON with this exact structure, no preamble:
           )}
 
           {saved && (
-            <div style={{ background: "#EEF8F3", borderRadius: 8, padding: 12, border: "1px solid #C2E0CF", marginBottom: 12 }}>
+            <div style={{ background: "#EEF8F3", borderRadius: 8, padding: 14, border: "1px solid #C2E0CF", marginBottom: 12 }}>
               <div style={{ fontWeight: 600, color: "#357A52", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-                <Check size={14} /> Done! Purchases updated inventory and expenses logged to the {savedMonth} ledger.
+                <Check size={16} /> Saved! Purchases and stock levels updated for {savedMonth}.
               </div>
-              <Btn small variant="outline" onClick={() => setSaved(false)}>Log Another</Btn>
+              <div style={{ fontSize: 12, color: "#2E6944", marginBottom: 10, lineHeight: 1.5 }}>
+                Purchases have been logged to the {savedMonth} ledger and reflect in your Purchases tab and inventory.
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <Btn small variant="outline" onClick={() => setSaved(false)}>Log Another</Btn>
+                {setView && (
+                  <Btn
+                    small
+                    onClick={() => {
+                      sessionStorage.setItem("ll_active_purchases_month", savedMonth)
+                      setView("purchases")
+                    }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                  >
+                    View in Purchases ({savedMonth}) →
+                  </Btn>
+                )}
+              </div>
             </div>
           )}
 
@@ -776,7 +858,44 @@ Return ONLY valid JSON with this exact structure, no preamble:
             )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
               <Inp label="Supplier / Shop" value={parsed.supplier || ""} onChange={v => setParsed({ ...parsed, supplier: v })} placeholder="e.g. Market vendor" />
-              <Inp label="Purchase Date" type="date" value={parsed.receipt_date || ""} onChange={v => setParsed({ ...parsed, receipt_date: v })} />
+              <div style={{ marginBottom: 13 }}>
+                <label style={{ display: "block", fontSize: 11.5, color: "var(--muted)", fontWeight: 500, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Purchase Date (DD/MM/YYYY)
+                </label>
+                <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                  <input
+                    data-testid="inp-Purchase Date"
+                    type="text"
+                    placeholder="DD/MM/YYYY"
+                    value={parsed.receipt_date || ""}
+                    onChange={e => setParsed({ ...parsed, receipt_date: e.target.value })}
+                    style={{ ...iSt, paddingRight: 36 }}
+                  />
+                  <input
+                    type="date"
+                    tabIndex={-1}
+                    value={normalizeToIsoDate(parsed.receipt_date)}
+                    onChange={e => {
+                      if (e.target.value) {
+                        setParsed({ ...parsed, receipt_date: formatDateDMY(e.target.value) })
+                      }
+                    }}
+                    style={{
+                      position: "absolute",
+                      right: 8,
+                      width: 24,
+                      height: 24,
+                      opacity: 0,
+                      cursor: "pointer",
+                      zIndex: 2
+                    }}
+                    title="Pick date from calendar"
+                  />
+                  <span style={{ position: "absolute", right: 10, pointerEvents: "none", fontSize: 14 }}>
+                    📅
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Items List */}
@@ -831,8 +950,8 @@ Return ONLY valid JSON with this exact structure, no preamble:
                         onChange={e => updateRow(idx, "type", e.target.value)}
                         style={{ ...iSt, fontSize: 12, padding: "5px 8px", width: 150 }}
                       >
-                        <option value="purchase"> Link to Inventory</option>
-                        <option value="expense"> Link to Expense</option>
+                        <option value="purchase">Link to Inventory</option>
+                        <option value="expense">Link to Expense</option>
                       </select>
 
                       {/* Render based on selection */}

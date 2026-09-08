@@ -15,6 +15,48 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = 8000) => {
   }
 }
 
+// Normalizes dates (DD/MM/YYYY, ISO, timestamps) for resilient API sync and month matching
+const normalizeDateToIso = (inputDate) => {
+  if (!inputDate) return new Date().toISOString().slice(0, 10)
+  if (inputDate instanceof Date && !isNaN(inputDate.getTime())) {
+    const y = inputDate.getFullYear()
+    const m = String(inputDate.getMonth() + 1).padStart(2, "0")
+    const d = String(inputDate.getDate()).padStart(2, "0")
+    return `${y}-${m}-${d}`
+  }
+  if (typeof inputDate !== "string") return new Date().toISOString().slice(0, 10)
+  const trimmed = inputDate.trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
+
+  const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
+  }
+
+  const ymdMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)
+  if (ymdMatch) {
+    const [, y, m, d] = ymdMatch
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
+  }
+
+  try {
+    const d = new Date(trimmed)
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, "0")
+      const day = String(d.getDate()).padStart(2, "0")
+      return `${y}-${m}-${day}`
+    }
+  } catch {}
+  return new Date().toISOString().slice(0, 10)
+}
+
+const isDateMatchingMonth = (dateStr, monthStr) => {
+  if (!dateStr || !monthStr) return false
+  return normalizeDateToIso(dateStr).startsWith(monthStr.trim())
+}
+
 // Mapping functions to transform server DB structures to application data models
 const mapServerInventoryToLocal = (item) => ({
   id: item.id,
@@ -52,14 +94,16 @@ const mapServerPurchaseToLocal = (pur) => ({
   id: pur.id,
   date: pur.date ? pur.date.split("T")[0] : new Date().toISOString().split("T")[0],
   supplier: pur.supplier || "Market Run",
-  total: pur.total || pur.amount,
-  item: pur.notes ? pur.notes.split(" — Qty:")[0] : "Ingredient",
-  qty: pur.qty || 1,
-  stockAdded: pur.stockAdded || 0,
-  itemId: pur.itemId,
-  unitSize: pur.unitSize || 0,
-  price: pur.price || 0,
-  cpu: pur.cpu || 0
+  total: pur.total != null ? Number(pur.total) : Number(pur.amount || 0),
+  item: pur.item || pur.inventoryItem?.name || (pur.notes ? pur.notes.split(" — Qty:")[0] : "Ingredient"),
+  category: pur.category || pur.inventoryItem?.cat || "Ingredients / Supplies",
+  unit: pur.unit || pur.inventoryItem?.unit || "",
+  qty: pur.qty != null ? Number(pur.qty) : 1,
+  stockAdded: pur.stockAdded != null ? Number(pur.stockAdded) : 0,
+  itemId: pur.itemId || null,
+  unitSize: pur.unitSize != null ? Number(pur.unitSize) : 0,
+  price: pur.price != null ? Number(pur.price) : 0,
+  cpu: pur.cpu != null ? Number(pur.cpu) : 0
 })
 
 const mapServerInvoiceToLocal = (inv) => ({
@@ -393,7 +437,7 @@ const syncExpensesList = async (headers, localExpenses) => {
     for (const exp of localExpenses) {
       const sExp = serverExps.find(e => e.id === exp.id)
       let parsedDate = new Date().toISOString()
-      try { if (exp.date) parsedDate = new Date(exp.date).toISOString() } catch (e) { /* ignore invalid date */ }
+      try { if (exp.date) parsedDate = new Date(normalizeDateToIso(exp.date)).toISOString() } catch (e) { /* ignore invalid date */ }
 
       const body = {
         id: exp.id,
@@ -792,21 +836,21 @@ const syncPurchasesList = async (headers, localPurchases) => {
     if (!res.ok) return
     const serverPurchases = await res.json()
 
-    // Delete removed purchases in parallel
-    const pursToDelete = serverPurchases.filter(sPur => !localPurchases.find(p => p.id === sPur.id))
-    if (pursToDelete.length > 0) {
-      await Promise.allSettled(
-        pursToDelete.map(sPur =>
-          fetchWithTimeout(`${apiUrl}/api/purchases/${sPur.id}`, { method: "DELETE", headers }).catch(() => {})
-        )
-      )
+    // Merge server purchases not present locally into local cache (prevents accidental data loss)
+    const missingInLocal = (Array.isArray(serverPurchases) ? serverPurchases : (serverPurchases.data || []))
+      .map(mapServerPurchaseToLocal)
+      .filter(sp => !localPurchases.some(lp => lp.id === sp.id))
+    if (missingInLocal.length > 0) {
+      const merged = [...localPurchases, ...missingInLocal]
+      saveLocal("ll_purchases", merged)
+      cache["ll_purchases"] = merged
     }
 
-    // Create/Update
+    // Create/Update local purchases to server
     for (const pur of localPurchases) {
-      const sPur = serverPurchases.find(sp => sp.id === pur.id)
+      const sPur = Array.isArray(serverPurchases) ? serverPurchases.find(sp => sp.id === pur.id) : null
       let parsedDate = new Date().toISOString()
-      try { if (pur.date) parsedDate = new Date(pur.date).toISOString() } catch (e) { /* ignore invalid date */ }
+      try { if (pur.date) parsedDate = new Date(normalizeDateToIso(pur.date)).toISOString() } catch (e) { /* ignore invalid date */ }
 
       const body = {
         id: pur.id,
@@ -2628,13 +2672,16 @@ export const savePurchases = async (data) => {
 export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = "" } = {}) => {
   const apiUrl = import.meta.env.VITE_API_URL
   const headers = getAuthHeaders()
+  const isMonthFilter = month && month.trim() && month.trim() !== "all"
+
   if (!apiUrl || !headers) {
     const all = loadLocal("ll_purchases", [])
-    const filtered = month ? all.filter(p => p.date?.startsWith(month)) : all
+    const filtered = isMonthFilter ? all.filter(p => isDateMatchingMonth(p.date, month.trim())) : all
     const sz = limit === "all" ? filtered.length : Number(limit) || 25
     const start = (page - 1) * sz
     const slice = filtered.slice(start, start + sz)
     const monthTotal = filtered.reduce((s, p) => s + (p.total || 0), 0)
+    const availableMonths = [...new Set(all.map(p => (p.date ? normalizeDateToIso(p.date).slice(0, 7) : null)).filter(Boolean))].sort().reverse()
     return {
       data: slice,
       pagination: {
@@ -2645,7 +2692,8 @@ export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = ""
       },
       stats: {
         totalSpent: monthTotal,
-        totalPurchases: filtered.length
+        totalPurchases: filtered.length,
+        availableMonths
       }
     }
   }
@@ -2654,23 +2702,43 @@ export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = ""
     const params = new URLSearchParams()
     if (page) params.set("page", page)
     if (limit) params.set("limit", limit)
-    if (month && month.trim()) params.set("month", month.trim())
+    if (isMonthFilter) params.set("month", month.trim())
 
     const res = await fetch(`${apiUrl}/api/purchases?${params.toString()}`, { headers })
     if (res.ok) {
       const json = await res.json()
       if (json && json.data) {
+        const mapped = json.data.map(mapServerPurchaseToLocal)
+        // Keep local cache in sync
+        const local = loadLocal("ll_purchases", [])
+        const merged = [...local]
+        mapped.forEach(m => {
+          const idx = merged.findIndex(p => p.id === m.id)
+          if (idx >= 0) merged[idx] = m
+          else merged.push(m)
+        })
+        saveLocal("ll_purchases", merged)
+        cache["ll_purchases"] = merged
+
+        const allDates = merged.map(p => (p.date ? normalizeDateToIso(p.date).slice(0, 7) : null)).filter(Boolean)
+        const computedMonths = [...new Set(allDates)].sort().reverse()
+
         return {
           ...json,
-          data: json.data.map(mapServerPurchaseToLocal)
+          data: mapped,
+          stats: {
+            ...json.stats,
+            availableMonths: json.stats?.availableMonths || computedMonths
+          }
         }
       }
       if (Array.isArray(json)) {
         const mapped = json.map(mapServerPurchaseToLocal)
+        const computedMonths = [...new Set(mapped.map(p => (p.date ? normalizeDateToIso(p.date).slice(0, 7) : null)).filter(Boolean))].sort().reverse()
         return {
           data: mapped,
           pagination: { page: 1, limit: mapped.length, total: mapped.length, totalPages: 1 },
-          stats: { totalSpent: mapped.reduce((s, p) => s + (p.total || 0), 0), totalPurchases: mapped.length }
+          stats: { totalSpent: mapped.reduce((s, p) => s + (p.total || 0), 0), totalPurchases: mapped.length, availableMonths: computedMonths }
         }
       }
     }
@@ -2679,11 +2747,51 @@ export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = ""
   }
 
   const all = loadLocal("ll_purchases", [])
-  const filtered = month ? all.filter(p => p.date?.startsWith(month)) : all
+  const filtered = isMonthFilter ? all.filter(p => isDateMatchingMonth(p.date, month.trim())) : all
+  const availableMonths = [...new Set(all.map(p => (p.date ? normalizeDateToIso(p.date).slice(0, 7) : null)).filter(Boolean))].sort().reverse()
   return {
     data: filtered.slice(0, 25),
     pagination: { page: 1, limit: 25, total: filtered.length, totalPages: Math.ceil(filtered.length / 25) || 1 },
-    stats: { totalSpent: filtered.reduce((s, p) => s + (p.total || 0), 0), totalPurchases: filtered.length }
+    stats: { totalSpent: filtered.reduce((s, p) => s + (p.total || 0), 0), totalPurchases: filtered.length, availableMonths }
+  }
+}
+
+export const deletePurchaseFromServer = async (id) => {
+  if (!id) return
+  const all = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
+  const updated = all.filter(p => p.id !== id)
+  saveLocal("ll_purchases", updated)
+  cache["ll_purchases"] = updated
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("layerledger:purchases-updated", { detail: { purchases: updated } }))
+  }
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (apiUrl && headers) {
+    try {
+      await fetchWithTimeout(`${apiUrl}/api/purchases/${id}`, { method: "DELETE", headers })
+    } catch (e) {
+      console.warn("deletePurchaseFromServer error:", e)
+    }
+  }
+}
+
+export const deletePurchasesFromServer = async (ids) => {
+  if (!ids || ids.length === 0) return
+  const idSet = new Set(ids)
+  const all = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
+  const updated = all.filter(p => !idSet.has(p.id))
+  saveLocal("ll_purchases", updated)
+  cache["ll_purchases"] = updated
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("layerledger:purchases-updated", { detail: { purchases: updated } }))
+  }
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (apiUrl && headers) {
+    await Promise.allSettled(
+      ids.map(id => fetchWithTimeout(`${apiUrl}/api/purchases/${id}`, { method: "DELETE", headers }).catch(() => {}))
+    )
   }
 }
 

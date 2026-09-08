@@ -7,7 +7,7 @@
  */
 import React, { useState, useMemo, useEffect, useCallback } from "react"
 import { Btn, Card, SHead, TH, TR2, Spinner } from "../common/ui.jsx"
-import { fmt } from "../../lib/helpers.js"
+import { fmt, isDateInMonth } from "../../lib/helpers.js"
 import {
   loadLocal,
   saveLocal,
@@ -133,7 +133,7 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
 
       if (prevOS && prevOS.length > 0) {
         const allPurchases = loadLocal("ll_purchases", [])
-        const prevPurchases = allPurchases.filter(p => p.date?.startsWith(prevM))
+        const prevPurchases = allPurchases.filter(p => isDateInMonth(p.date, prevM))
         
         const prevMRev = allRevenue.filter(p => {
           if (p.fromQuote && p.confirmedAt) return p.confirmedAt.startsWith(prevM)
@@ -193,15 +193,7 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
       const res = await fetchPaginatedPurchases({ page: 1, limit: 1000, month: monthStr })
       if (res && Array.isArray(res.data) && res.data.length > 0) {
         const allLocal = loadLocal("ll_purchases", [])
-        const otherMonths = allLocal.filter(p => {
-          if (!p.date) return true
-          if (p.date.startsWith(monthStr)) return false
-          try {
-            return new Date(p.date).toISOString().slice(0, 7) !== monthStr
-          } catch {
-            return true
-          }
-        })
+        const otherMonths = allLocal.filter(p => !isDateInMonth(p.date, monthStr))
         const merged = [...res.data, ...otherMonths]
         setPurchasesList(merged)
         saveLocal("ll_purchases", merged)
@@ -268,13 +260,13 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
         }
       }
       const allPurchases = loadLocal("ll_purchases", [])
-      const updatedPurchases = allPurchases.filter(p => !p.date?.startsWith(sel))
+      const updatedPurchases = allPurchases.filter(p => !isDateInMonth(p.date, sel))
       setPurchasesList(updatedPurchases)
       await savePurchases(updatedPurchases).catch(e => console.warn("savePurchases error:", e))
 
       // 5. Clear overhead expenses for this month and sync to server
       if (setExpenses && expenses) {
-        const updatedExpenses = expenses.filter(e => !e.date?.startsWith(sel))
+        const updatedExpenses = expenses.filter(e => !isDateInMonth(e.date, sel))
         setExpenses(updatedExpenses)
         await saveExpenses(updatedExpenses).catch(e => console.warn("saveExpenses error:", e))
       }
@@ -324,7 +316,7 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
 
   // Overhead Expenses: total from the Expenses tab, excluding ingredient purchases
   const mExp = useMemo(() => {
-    return (expenses || []).filter(e => e.date?.startsWith(sel) && e.source !== "purchase")
+    return (expenses || []).filter(e => isDateInMonth(e.date, sel) && e.source !== "purchase")
   }, [expenses, sel])
 
   const overhead = useMemo(() => {
@@ -349,14 +341,7 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
   const mPurchases = useMemo(() => {
     return (purchasesList || []).filter(p => {
       if (!p.date) return false
-      if (typeof p.date === "string" && p.date.startsWith(sel)) return true
-      try {
-        const d = new Date(p.date)
-        if (!isNaN(d.getTime())) {
-          return d.toISOString().slice(0, 7) === sel
-        }
-      } catch {}
-      return false
+      return isDateInMonth(p.date, sel)
     })
   }, [purchasesList, sel])
 

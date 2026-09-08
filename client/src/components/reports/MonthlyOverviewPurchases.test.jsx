@@ -38,11 +38,15 @@ jest.mock("../common/ui.jsx", () => {
 })
 
 // Mock helpers
-jest.mock("../../lib/helpers.js", () => ({
-  fmt: val => `₦${val}`,
-  uid: () => "test-id",
-  today: () => "2026-09-06"
-}))
+jest.mock("../../lib/helpers.js", () => {
+  const actual = jest.requireActual("../../lib/helpers.js")
+  return {
+    ...actual,
+    fmt: val => `₦${val}`,
+    uid: () => "test-id",
+    today: () => "2026-09-06"
+  }
+})
 
 describe("Receipt Scanner Date Normalization & Monthly Overview Purchases Sync", () => {
   describe("normalizeToIsoDate", () => {

@@ -7,7 +7,7 @@
  */
 import React, { useState, useEffect, useMemo } from "react"
 import { Btn, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, iSt, Spinner, Pagination } from "../common/ui.jsx"
-import { fmt, uid, today } from "../../lib/helpers.js"
+import { fmt, uid, today, formatDateDMY, isDateInMonth } from "../../lib/helpers.js"
 import { EXP_CATS } from "../../constants.js"
 import { saveExpenses } from "../../lib/data.js"
 import { Lightbulb, Trash2, Zap, Pencil, Check, X } from "lucide-react"
@@ -230,7 +230,7 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
     if (e.source === "purchase") return false
 
     // Filter globally by the selected month
-    if (!e.date?.startsWith(selectedMonth)) return false
+    if (!isDateInMonth(e.date, selectedMonth)) return false
 
     if (tab === "by_category") {
       return e.category === selectedCategoryFilter
@@ -635,7 +635,7 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
                       onChange={() => handleSelectRowToggle(e.id)}
                       style={{ cursor: "pointer" }}
                     />,
-                    <span style={{ color: "var(--muted)", fontSize: 12 }}>{e.date}</span>,
+                    <span style={{ color: "var(--muted)", fontSize: 12 }}>{formatDateDMY(e.date)}</span>,
                     <span style={{ fontWeight: 500 }}>{e.description}</span>,
                     <Badge>{e.category}</Badge>,
                     <span style={{ color: "#B03A2E", fontWeight: 600 }}>{fmt(e.amount)}</span>,

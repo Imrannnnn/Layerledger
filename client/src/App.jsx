@@ -643,7 +643,7 @@ export default function App() {
               {view === "calculator" && <OrderCalculator inventory={inventory} recipes={recipes} settings={settings} setView={setViewWithSync} company={company} />}
               {view === "clients" && <Clients setView={setViewWithSync} company={company} />}
               {view === "production" && <ProductionEntry inventory={inventory} setInventory={setInventory} recipes={recipes} productions={productions} setProductions={setProductions} settings={settings} setView={setViewWithSync} user={currentUser} />}
-              {view === "receipts" && <ReceiptScanner inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses} />}
+              {view === "receipts" && <ReceiptScanner inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses} setView={setViewWithSync} />}
               {view === "purchases" && <Purchases inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses} setView={setViewWithSync} isOwner={!currentUser || currentUser?.role === "owner"} />}
               {view === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} isOwner={!currentUser || currentUser?.role === "owner"} />}
               {view === "quotes" && <QuotesPage inventory={inventory} setInventory={setInventory} recipes={recipes} setView={setViewWithSync} productions={productions} setProductions={setProductions} />}

@@ -6,9 +6,21 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Card, SHead, TH, TR2, Spinner, Pagination } from "../common/ui.jsx"
-import { fmt, uid, DEFAULT_CATEGORIES, mapCategory } from "../../lib/helpers.js"
-import { saveInventory, saveExpenses, loadLocal, saveLocal, savePurchases, fetchPaginatedPurchases } from "../../lib/data.js"
-import { Link, Receipt, Trash2, Check } from "lucide-react"
+import { fmt, uid, DEFAULT_CATEGORIES, mapCategory, formatDateDMY, normalizeToIsoDate, isDateInMonth } from "../../lib/helpers.js"
+import { saveInventory, saveExpenses, loadLocal, saveLocal, savePurchases, fetchPaginatedPurchases, deletePurchaseFromServer, deletePurchasesFromServer } from "../../lib/data.js"
+import { Link, Receipt, Trash2, Check, Calendar, AlertCircle } from "lucide-react"
+
+const formatMonthLabel = (m) => {
+  if (!m || m === "all") return "All Months"
+  try {
+    const [y, mon] = m.split("-")
+    if (y && mon) {
+      const d = new Date(Number(y), Number(mon) - 1, 2)
+      return d.toLocaleDateString("en-NG", { month: "short", year: "numeric" })
+    }
+  } catch {}
+  return m
+}
 
 // ═══════════════════════════════════════════════════════════
 export function Purchases({ inventory, setInventory, expenses, setExpenses, setView, isOwner }) {
@@ -19,10 +31,17 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [loading, setLoading] = useState(false)
-  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    try {
+      const active = sessionStorage.getItem("ll_active_purchases_month")
+      if (active) return active
+    } catch {}
+    return new Date().toISOString().slice(0, 7)
+  })
   const [stats, setStats] = useState(() => ({
     totalSpent: initialPurchases.reduce((s, p) => s + (p.total || 0), 0),
-    totalPurchases: initialPurchases.length
+    totalPurchases: initialPurchases.length,
+    availableMonths: []
   }))
   const [draftPurchases, setDraftPurchases] = useState([
     {
@@ -62,7 +81,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     } catch (err) {
       console.warn("fetchPaginatedPurchases failed, falling back to local:", err)
       const all = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
-      const filtered = selectedMonth ? all.filter(p => p.date?.startsWith(selectedMonth)) : all
+      const filtered = selectedMonth ? all.filter(p => isDateInMonth(p.date, selectedMonth)) : all
       setPurchases(filtered)
       setTotalCount(filtered.length)
     } finally {
@@ -73,6 +92,34 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
   useEffect(() => {
     loadPage()
   }, [currentPage, pageSize, selectedMonth])
+
+  // Real-time listener for receipt scans and purchase updates
+  useEffect(() => {
+    const handlePurchasesUpdated = (e) => {
+      const targetMonth = e?.detail?.month
+      if (targetMonth && targetMonth !== selectedMonth) {
+        setSelectedMonth(targetMonth)
+        setCurrentPage(1)
+      } else {
+        loadPage()
+      }
+    }
+    window.addEventListener("layerledger:purchases-updated", handlePurchasesUpdated)
+    return () => window.removeEventListener("layerledger:purchases-updated", handlePurchasesUpdated)
+  }, [selectedMonth])
+
+  // Aggregate all distinct months that have purchase data
+  const availableMonths = useMemo(() => {
+    const cur = new Date().toISOString().slice(0, 7)
+    const local = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
+    const localDates = local.map(p => (p.date ? normalizeToIsoDate(p.date).slice(0, 7) : null)).filter(Boolean)
+    const serverDates = stats?.availableMonths || []
+    return [...new Set([cur, ...localDates, ...serverDates])].filter(Boolean).sort().reverse()
+  }, [stats?.availableMonths])
+
+  const otherMonthsWithData = useMemo(() => {
+    return availableMonths.filter(m => m !== selectedMonth && m !== "all")
+  }, [availableMonths, selectedMonth])
 
   const handleSelectRowToggle = (id) => {
     setSelectedIds(p => {
@@ -97,10 +144,16 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     const count = selectedIds.size
     if (!window.confirm(`Are you sure you want to delete the ${count} selected purchase record${count !== 1 ? "s" : ""}?`)) return
     
-    // 1. Filter purchases
+    const idsToDelete = Array.from(selectedIds)
+    // 1. Filter purchases locally
     const updatedPurchases = purchases.filter(p => !selectedIds.has(p.id))
     setPurchases(updatedPurchases)
     await saveLocal("ll_purchases", updatedPurchases)
+
+    // Delete on server
+    if (typeof deletePurchasesFromServer === "function") {
+      await deletePurchasesFromServer(idsToDelete)
+    }
 
     // 2. Remove matching expense entries
     if (expenses && setExpenses) {
@@ -117,6 +170,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     }
 
     setSelectedIds(new Set())
+    await loadPage()
   }
 
   const handleDeleteSingle = async (id) => {
@@ -124,6 +178,10 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     const updatedPurchases = purchases.filter(p => p.id !== id)
     setPurchases(updatedPurchases)
     await saveLocal("ll_purchases", updatedPurchases)
+
+    if (typeof deletePurchaseFromServer === "function") {
+      await deletePurchaseFromServer(id)
+    }
 
     if (expenses && setExpenses) {
       const pItem = purchases.find(p => p.id === id)
@@ -142,6 +200,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       copy.delete(id)
       return copy
     })
+    await loadPage()
   }
 
   useEffect(() => {
@@ -277,13 +336,14 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
 
       setInventory(updInv)
       setExpenses(updExp)
-      const allPurchases = [...newPurchases, ...purchases]
-      setPurchases(allPurchases)
+      const existingAll = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
+      const mergedPurchases = [...newPurchases, ...existingAll.filter(e => !newPurchases.some(np => np.id === e.id))]
+      setPurchases(prev => [...newPurchases, ...prev])
 
       await Promise.all([
         saveInventory(updInv),
         saveExpenses(updExp),
-        typeof savePurchases === "function" ? savePurchases(allPurchases) : saveLocal("ll_purchases", allPurchases)
+        typeof savePurchases === "function" ? savePurchases(mergedPurchases) : saveLocal("ll_purchases", mergedPurchases)
       ])
       await loadPage()
 
@@ -338,10 +398,57 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       <span>When you log a purchase here, the <strong>Cost/Unit</strong> in your Inventory updates automatically.</span>
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 14 }}>
-      <Card style={{ padding: "12px 14px" }}><div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Month Total</div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: "var(--text)" }}>{fmt(monthTotal)}</div></Card>
+      <Card style={{ padding: "12px 14px" }}><div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{selectedMonth === "all" ? "All-Time Total" : `${formatMonthLabel(selectedMonth)} Total`}</div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: "var(--text)" }}>{fmt(monthTotal)}</div></Card>
       <Card style={{ padding: "12px 14px" }}><div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Purchases logged</div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: "var(--text)" }}>{loggedPurchasesCount}</div></Card>
       <Card style={{ padding: "12px 14px" }}><div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Items updated</div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: "#357A52" }}>{itemsUpdatedCount}</div></Card>
     </div>
+
+    {purchases.length === 0 && !loading && otherMonthsWithData.length > 0 && selectedMonth !== "all" && (
+      <div style={{
+        background: "rgba(200,145,42,0.08)",
+        border: "1px solid rgba(200,145,42,0.3)",
+        borderRadius: 8,
+        padding: "10px 14px",
+        fontSize: 12.5,
+        color: "var(--text)",
+        marginBottom: 14,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+        gap: 10
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <AlertCircle size={16} color="var(--gold)" style={{ flexShrink: 0 }} />
+          <span>
+            No purchases logged in <strong>{formatMonthLabel(selectedMonth)}</strong>. Recorded purchases exist in:{" "}
+            <strong>{otherMonthsWithData.map(formatMonthLabel).join(", ")}</strong>.
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <Btn
+            small
+            variant="outline"
+            onClick={() => {
+              setSelectedMonth(otherMonthsWithData[0])
+              setCurrentPage(1)
+            }}
+          >
+            View {formatMonthLabel(otherMonthsWithData[0])} →
+          </Btn>
+          <Btn
+            small
+            variant="ghost"
+            onClick={() => {
+              setSelectedMonth("all")
+              setCurrentPage(1)
+            }}
+          >
+            View All Months
+          </Btn>
+        </div>
+      </div>
+    )}
 
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -350,15 +457,18 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
             <Receipt size={13} /> Go to Receipt Scanner →
           </Btn>
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <label style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8 }}>Month:</label>
           <input
             type="month"
-            value={selectedMonth}
+            value={selectedMonth === "all" ? "" : selectedMonth}
             onChange={e => {
-              setSelectedMonth(e.target.value)
-              setCurrentPage(1)
+              if (e.target.value) {
+                setSelectedMonth(e.target.value)
+                setCurrentPage(1)
+              }
             }}
+            title="Pick specific month"
             style={{
               padding: "5px 9px",
               border: "1px solid var(--border)",
@@ -369,6 +479,47 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
               fontFamily: "inherit"
             }}
           />
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedMonth(selectedMonth === "all" ? new Date().toISOString().slice(0, 7) : "all")
+              setCurrentPage(1)
+            }}
+            style={{
+              padding: "4px 9px",
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: "pointer",
+              border: "1px solid var(--border)",
+              background: selectedMonth === "all" ? "var(--gold)" : "var(--panel)",
+              color: selectedMonth === "all" ? "#fff" : "var(--text)"
+            }}
+          >
+            {selectedMonth === "all" ? "✓ All Months" : "All Months"}
+          </button>
+          {availableMonths.slice(0, 4).map(m => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => {
+                setSelectedMonth(m)
+                setCurrentPage(1)
+              }}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                fontSize: 11.5,
+                fontWeight: selectedMonth === m ? 600 : 400,
+                cursor: "pointer",
+                border: "1px solid var(--border)",
+                background: selectedMonth === m ? "rgba(200,145,42,0.15)" : "transparent",
+                color: selectedMonth === m ? "var(--gold)" : "var(--muted)"
+              }}
+            >
+              {formatMonthLabel(m)}
+            </button>
+          ))}
         </div>
       </div>
       <div style={{ display: "flex", gap: 8 }}>
@@ -528,7 +679,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
           "Date", "Item", "Category", "Unit", "Pack size", "Qty", "Price/pack", "Total", "Cost/unit *", "Status",
           ...(isOwner ? ["Actions"] : [])
         ]} />
-        <tbody>{purchases.length === 0 ? <tr><td colSpan={isOwner ? 12 : 10} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>{loading ? "Loading purchases..." : "No purchases logged in this month. Click + Log Purchase to start."}</td></tr> :
+        <tbody>{purchases.length === 0 ? <tr><td colSpan={isOwner ? 12 : 10} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>{loading ? "Loading purchases..." : `No purchases logged for ${formatMonthLabel(selectedMonth)}. Click + Log Purchase or scan a receipt to start.`}</td></tr> :
           paginatedPurchases.map((p, i) => {
             const invItem = inventory.find(item => item.id === p.itemId)
             const displayCat = invItem?.cat || p.category || "—"
@@ -543,7 +694,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
                   style={{ cursor: "pointer", width: 16, height: 16, accentColor: "var(--gold)" }}
                 />
               ] : []),
-              <span style={{ color: "var(--muted)", fontSize: 12 }}>{p.date}</span>,
+              <span style={{ color: "var(--muted)", fontSize: 12 }}>{formatDateDMY(p.date)}</span>,
               <span style={{ fontWeight: 500 }}>{p.item}</span>,
               <span style={{ color: "var(--muted)" }}>{displayCat}</span>,
               <span style={{ color: "var(--muted)" }}>{displayUnit}</span>,

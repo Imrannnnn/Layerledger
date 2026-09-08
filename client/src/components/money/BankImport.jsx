@@ -7,7 +7,7 @@
  */
 import React, { useState, useRef } from "react"
 import { Btn, Card, Badge, SHead, TH, TR2 } from "../common/ui.jsx"
-import { fmt, uid, callClaude, today } from "../../lib/helpers.js"
+import { fmt, uid, callClaude, today, formatDateDMY } from "../../lib/helpers.js"
 import { saveTxns, saveExpenses, saveProductionsList, loadLocal } from "../../lib/data.js"
 import { Calendar, ClipboardList, FileUp, FileText, AlertTriangle, Sparkles, Check } from "lucide-react"
 
@@ -334,7 +334,7 @@ Ignore stamp duty and VAT lines under ₦500.`
                     key={t.id}
                     i={i}
                     row={[
-                      <span style={{ color: "var(--muted)", fontSize: 12 }}>{t.date}</span>,
+                      <span style={{ color: "var(--muted)", fontSize: 12 }}>{formatDateDMY(t.date)}</span>,
                       <span style={{ fontSize: 12.5 }}>{t.description}</span>,
                       <span style={{ fontWeight: 600, color: t.type === "credit" ? "#357A52" : "#B03A2E" }}>
                         {t.type === "credit" ? "+" : "–"}{fmt(t.amount)}

@@ -8,7 +8,7 @@
  */
 import React, { useState, useMemo } from "react"
 import { Btn, Card, SHead } from "../common/ui.jsx"
-import { fmt } from "../../lib/helpers.js"
+import { fmt, isDateInMonth } from "../../lib/helpers.js"
 import { mergeRevenueSources, PLSection, PLRow } from "../../lib/costing.jsx"
 import { Download } from "lucide-react"
 
@@ -56,7 +56,7 @@ export function PandL({ productions, expenses, company }) {
   }, {}), [mRevenue])
 
   // Overhead expenses: non-ingredient purchases starting in selected month
-  const mExp = useMemo(() => expenses.filter(e => e.date?.startsWith(sel) && e.source !== "purchase"), [expenses, sel])
+  const mExp = useMemo(() => expenses.filter(e => isDateInMonth(e.date, sel) && e.source !== "purchase"), [expenses, sel])
   const overhead = useMemo(() => mExp.reduce((s, e) => s + (e.amount || 0), 0), [mExp])
 
   // Group overheads by category

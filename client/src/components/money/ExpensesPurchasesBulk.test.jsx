@@ -77,21 +77,25 @@ jest.mock("../common/ui.jsx", () => {
 })
 
 // Mock helpers
-jest.mock("../../lib/helpers.js", () => ({
-  fmt: val => `₦${val}`,
-  uid: () => "test-uid",
-  today: () => "2026-08-26",
-  DEFAULT_CATEGORIES: [
-    "Dry Goods",
-    "Dairy and Fats",
-    "Flavours and Extracts",
-    "Edible Items",
-    "Decoration Extras",
-    "Board and Packaging",
-    "Other"
-  ],
-  mapCategory: (cat, name = "") => cat || "Other"
-}))
+jest.mock("../../lib/helpers.js", () => {
+  const actual = jest.requireActual("../../lib/helpers.js")
+  return {
+    ...actual,
+    fmt: val => `₦${val}`,
+    uid: () => "test-uid",
+    today: () => "2026-08-26",
+    DEFAULT_CATEGORIES: [
+      "Dry Goods",
+      "Dairy and Fats",
+      "Flavours and Extracts",
+      "Edible Items",
+      "Decoration Extras",
+      "Board and Packaging",
+      "Other"
+    ],
+    mapCategory: (cat, name = "") => cat || "Other"
+  }
+})
 
 // Helper to simulate text input in React 18
 const typeIntoInput = (input, value) => {

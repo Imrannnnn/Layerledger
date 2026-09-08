@@ -1,4 +1,16 @@
-import { fmt, uid, today, recipeCost, calcFullCost, parseCSV } from './helpers';
+import {
+  fmt,
+  uid,
+  today,
+  recipeCost,
+  calcFullCost,
+  parseCSV,
+  normalizeToIsoDate,
+  formatDateDMY,
+  todayDMY,
+  isDateInMonth,
+  getMonthKeyFromDate
+} from './helpers';
 
 jest.mock('../constants.js', () => ({
   DECORATION_ITEMS: [
@@ -49,6 +61,91 @@ describe('client helpers', () => {
     it('should return a date string in YYYY-MM-DD format', () => {
       const dateStr = today();
       expect(dateStr).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
+  describe('todayDMY', () => {
+    it('should return a date string in DD/MM/YYYY format', () => {
+      const dateStr = todayDMY();
+      expect(dateStr).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
+    });
+  });
+
+  describe('normalizeToIsoDate', () => {
+    it('should convert DD/MM/YYYY to YYYY-MM-DD', () => {
+      expect(normalizeToIsoDate('24/08/2026')).toBe('2026-08-24');
+      expect(normalizeToIsoDate('5/8/2026')).toBe('2026-08-05');
+      expect(normalizeToIsoDate('01-09-2026')).toBe('2026-09-01');
+    });
+
+    it('should preserve already valid YYYY-MM-DD strings', () => {
+      expect(normalizeToIsoDate('2026-08-24')).toBe('2026-08-24');
+    });
+
+    it('should convert Date objects to YYYY-MM-DD', () => {
+      const d = new Date(2026, 7, 24); // August 24, 2026
+      expect(normalizeToIsoDate(d)).toBe('2026-08-24');
+    });
+
+    it('should fallback to today for null or invalid inputs', () => {
+      expect(normalizeToIsoDate(null)).toBe(today());
+      expect(normalizeToIsoDate('')).toBe(today());
+    });
+  });
+
+  describe('formatDateDMY', () => {
+    it('should convert YYYY-MM-DD to DD/MM/YYYY', () => {
+      expect(formatDateDMY('2026-08-24')).toBe('24/08/2026');
+      expect(formatDateDMY('2026-01-05')).toBe('05/01/2026');
+    });
+
+    it('should normalize and format DD/MM/YYYY', () => {
+      expect(formatDateDMY('24/08/2026')).toBe('24/08/2026');
+      expect(formatDateDMY('5/8/2026')).toBe('05/08/2026');
+      expect(formatDateDMY('5-8-2026')).toBe('05/08/2026');
+    });
+
+    it('should convert Date objects to DD/MM/YYYY', () => {
+      const d = new Date(2026, 7, 24);
+      expect(formatDateDMY(d)).toBe('24/08/2026');
+    });
+
+    it('should return empty string for null, undefined, or empty values', () => {
+      expect(formatDateDMY(null)).toBe('');
+      expect(formatDateDMY(undefined)).toBe('');
+      expect(formatDateDMY('')).toBe('');
+    });
+  });
+
+  describe('isDateInMonth', () => {
+    it('should match DD/MM/YYYY against YYYY-MM', () => {
+      expect(isDateInMonth('24/08/2026', '2026-08')).toBe(true);
+      expect(isDateInMonth('01/09/2026', '2026-08')).toBe(false);
+    });
+
+    it('should match YYYY-MM-DD against YYYY-MM', () => {
+      expect(isDateInMonth('2026-08-24', '2026-08')).toBe(true);
+      expect(isDateInMonth('2026-09-01', '2026-08')).toBe(false);
+    });
+
+    it('should return false for empty or missing arguments', () => {
+      expect(isDateInMonth(null, '2026-08')).toBe(false);
+      expect(isDateInMonth('2026-08-24', '')).toBe(false);
+    });
+  });
+
+  describe('getMonthKeyFromDate', () => {
+    it('should extract YYYY-MM from DD/MM/YYYY', () => {
+      expect(getMonthKeyFromDate('24/08/2026')).toBe('2026-08');
+    });
+
+    it('should extract YYYY-MM from YYYY-MM-DD', () => {
+      expect(getMonthKeyFromDate('2026-08-24')).toBe('2026-08');
+    });
+
+    it('should return empty string for falsy input', () => {
+      expect(getMonthKeyFromDate('')).toBe('');
+      expect(getMonthKeyFromDate(null)).toBe('');
     });
   });
 
