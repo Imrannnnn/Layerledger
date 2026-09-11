@@ -27,14 +27,14 @@ export function normalizeToIsoDate(inputDate) {
   if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
 
   // DD/MM/YYYY or DD-MM-YYYY or D/M/YYYY
-  const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  const dmyMatch = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/)
   if (dmyMatch) {
     const [, d, m, y] = dmyMatch
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
   }
 
   // YYYY/MM/DD or YYYY-MM-DD
-  const ymdMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)
+  const ymdMatch = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
   if (ymdMatch) {
     const [, y, m, d] = ymdMatch
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
@@ -49,7 +49,9 @@ export function normalizeToIsoDate(inputDate) {
       const day = String(d.getDate()).padStart(2, "0")
       return `${y}-${m}-${day}`
     }
-  } catch {}
+  } catch {
+    // ignore parse errors
+  }
 
   return today()
 }
@@ -60,7 +62,7 @@ export function formatDateDMY(inputDate) {
   if (typeof inputDate === "string") {
     const trimmed = inputDate.trim()
     if (!trimmed) return ""
-    const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+    const dmyMatch = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/)
     if (dmyMatch) {
       const [, d, m, y] = dmyMatch
       return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`
@@ -83,7 +85,9 @@ export function formatDateDMY(inputDate) {
         const year = d.getFullYear()
         return `${day}/${month}/${year}`
       }
-    } catch {}
+    } catch {
+      // ignore parse errors
+    }
     return trimmed
   }
   if (inputDate instanceof Date && !isNaN(inputDate.getTime())) {
@@ -171,28 +175,396 @@ export function extractAndRepairJson(rawText) {
   }
 }
 
+// Automatically detects measurement units (kg, g, L, ml, pcs, crate, etc.) from item text and unit fields
+export function detectUnitAndSize(text = "", existingUnit = "", existingSize = 1) {
+  const combined = `${text} ${existingUnit}`.toLowerCase()
+
+  // 1. Check for KG patterns first (e.g. "50kg", "25 kg", "1kg", "2.5kg", "kilogram")
+  const kgMatch = combined.match(/\b(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilo|kilos|kilogram|kilograms)\b/i)
+  if (kgMatch) {
+    return {
+      unit: "kg",
+      unit_size: parseFloat(kgMatch[1]) || 1
+    }
+  }
+  if (/\b(?:kg|kgs|kilo|kilos|kilogram|kilograms)\b/i.test(combined)) {
+    return {
+      unit: "kg",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 2. Check for Grams patterns (e.g. "500g", "250 g", "100gm", "grams")
+  const gMatch = combined.match(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|gram|grams)\b/i)
+  if (gMatch) {
+    return {
+      unit: "g",
+      unit_size: parseFloat(gMatch[1]) || 1
+    }
+  }
+  if (/\b(?:gm|gms|gram|grams)\b/i.test(combined) || /\b(\d+)\s*g\b/i.test(combined)) {
+    return {
+      unit: "g",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 3. Check for Litres / L / Ltr (e.g. "5L", "1.5ltr", "1 litre")
+  const lMatch = combined.match(/\b(\d+(?:\.\d+)?)\s*(?:l|ltr|ltrs|liter|liters|litre|litres)\b/i)
+  if (lMatch) {
+    return {
+      unit: "l",
+      unit_size: parseFloat(lMatch[1]) || 1
+    }
+  }
+  if (/\b(?:ltr|ltrs|liter|liters|litre|litres)\b/i.test(combined)) {
+    return {
+      unit: "l",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 4. Check for ML / Millilitres (e.g. "500ml", "250 ml", "50ml")
+  const mlMatch = combined.match(/(\d+(?:\.\d+)?)\s*(?:ml|mls|milliliter|milliliters|millilitre|millilitres)\b/i)
+  if (mlMatch) {
+    return {
+      unit: "ml",
+      unit_size: parseFloat(mlMatch[1]) || 1
+    }
+  }
+  if (/\b(?:ml|mls)\b/i.test(combined)) {
+    return {
+      unit: "ml",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 5. Check for CL
+  const clMatch = combined.match(/(\d+(?:\.\d+)?)\s*(?:cl)\b/i)
+  if (clMatch) {
+    return {
+      unit: "cl",
+      unit_size: parseFloat(clMatch[1]) || 1
+    }
+  }
+
+  // 6. Check for Pcs / Pieces
+  const pcsMatch = combined.match(/(\d+(?:\.\d+)?)\s*(?:pcs|pc|piece|pieces)\b/i)
+  if (pcsMatch) {
+    return {
+      unit: "pcs",
+      unit_size: parseFloat(pcsMatch[1]) || 1
+    }
+  }
+  if (/\b(?:pcs|pc|piece|pieces)\b/i.test(combined)) {
+    return {
+      unit: "pcs",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 7. Check for Crate (e.g. Eggs 1 crate)
+  if (/\b(?:crate|crates)\b/i.test(combined)) {
+    return {
+      unit: "crate",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 8. Check for Carton
+  if (/\b(?:carton|cartons)\b/i.test(combined)) {
+    return {
+      unit: "carton",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 9. Check for Bottle
+  if (/\b(?:bottle|bottles|btl)\b/i.test(combined)) {
+    return {
+      unit: "bottle",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 10. Check for Roll
+  if (/\b(?:roll|rolls)\b/i.test(combined)) {
+    return {
+      unit: "roll",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 11. Check for Bag / Sack
+  if (/\b(?:bag|bags|sack|sacks)\b/i.test(combined)) {
+    return {
+      unit: "bag",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 12. Check for Bucket / Tub
+  if (/\b(?:bucket|buckets|tub|tubs)\b/i.test(combined)) {
+    return {
+      unit: "bucket",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // 13. Check for Pack
+  if (/\b(?:pack|packs|packet|packets|pk)\b/i.test(combined)) {
+    return {
+      unit: "pack",
+      unit_size: Number(existingSize) > 0 ? Number(existingSize) : 1
+    }
+  }
+
+  // Normalize existingUnit if provided
+  const cleanExisting = String(existingUnit || "").trim().toLowerCase()
+  if (cleanExisting) {
+    if (["kg", "kgs", "kilogram", "kilograms"].includes(cleanExisting)) return { unit: "kg", unit_size: Number(existingSize) || 1 }
+    if (["g", "gm", "gms", "gram", "grams"].includes(cleanExisting)) return { unit: "g", unit_size: Number(existingSize) || 1 }
+    if (["l", "ltr", "ltrs", "liter", "litre"].includes(cleanExisting)) return { unit: "l", unit_size: Number(existingSize) || 1 }
+    if (["ml", "mls"].includes(cleanExisting)) return { unit: "ml", unit_size: Number(existingSize) || 1 }
+    if (["pcs", "pc", "pieces", "piece"].includes(cleanExisting)) return { unit: "pcs", unit_size: Number(existingSize) || 1 }
+    return { unit: cleanExisting, unit_size: Number(existingSize) || 1 }
+  }
+
+  return {
+    unit: "kg",
+    unit_size: Number(existingSize) || 1
+  }
+}
+
 function normalizeItem(r) {
-  if (!r) return { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", category: "Miscellaneous", approved: true, confidence: "high" }
+  if (!r) return { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", category: "Other", approved: true, confidence: "high" }
   if (typeof r === "string") {
-    return { item_on_receipt: r, qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", category: "Miscellaneous", approved: true, confidence: "high" }
+    const detected = detectUnitAndSize(r, "kg", 1)
+    return { item_on_receipt: r, qty: 1, unit: detected.unit, unit_size: detected.unit_size, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", category: "Other", approved: true, confidence: "high" }
   }
   const qty = Number(r.qty || r.quantity || 1) || 1
   const price = Number(r.unit_price || r.price || r.cost || 0) || 0
   const total = Number(r.line_total || r.total || (qty * price) || 0) || 0
+  const itemName = String(r.item_on_receipt || r.name || r.item || r.description || "")
+
+  // Detect unit and pack size from item description and Claude unit
+  const detected = detectUnitAndSize(itemName, r.unit, r.unit_size || r.size || 1)
 
   return {
-    item_on_receipt: String(r.item_on_receipt || r.name || r.item || r.description || ""),
+    item_on_receipt: itemName,
     qty,
-    unit: String(r.unit || "kg"),
-    unit_size: Number(r.unit_size || r.size || 1) || 1,
+    unit: detected.unit,
+    unit_size: detected.unit_size,
     unit_price: price,
     line_total: total,
-    type: r.type === "expense" ? "expense" : "purchase",
+    type: "purchase", // All items default to Link to Inventory. Expense linking is only done manually by the user.
     overrideId: String(r.matched_id || r.overrideId || ""),
-    category: String(r.category || r.matched_name || "Miscellaneous"),
+    category: (r.category && r.category !== "Miscellaneous") ? String(r.category) : "Other",
     approved: r.approved !== undefined ? Boolean(r.approved) : r.confidence !== "low",
     confidence: String(r.confidence || "high")
   }
+}
+
+// Clean text: lowercase, strip punctuation, strip common packaging/unit tokens, trim
+export function cleanItemText(str) {
+  if (!str || typeof str !== "string") return ""
+  return str
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\b(\d+(?:\.\d+)?\s*(?:kg|g|l|ml|cl|ltr|pcs|pack|packs|bag|bags|sack|sacks|crate|crates|carton|cartons|bucket|buckets|btl|bottles|rolls|roll))\b/g, " ")
+    .replace(/\b(kg|ltr|litres|pcs|pack|packs|bags|sacks|crate|crates|cartons)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+// Simple stemmer for common bakery item plurals
+export function stemItemWord(w) {
+  if (!w || typeof w !== "string" || w.length <= 3) return w
+  const word = w.toLowerCase()
+  if (word.endsWith("ies") && word.length > 4) return word.slice(0, -3) + "y"
+  if (word.endsWith("es") && (word.endsWith("shes") || word.endsWith("ches") || word.endsWith("xes") || word.endsWith("sses") || word.endsWith("boxes"))) {
+    return word.slice(0, -2)
+  }
+  if (word.endsWith("s") && !word.endsWith("ss")) {
+    return word.slice(0, -1)
+  }
+  return word
+}
+
+const STOP_WORDS = new Set(["and", "or", "the", "a", "an", "of", "for", "with", "in", "to", "by", "&"])
+const BRAND_WORDS = new Set([
+  "dangote", "golden", "penny", "honeywell", "mama", "gold", "presco", "simas",
+  "dano", "peak", "mamador", "gino", "louis", "st", "grand", "devon", "blue", "band"
+])
+
+// Tokenize and stem string
+export function tokenizeItem(str, stripBrands = false) {
+  const cleaned = cleanItemText(str)
+  if (!cleaned) return []
+  const tokens = cleaned
+    .split(/\s+/)
+    .filter(t => t.length > 0 && !/^\d+$/.test(t))
+  
+  const filtered = tokens.filter(t => !STOP_WORDS.has(t))
+  let useTokens = filtered.length > 0 ? filtered : tokens
+
+  if (stripBrands) {
+    const withoutBrands = useTokens.filter(t => !BRAND_WORDS.has(t.toLowerCase()))
+    if (withoutBrands.length > 0) {
+      useTokens = withoutBrands
+    }
+  }
+
+  return useTokens.map(stemItemWord)
+}
+
+// String similarity (Levenshtein distance based)
+export function calculateLevenshteinSimilarity(s1, s2) {
+  if (s1 === s2) return 1.0
+  if (!s1 || !s2) return 0.0
+  const l1 = s1.length
+  const l2 = s2.length
+  const maxLen = Math.max(l1, l2)
+  if (maxLen === 0) return 1.0
+
+  let prev = Array.from({ length: l2 + 1 }, (_, i) => i)
+  let curr = new Array(l2 + 1)
+
+  for (let i = 1; i <= l1; i++) {
+    curr[0] = i
+    for (let j = 1; j <= l2; j++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1
+      curr[j] = Math.min(
+        curr[j - 1] + 1,
+        prev[j] + 1,
+        prev[j - 1] + cost
+      )
+    }
+    prev = [...curr]
+  }
+
+  return 1 - prev[l2] / maxLen
+}
+
+/**
+ * Intelligently matches a scanned item name to the most relevant inventory item.
+ * Supports:
+ * - Saved aliases (highest priority)
+ * - Exact matches (case/punctuation normalized)
+ * - Stemmed matches (e.g. "Eggs" -> "Egg", "Boxes" -> "Box")
+ * - Keyword matches (e.g. "Sugar" -> "White Sugar", "Flour" -> "All-Purpose Flour")
+ * - Token inclusion matches (e.g. "Dangote White Sugar" -> "White Sugar")
+ * - Partial similarity / typo tolerance
+ * - Rejection of low-confidence / unrelated items (returns "")
+ */
+export function matchItemToInventory(itemName, inventory, aliases = {}) {
+  if (!itemName || typeof itemName !== "string" || !Array.isArray(inventory) || inventory.length === 0) {
+    return ""
+  }
+
+  const rawKey = itemName.trim().toLowerCase()
+  if (!rawKey) return ""
+
+  // 1. Check saved aliases first (highest priority)
+  if (aliases[rawKey] && inventory.some(i => i.id === aliases[rawKey])) {
+    return aliases[rawKey]
+  }
+
+  const cleanScan = cleanItemText(itemName)
+  const scanTokens = tokenizeItem(itemName, false)
+  const cleanScanTokens = tokenizeItem(itemName, true)
+  const stemmedScan = scanTokens.join(" ")
+  const stemmedCleanScan = cleanScanTokens.join(" ")
+
+  let bestMatch = null
+  let highestScore = 0
+
+  for (const item of inventory) {
+    if (!item || !item.name) continue
+    const rawInv = item.name.trim().toLowerCase()
+    const cleanInv = cleanItemText(item.name)
+    const invTokens = tokenizeItem(item.name, false)
+    const stemmedInv = invTokens.join(" ")
+
+    let score = 0
+
+    // Rule 1: Exact matches
+    if (rawKey === rawInv) {
+      score = 100
+    } else if (cleanScan === cleanInv && cleanScan.length > 0) {
+      score = 98
+    } else if (stemmedScan === stemmedInv && stemmedScan.length > 0) {
+      score = 95
+    } else if (stemmedCleanScan === stemmedInv && stemmedCleanScan.length > 0) {
+      score = 94
+    } else if (scanTokens.length > 0 && invTokens.length > 0) {
+      // Check token containment with both full and clean (brand-stripped) tokens
+      const matchedScanTokens = scanTokens.filter(st => invTokens.includes(st))
+      const matchedCleanScanTokens = cleanScanTokens.filter(st => invTokens.includes(st))
+      const matchedInvTokens = invTokens.filter(it => scanTokens.includes(it) || cleanScanTokens.includes(it))
+
+      const allScanTokensInInv = scanTokens.length > 0 && matchedScanTokens.length === scanTokens.length
+      const allCleanScanTokensInInv = cleanScanTokens.length > 0 && matchedCleanScanTokens.length === cleanScanTokens.length
+      const allInvTokensInScan = invTokens.length > 0 && matchedInvTokens.length === invTokens.length
+
+      if (allScanTokensInInv || allCleanScanTokensInInv) {
+        // Keyword match: Scanned (or its ingredient keywords) is fully contained in inventory
+        // e.g. "Sugar" -> "White Sugar", "Flour" -> "All-Purpose Flour", "Dangote Sugar" -> "White Sugar"
+        const activeTokens = allCleanScanTokensInInv ? cleanScanTokens : scanTokens
+        score = 85 + (activeTokens.length / invTokens.length) * 5
+
+        // Core noun bonus: if last token matches (e.g. "... Sugar", "... Flour")
+        if (invTokens[invTokens.length - 1] === activeTokens[activeTokens.length - 1]) {
+          score += 3
+        }
+
+        // Standard bakery staple preference bonus for generic queries
+        if (activeTokens.length === 1) {
+          const firstScan = activeTokens[0]
+          if (firstScan === "sugar" && (cleanInv.includes("white sugar") || cleanInv.includes("granulated"))) {
+            score += 2
+          } else if (firstScan === "flour" && (cleanInv.includes("all purpose") || cleanInv.includes("plain"))) {
+            score += 2
+          }
+        }
+      } else if (allInvTokensInScan) {
+        // Reverse keyword match: Inventory is fully contained in scanned
+        // e.g. "Dangote White Sugar 50kg" -> "White Sugar"
+        score = 82 + (invTokens.length / scanTokens.length) * 5
+        if (invTokens[invTokens.length - 1] === scanTokens[scanTokens.length - 1]) {
+          score += 2
+        }
+      } else {
+        // Partial overlap: Jaccard-like overlap
+        const sharedCount = Math.max(matchedScanTokens.length, matchedCleanScanTokens.length)
+        const totalDistinct = new Set([...cleanScanTokens, ...invTokens]).size
+        const overlapRatio = totalDistinct > 0 ? sharedCount / totalDistinct : 0
+
+        // Only consider if at least 2 tokens match and overlapRatio is significant (> 0.6)
+        if (sharedCount >= 2 && overlapRatio >= 0.6) {
+          score = overlapRatio * 75
+        } else {
+          // Character similarity check for minor typos (e.g. "Cocoa Powdr" vs "Cocoa Powder")
+          const charSim = calculateLevenshteinSimilarity(cleanScan, cleanInv)
+          if (charSim >= 0.82) {
+            score = charSim * 80
+          }
+        }
+      }
+    }
+
+    if (score > highestScore) {
+      highestScore = score
+      bestMatch = item
+    }
+  }
+
+  // Threshold: only return if confident (>= 70)
+  if (highestScore >= 70 && bestMatch) {
+    return bestMatch.id
+  }
+
+  return ""
 }
 
 export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses, setView }) {
@@ -217,7 +589,7 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses,
   // State for creating a new inventory item directly from the review step
   const [addingNewItemForIdx, setAddingNewItemForIdx] = useState(null)
   const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
-  const [newFields, setNewFields] = useState({ name: "", cat: "Dry Goods", unit: "kg", cost: "", stock: "", minStock: "5", totalPaid: "", qtyBought: "" })
+  const [newFields, setNewFields] = useState({ name: "", cat: "Other", unit: "kg", cost: "", stock: "", minStock: "5", totalPaid: "", qtyBought: "" })
 
   const handleFile = (e) => {
     const file = e.target.files[0]
@@ -259,26 +631,32 @@ Extraction Instructions:
    - If unit_size is not clear, use qty as unit_size and set qty to 1.
    - If price is missing or unclear, set unit_price: 0 and line_total: 0.
 
-2. BANK TRANSFER / POS SCREENSHOTS:
-   - If it is a payment receipt or debit alert without individual line items:
-     - Check beneficiary or shop name. If it is a bakery supplier, ingredient vendor, or supermarket, set:
-       - item_on_receipt: "Supplies from [Beneficiary or Merchant name if visible, else 'Supplier']"
-       - qty: 1, unit: "pack", unit_size: 1, unit_price: [amount paid], line_total: [amount paid]
-       - type: "purchase", category: "Ingredients / Supplies"
-     - If it is clearly an overhead expense (power, diesel/fuel, delivery, rent, salary, maintenance), set:
-       - item_on_receipt: "Payment to [Beneficiary or Merchant name if visible, else 'Payee']"
-       - qty: 1, unit: "tx", unit_size: 1, unit_price: [amount paid], line_total: [amount paid]
-       - type: "expense", category: [appropriate overhead category]
+2. UNIT OF MEASUREMENT INSTRUCTIONS:
+   - If the receipt line, item name, or description contains or implies a measurement unit (especially "kg", "g", "l", "ltr", "ml", "cl", "pcs", "crate", "carton", "bag", "roll", etc.), ALWAYS extract and set that measurement as the "unit"!
+   - Examples:
+     - "Dangote Sugar 50kg" -> unit: "kg", unit_size: 50
+     - "Butter 250g" or "Yeast 500g" -> unit: "g", unit_size: 250 (or 500)
+     - "Milk 1L" or "Oil 5 Litres" -> unit: "l", unit_size: 1 (or 5)
+     - "Vanilla 500ml" -> unit: "ml", unit_size: 500
+     - "Eggs 1 crate" -> unit: "crate", unit_size: 1
+     - "Cake board 10pcs" -> unit: "pcs", unit_size: 10
+   - NEVER default to generic units like "pack" or "unit" if "kg", "g", or any related weight/volume unit is present on the item or receipt!
 
-3. PHOTOS OF PHYSICAL PRODUCTS / SUPPLIES:
+3. BANK TRANSFER / POS SCREENSHOTS:
+   - Extract beneficiary, merchant, or line items.
+   - Set item_on_receipt to the detected merchant or purchase description.
+   - Set qty: 1, unit: "pack", unit_size: 1, unit_price: [amount paid], line_total: [amount paid].
+   - Set type: "purchase", category: "Other".
+
+4. PHOTOS OF PHYSICAL PRODUCTS / SUPPLIES:
    - Identify each distinct bakery item visible (e.g. "Flour", "Margarine", "Eggs", "Cake Box").
    - Count or estimate the quantity visible (e.g. number of bags/boxes visible, or default to 1).
    - Set unit_price: 0 and line_total: 0 so the baker can confirm the cost paid.
    - Match against the inventory list if possible.
 
 Classification:
-- "purchase": Baking ingredients, packaging materials, or supplies (flour, sugar, butter, eggs, oil, cocoa, milk, food colour, cake boards, boxes, ribbons, decorations, etc.).
-- "expense": Overhead costs (delivery/transport fee, electricity, diesel/fuel, salary, cleaning, maintenance, market levy, etc.).
+- ALWAYS extract every item with type: "purchase". All scanned lines default strictly to "Link to Inventory".
+- NEVER classify items as "expense" or "Miscellaneous"; linking to expense is done manually by the user if needed.
 
 Receipt Date Instruction:
 - In Nigeria, dates are written as Day/Month/Year (DD/MM/YYYY).
@@ -316,7 +694,7 @@ Return ONLY valid JSON with this exact structure, no preamble:
             { type: "text", text: promptText }
           ]
         }
-      ], "You are an expert vision AI for Nigerian bakery operations. Extract all purchased items, ingredients, supplies, or expenses from any receipt, handwritten slip, payment screenshot, or photo of physical stock. Always return valid JSON only.", 4000)
+      ], "You are an expert vision AI for Nigerian bakery operations. Extract all purchased items, ingredients, supplies, or expenses from any receipt, handwritten slip, payment screenshot, or photo of physical stock. Always return valid JSON only.", 4000, { creditCost: 2, feature: "receipt_scanner" })
 
       const result = extractAndRepairJson(raw)
       const rawItems = result && (
@@ -334,23 +712,34 @@ Return ONLY valid JSON with this exact structure, no preamble:
           receipt_date: formatDateDMY(result?.receipt_date) || todayDMY(),
           scan_notes: notes,
           items: [
-            { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
+            { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", category: "Other", approved: true, confidence: "high" }
           ]
         })
         setTotalAmount("")
       } else {
         const normalizedItems = rawItems.map(normalizeItem)
-        // Auto-match items against aliases and inventory if matched_id is empty
+        // Auto-match items against inventory using intelligent matching
         const matchedItems = normalizedItems.map(item => {
-          if (!item.overrideId && item.type === "purchase") {
-            const key = (item.item_on_receipt || "").trim().toLowerCase()
-            if (aliases[key] && inventory.some(i => i.id === aliases[key])) {
-              return { ...item, overrideId: aliases[key] }
-            }
-            const directMatch = inventory.find(i => i.name.toLowerCase() === key) ||
-              inventory.find(i => key.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(key))
-            if (directMatch) {
-              return { ...item, overrideId: directMatch.id }
+          if (item.type === "purchase") {
+            const hasValidOverride = item.overrideId && inventory.some(i => i.id === item.overrideId)
+            if (!hasValidOverride) {
+              const matchedId = matchItemToInventory(item.item_on_receipt, inventory, aliases)
+              if (matchedId) {
+                const invItem = inventory.find(i => i.id === matchedId)
+                return {
+                  ...item,
+                  overrideId: matchedId,
+                  approved: true,
+                  unit: invItem?.unit ? invItem.unit : item.unit
+                }
+              } else {
+                return { ...item, overrideId: "" }
+              }
+            } else if (hasValidOverride) {
+              const invItem = inventory.find(i => i.id === item.overrideId)
+              if (invItem?.unit) {
+                return { ...item, unit: invItem.unit }
+              }
             }
           }
           return item
@@ -377,7 +766,7 @@ Return ONLY valid JSON with this exact structure, no preamble:
       supplier: "",
       receipt_date: todayDMY(),
       items: [
-        { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
+        { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", category: "Other", approved: true, confidence: "high" }
       ]
     })
     setTotalAmount("")
@@ -400,18 +789,41 @@ Return ONLY valid JSON with this exact structure, no preamble:
         if (field === "type") {
           if (val === "expense") {
             updatedRow.overrideId = ""
-            updatedRow.category = "Miscellaneous"
+            updatedRow.category = updatedRow.category && updatedRow.category !== "Other" ? updatedRow.category : "Utilities"
           } else {
-            updatedRow.category = ""
+            updatedRow.category = "Other"
+            // When selecting "Link to Inventory", automatically match item to inventory
+            const matchedId = matchItemToInventory(updatedRow.item_on_receipt, inventory, aliases)
+            if (matchedId) {
+              updatedRow.overrideId = matchedId
+              updatedRow.approved = true
+              const invItem = inventory.find(item => item.id === matchedId)
+              if (invItem?.unit) {
+                updatedRow.unit = invItem.unit
+              }
+            } else {
+              updatedRow.overrideId = ""
+            }
           }
         }
 
         if (field === "item_on_receipt") {
-          const key = (val || "").trim().toLowerCase()
-          const matchedId = aliases[key]
-          const isValidIng = matchedId && inventory.some(item => item.id === matchedId)
-          if (isValidIng) {
-            updatedRow.overrideId = matchedId
+          const detected = detectUnitAndSize(val, r.unit, r.unit_size)
+          if (detected.unit && (!r.unit || r.unit === "Other" || r.unit === "unit" || r.unit === "pack" || ["kg", "g", "l", "ml", "cl", "pcs", "crate"].includes(detected.unit))) {
+            updatedRow.unit = detected.unit
+            if (detected.unit_size > 1 && (!r.unit_size || r.unit_size === 1)) {
+              updatedRow.unit_size = detected.unit_size
+            }
+          }
+          if (updatedRow.type === "purchase") {
+            const matchedId = matchItemToInventory(val, inventory, aliases)
+            updatedRow.overrideId = matchedId || ""
+            if (matchedId) {
+              const invItem = inventory.find(item => item.id === matchedId)
+              if (invItem?.unit) {
+                updatedRow.unit = invItem.unit
+              }
+            }
           }
         }
 
@@ -426,12 +838,35 @@ Return ONLY valid JSON with this exact structure, no preamble:
     }))
   }
 
+  // 1-click batch link all items to inventory
+  const linkAllToInventory = () => {
+    setParsed(p => {
+      if (!p || !p.items) return p
+      return {
+        ...p,
+        items: p.items.map(item => {
+          const matchedId = matchItemToInventory(item.item_on_receipt, inventory, aliases)
+          const targetId = matchedId || item.overrideId
+          const invItem = inventory.find(i => i.id === targetId)
+          return {
+            ...item,
+            type: "purchase",
+            category: item.category && item.category !== "Miscellaneous" ? item.category : "Other",
+            overrideId: targetId || "",
+            unit: invItem?.unit ? invItem.unit : item.unit,
+            approved: matchedId ? true : item.approved
+          }
+        })
+      }
+    })
+  }
+
   const addBlankRow = () => {
     setParsed(p => ({
       ...p,
       items: [
         ...p.items,
-        { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", approved: true, confidence: "high" }
+        { item_on_receipt: "", qty: 1, unit: "kg", unit_size: 1, unit_price: 0, line_total: 0, type: "purchase", overrideId: "", category: "Other", approved: true, confidence: "high" }
       ]
     }))
   }
@@ -453,7 +888,13 @@ Return ONLY valid JSON with this exact structure, no preamble:
         if (key && id) {
           setAliases(prev => ({ ...prev, [key]: id }))
         }
-        return { ...r, overrideId: id, approved: true }
+        const invItem = inventory.find(item => item.id === id)
+        return {
+          ...r,
+          overrideId: id,
+          approved: true,
+          unit: invItem?.unit ? invItem.unit : r.unit
+        }
       })
     }))
   }
@@ -465,8 +906,8 @@ Return ONLY valid JSON with this exact structure, no preamble:
       const receiptDate = normalizeToIsoDate(parsed.receipt_date)
       const monthStr = receiptDate.slice(0, 7)
       const approved = parsed.items.filter(r => r.approved)
-      // Both explicit stock purchases and items categorized as ingredients belong in Purchases
-      const purchases = approved.filter(r => r.type === "purchase" || r.category === "Ingredients / Supplies" || r.category === "Ingredients")
+      // Only rows where the user explicitly selected "expense" are expenses; everything else belongs to Purchases
+      const purchases = approved.filter(r => r.type !== "expense")
 
       // Update inventory: stock + cost/unit for purchases
       let updInv = [...inventory]
@@ -479,14 +920,16 @@ Return ONLY valid JSON with this exact structure, no preamble:
         const stockAdded = parseFloat((unitSize * (+r.qty || 1)).toFixed(3))
         const itemName = (r.item_on_receipt || "").trim() || (invItem ? invItem.name : (parsed.supplier ? `${parsed.supplier} Item` : "Ingredient"))
 
-        // If item not yet in inventory, auto-create it so it's not lost
+        // If item not yet in inventory, auto-create it under "Other" category
         if (!invItem && itemName) {
+          const detected = detectUnitAndSize(itemName, r.unit, unitSize)
+          const effUnit = r.unit || detected.unit || "kg"
           const newId = uid()
           invItem = {
             id: newId,
             name: itemName,
-            cat: r.category || "Dry Goods",
-            unit: r.unit || "kg",
+            cat: r.category && r.category !== "Miscellaneous" ? r.category : "Other",
+            unit: effUnit,
             cost: cpu || 0,
             stock: stockAdded,
             minStock: 5
@@ -504,7 +947,7 @@ Return ONLY valid JSON with this exact structure, no preamble:
           supplier: parsed.supplier || "Market Run",
           itemId: invItem ? invItem.id : null,
           item: invItem ? invItem.name : itemName,
-          category: invItem?.cat || r.category || "Ingredients / Supplies",
+          category: invItem?.cat || (r.category && r.category !== "Miscellaneous" ? r.category : "Other"),
           unit: invItem?.unit || r.unit || "kg",
           unitSize,
           qty: +r.qty || 1,
@@ -545,16 +988,13 @@ Return ONLY valid JSON with this exact structure, no preamble:
       if (amt > 0) {
         const categoriesMap = {}
         approved.forEach(r => {
-          let cat = "Miscellaneous"
+          let cat = "Other"
           let source = "receipt"
           if (r.type === "purchase") {
             cat = "Ingredients / Supplies"
             source = "purchase"
           } else {
             cat = r.category || "Miscellaneous"
-            if (cat === "Ingredients" || cat === "Ingredients/Supplies") {
-              cat = "Ingredients / Supplies"
-            }
             source = "receipt"
           }
           const key = `${cat}::${source}`
@@ -607,14 +1047,16 @@ Return ONLY valid JSON with this exact structure, no preamble:
   // Prefill and open new item modal
   const openNewItemModal = (idx) => {
     const row = parsed.items[idx]
-    const unitSize = Number(row.unit_size) || 1
+    const detected = detectUnitAndSize(row.item_on_receipt, row.unit, row.unit_size)
+    const effUnit = row.unit || detected.unit || "kg"
+    const unitSize = Number(row.unit_size) || detected.unit_size || 1
     const costPerUnit = Number(row.unit_price) ? parseFloat((Number(row.unit_price) / unitSize).toFixed(2)) : ""
     const stockQty = parseFloat((unitSize * (Number(row.qty) || 1)).toFixed(3))
 
     setNewFields({
       name: row.item_on_receipt || "",
-      cat: "Dry Goods",
-      unit: row.unit || "kg",
+      cat: row.category && row.category !== "Miscellaneous" ? row.category : "Other",
+      unit: effUnit,
       cost: String(costPerUnit),
       stock: String(stockQty),
       minStock: "5",
@@ -652,7 +1094,7 @@ Return ONLY valid JSON with this exact structure, no preamble:
       unit: newFields.unit || "kg",
       cost: cost,
       stock: Number(newFields.stock || 0),
-      minStock: Number(newFields.minStock || 5)
+      minStock: newFields.minStock !== "" && !isNaN(Number(newFields.minStock)) ? Number(newFields.minStock) : 5
     }
 
     const updatedInv = [...inventory, newItemObj]
@@ -768,27 +1210,28 @@ Return ONLY valid JSON with this exact structure, no preamble:
           {photo && !parsed && !saved && (
             <>
               <Btn full onClick={scan} disabled={loading} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                {loading ? "AI is reading the receipt…" : <><Sparkles size={14} /> Scan & Extract Items <span style={{ fontSize: 11, opacity: 0.85, fontWeight: 500 }}>(0.7 tokens)</span></>}
+                {loading ? "AI is reading the receipt…" : <><Sparkles size={14} /> Scan & Extract Items <span style={{ fontSize: 11, opacity: 0.85, fontWeight: 500 }}>(2 credits)</span></>}
               </Btn>
               {loading && <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 8 }}>This may take 15-30 seconds…</div>}
               {error && (
-                <div style={{ marginTop: 10, padding: "8px 12px", background: error.toLowerCase().includes("token") ? "#FFF4E5" : "#FDEBE9", border: error.toLowerCase().includes("token") ? "1px solid #FFE0B2" : "1px solid #FCDAD7", borderRadius: 8, fontSize: 12.5, color: error.toLowerCase().includes("token") ? "#92400E" : "#B03A2E", lineHeight: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ marginTop: 10, padding: "8px 12px", background: (error.toLowerCase().includes("token") || error.toLowerCase().includes("credit")) ? "#FFF4E5" : "#FDEBE9", border: (error.toLowerCase().includes("token") || error.toLowerCase().includes("credit")) ? "1px solid #FFE0B2" : "1px solid #FCDAD7", borderRadius: 8, fontSize: 12.5, color: (error.toLowerCase().includes("token") || error.toLowerCase().includes("credit")) ? "#92400E" : "#B03A2E", lineHeight: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <AlertTriangle size={14} color={error.toLowerCase().includes("token") ? "#D97706" : "#B03A2E"} style={{ flexShrink: 0 }} />
+                    <AlertTriangle size={14} color={(error.toLowerCase().includes("token") || error.toLowerCase().includes("credit")) ? "#D97706" : "#B03A2E"} style={{ flexShrink: 0 }} />
                     <span>{error}</span>
                   </div>
-                  {error.toLowerCase().includes("token") && (
+                  {(error.toLowerCase().includes("token") || error.toLowerCase().includes("credit")) && (
                     <button
                       type="button"
                       onClick={() => {
                         if (typeof window !== "undefined") {
-                          window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
-                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                          window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-credits", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
                         }
                       }}
                       style={{ background: "var(--gold)", color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
                     >
-                      Buy Tokens
+                      Buy Credits
                     </button>
                   )}
                 </div>
@@ -845,6 +1288,9 @@ Return ONLY valid JSON with this exact structure, no preamble:
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 600 }}>Review & Match Items</div>
               <div style={{ display: "flex", gap: 8 }}>
+                <Btn small variant="outline" onClick={linkAllToInventory} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <Sparkles size={13} color="var(--gold)" /> Link to Inventory
+                </Btn>
                 <Btn small variant="ghost" onClick={addBlankRow}>+ Add Row</Btn>
               </div>
             </div>
@@ -928,11 +1374,11 @@ Return ONLY valid JSON with this exact structure, no preamble:
                       </div>
                       <div>
                         <label style={{ fontSize: 9.5, color: "var(--muted)" }}>Unit</label>
-                        <input value={r.unit || ""} onChange={e => updateRow(idx, "unit", e.target.value)} style={{ ...iSt, padding: "4px 6px", fontSize: 12 }} />
+                        <input placeholder="Unit (kg, g, L...)" value={r.unit || ""} onChange={e => updateRow(idx, "unit", e.target.value)} style={{ ...iSt, padding: "4px 6px", fontSize: 12 }} />
                       </div>
                       <div>
                         <label style={{ fontSize: 9.5, color: "var(--muted)" }}>Pack/Unit size</label>
-                        <input type="number" value={r.unit_size || ""} onChange={e => updateRow(idx, "unit_size", e.target.value)} style={{ ...iSt, padding: "4px 6px", fontSize: 12 }} />
+                        <input placeholder="Pack size" type="number" value={r.unit_size || ""} onChange={e => updateRow(idx, "unit_size", e.target.value)} style={{ ...iSt, padding: "4px 6px", fontSize: 12 }} />
                       </div>
                       <div>
                         <label style={{ fontSize: 9.5, color: "var(--muted)" }}>Cost (₦)</label>
@@ -956,19 +1402,32 @@ Return ONLY valid JSON with this exact structure, no preamble:
 
                       {/* Render based on selection */}
                       {r.type === "purchase" ? (
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1 }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1, minWidth: 200, flexWrap: "wrap" }}>
                           <select
                             value={r.overrideId || ""}
                             onChange={e => setMatch(idx, e.target.value)}
-                            style={{ ...iSt, fontSize: 12, padding: "5px 8px", flex: 1 }}
+                            style={{
+                              ...iSt,
+                              fontSize: 12,
+                              padding: "5px 8px",
+                              flex: 1,
+                              minWidth: 160,
+                              borderColor: r.overrideId ? "#357A52" : "var(--border)",
+                              background: r.overrideId ? "#F0FDF4" : "var(--bg)",
+                              color: r.overrideId ? "#166534" : "var(--text)"
+                            }}
                           >
-                            <option value="">— Link to ingredient —</option>
+                            <option value="">New Item (Category: Other)</option>
                             {inventory.map(i => (
                               <option key={i.id} value={i.id}>{i.name} ({i.unit}) | stock: {i.stock}</option>
                             ))}
                           </select>
-                          {!r.overrideId && (
+                          {!r.overrideId ? (
                             <Btn small variant="outline" onClick={() => openNewItemModal(idx)}>+ Add As New</Btn>
+                          ) : (
+                            <span style={{ fontSize: 11, color: "#166534", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                              <Check size={12} /> Linked
+                            </span>
                           )}
                         </div>
                       ) : (
@@ -1071,8 +1530,8 @@ Return ONLY valid JSON with this exact structure, no preamble:
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <Inp label="Starting Inventory Qty" type="number" value={newFields.stock} onChange={v => setNewFields({ ...newFields, stock: v })} />
-              <Inp label="Min Stock Level Alert" type="number" value={newFields.minStock} onChange={v => setNewFields({ ...newFields, minStock: v })} />
+              <Inp label="Starting Inventory Qty" type="number" step="any" min="0" value={newFields.stock} onChange={v => setNewFields({ ...newFields, stock: v })} />
+              <Inp label="Min Stock Level Alert" type="number" step="any" min="0" value={newFields.minStock} onChange={v => setNewFields({ ...newFields, minStock: v })} placeholder="e.g. 0.5" />
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
               <Btn variant="success" onClick={saveNewItemFromReceipt} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>

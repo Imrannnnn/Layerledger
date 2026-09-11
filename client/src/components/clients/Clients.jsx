@@ -8,7 +8,8 @@ import {
   createClientOnServer,
   updateClientOnServer
 } from "../../lib/data.js"
-import { Users, Search, MessageCircle, MapPin, Calculator, Pencil, Trash2, AlertTriangle, Plus, Cake, Heart, CalendarHeart } from "lucide-react"
+import { Users, Search, MessageCircle, MapPin, Calculator, Pencil, Trash2, AlertTriangle, Plus, Cake, Heart, CalendarHeart, Download } from "lucide-react"
+import { exportClientsPDF } from "../../lib/pdfReportGenerator.js"
 import { MONTHS, SPECIAL_DATE_TYPES, parseSpecialDate, formatSpecialDate } from "../../lib/helpers.js"
 
 export function Clients({ setView, company = {} }) {
@@ -273,7 +274,14 @@ export function Clients({ setView, company = {} }) {
               }}
             />
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <Btn
+              variant="outline"
+              onClick={() => exportClientsPDF(clients, company)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <Download size={14} /> Download PDF ({clients.length})
+            </Btn>
             <Btn onClick={openAddModal}><Plus size={14} /> Add Client</Btn>
           </div>
         </div>

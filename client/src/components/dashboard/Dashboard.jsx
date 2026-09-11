@@ -97,8 +97,7 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
   // 5. Smart Notifications / Action Triggers
   const notifications = []
   
-  // - Low stock alert
-  const lowStockItems = inventory.filter(i => i.stock <= (i.minStock || 5))
+  const lowStockItems = inventory.filter(i => (Number(i.stock) || 0) <= (i.minStock !== undefined && i.minStock !== null && i.minStock !== "" && !isNaN(Number(i.minStock)) ? Number(i.minStock) : 5))
   if (lowStockItems.length > 0) {
     notifications.push({
       id: "low_stock",

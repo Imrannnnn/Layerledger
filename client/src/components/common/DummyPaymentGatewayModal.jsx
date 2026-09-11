@@ -32,7 +32,7 @@ export function DummyPaymentGatewayModal({
       try {
         const res = await purchaseTokens(
           tokens,
-          `Token Purchase (${channel}): ${packageName} (+${tokens} tokens) [Ref: ${ref}]`
+          `Credit Purchase (${channel}): ${packageName} (+${tokens} credits) [Ref: ${ref}]`
         )
         setProcessing(false)
         setIsSuccess(true)
@@ -108,7 +108,7 @@ export function DummyPaymentGatewayModal({
               Payment Successful!
             </div>
             <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
-              {tokens} Tokens credited to your account.
+              {tokens} Credits added to your account.
             </div>
             <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "monospace" }}>
               Ref: {reference}
@@ -230,7 +230,7 @@ export function DummyPaymentGatewayModal({
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 12, color: "var(--muted)" }}>Account Name:</span>
-                  <strong style={{ fontSize: 12.5 }}>BakeWealth / Paystack Sandbox</strong>
+                  <strong style={{ fontSize: 12.5 }}>LayerLedger / Paystack Sandbox</strong>
                 </div>
               </div>
             )}

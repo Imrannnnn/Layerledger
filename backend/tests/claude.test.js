@@ -43,21 +43,36 @@ describe('Claude Controller Unit Tests', () => {
         expect(next.mock.calls[0][0].message).toMatch(/Messages array is required/);
     });
 
-    test('should return 402 with INSUFFICIENT_TOKENS if tenant balance is less than 0.7', async () => {
-        prisma.tenant.findUnique.mockResolvedValue({ tokenBalance: 0.5 });
+    test('should return 402 with INSUFFICIENT_CREDITS if tenant balance is less than required credits (default 2)', async () => {
+        prisma.tenant.findUnique.mockResolvedValue({ tokenBalance: 1.5 });
         const next = jest.fn();
 
         await handleClaudeProxy(req, res, next);
 
         expect(res.status).toHaveBeenCalledWith(402);
         expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-            code: 'INSUFFICIENT_TOKENS',
-            requiredTokens: 0.7,
-            currentBalance: 0.5
+            code: 'INSUFFICIENT_CREDITS',
+            requiredCredits: 2,
+            currentBalance: 1.5
         }));
     });
 
-    test('should return 402 with INSUFFICIENT_TOKENS if tenant balance is 0', async () => {
+    test('should return 402 with requiredCredits: 5 when feature is bank_statement', async () => {
+        req.body.feature = 'bank_statement';
+        prisma.tenant.findUnique.mockResolvedValue({ tokenBalance: 3.0 });
+        const next = jest.fn();
+
+        await handleClaudeProxy(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(402);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'INSUFFICIENT_CREDITS',
+            requiredCredits: 5,
+            currentBalance: 3.0
+        }));
+    });
+
+    test('should return 402 if tenant balance is 0', async () => {
         prisma.tenant.findUnique.mockResolvedValue({ tokenBalance: 0 });
         const next = jest.fn();
 
@@ -65,13 +80,13 @@ describe('Claude Controller Unit Tests', () => {
 
         expect(res.status).toHaveBeenCalledWith(402);
         expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-            code: 'INSUFFICIENT_TOKENS',
-            requiredTokens: 0.7,
+            code: 'INSUFFICIENT_CREDITS',
+            requiredCredits: 2,
             currentBalance: 0
         }));
     });
 
-    test('should proceed past token check when tenant balance is >= 0.7', async () => {
+    test('should proceed past credit check when tenant balance is >= cost', async () => {
         prisma.tenant.findUnique.mockResolvedValue({ tokenBalance: 5.0 });
         const next = jest.fn();
 

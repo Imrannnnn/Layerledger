@@ -67,7 +67,7 @@ Rules:
 Statement text:
 ${text.slice(0, 8000)}`
         }
-      ], "You extract bank transactions from Nigerian bank statements. Return ONLY a valid JSON array, nothing else.")
+      ], "You extract bank transactions from Nigerian bank statements. Return ONLY a valid JSON array, nothing else.", 4000, { creditCost: 5, feature: "bank_statement" })
 
       const jsonMatch = raw.match(/\[[\s\S]*\]/)
       if (!jsonMatch) throw new Error("Could not find transaction data in response. Try pasting more of the statement.")
@@ -116,7 +116,7 @@ Ignore stamp duty and VAT lines under ₦500.`
                 }
               ]
             }
-          ], "You extract bank transactions from Nigerian bank statements. Return only a valid JSON array.")
+          ], "You extract bank transactions from Nigerian bank statements. Return only a valid JSON array.", 4000, { creditCost: 5, feature: "bank_statement" })
           
           const cleanedText = raw.replace(/```json|```/g, "").trim()
           const result = JSON.parse(cleanedText)
@@ -263,30 +263,31 @@ Ignore stamp duty and VAT lines under ₦500.`
                 style={{ width: "100%", minHeight: 180, padding: "12px", borderRadius: 8, border: "1px solid var(--border)", background: "#FAF7F0", fontSize: 13, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }}
               />
               {error && (
-                <div style={{ color: error.toLowerCase().includes("token") ? "#92400E" : "#B03A2E", background: error.toLowerCase().includes("token") ? "#FFF4E5" : "transparent", padding: error.toLowerCase().includes("token") ? "8px 12px" : 0, borderRadius: 8, fontSize: 12.5, marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ color: (error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "#92400E" : "#B03A2E", background: (error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "#FFF4E5" : "transparent", padding: (error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "8px 12px" : 0, borderRadius: 8, fontSize: 12.5, marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                    <AlertTriangle size={13} color={error.toLowerCase().includes("token") ? "#D97706" : "#B03A2E"} />
+                    <AlertTriangle size={13} color={(error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "#D97706" : "#B03A2E"} />
                     <span>{error}</span>
                   </div>
-                  {error.toLowerCase().includes("token") && (
+                  {(error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) && (
                     <button
                       type="button"
                       onClick={() => {
                         if (typeof window !== "undefined") {
-                          window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
-                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                          window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
+                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
+                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-credits", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
                         }
                       }}
                       style={{ background: "var(--gold)", color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
                     >
-                      Buy Tokens
+                      Buy Credits
                     </button>
                   )}
                 </div>
               )}
               <div style={{ marginTop: 10 }}>
                 <Btn onClick={() => parseFromText(input)} disabled={loading || !input.trim()} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  {loading ? "Parsing…" : <><Sparkles size={13} /> Parse Statement <span style={{ fontSize: 10.5, opacity: 0.85 }}>(0.7 tokens)</span></>}
+                  {loading ? "Parsing…" : <><Sparkles size={13} /> Parse Statement <span style={{ fontSize: 10.5, opacity: 0.85 }}>(5 credits)</span></>}
                 </Btn>
               </div>
             </>
@@ -298,14 +299,36 @@ Ignore stamp duty and VAT lines under ₦500.`
                   <FileText size={36} />
                 </div>
                 <div style={{ fontSize: 14, color: "var(--muted)" }}>Click to upload</div>
-                <div style={{ fontSize: 12, color: "#C8B89A", marginTop: 4 }}>PDF or CSV bank statement</div>
+                <div style={{ fontSize: 12, color: "#C8B89A", marginTop: 4 }}>PDF or CSV bank statement (5 credits)</div>
                 <div style={{ fontSize: 11.5, color: "var(--gold)", marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
                   <Check size={12} /> GTBank PDF statements supported
                 </div>
               </div>
               <input ref={fileRef} type="file" accept=".pdf,.csv,.txt" onChange={handleFile} style={{ display: "none" }} />
               {loading && <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13 }}>AI is reading your statement… This may take 30-60 seconds for long statements.</div>}
-              {error && <div style={{ color: "#B03A2E", fontSize: 12.5, marginTop: 8, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> {error}</div>}
+              {error && (
+                <div style={{ color: (error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "#92400E" : "#B03A2E", background: (error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "#FFF4E5" : "transparent", padding: (error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "8px 12px" : 0, borderRadius: 8, fontSize: 12.5, marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <AlertTriangle size={13} color={(error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "#D97706" : "#B03A2E"} />
+                    <span>{error}</span>
+                  </div>
+                  {(error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof window !== "undefined") {
+                          window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
+                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
+                          window.dispatchEvent(new CustomEvent("layerledger:insufficient-credits", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
+                        }
+                      }}
+                      style={{ background: "var(--gold)", color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      Buy Credits
+                    </button>
+                  )}
+                </div>
+              )}
             </>
           )}
         </Card>

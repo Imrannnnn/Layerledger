@@ -102,14 +102,14 @@ export function normalizeToIsoDate(inputDate) {
   if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
 
   // DD/MM/YYYY or DD-MM-YYYY or D/M/YYYY
-  const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  const dmyMatch = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/)
   if (dmyMatch) {
     const [, d, m, y] = dmyMatch
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
   }
 
   // YYYY/MM/DD or YYYY-MM-DD
-  const ymdMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)
+  const ymdMatch = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
   if (ymdMatch) {
     const [, y, m, d] = ymdMatch
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
@@ -124,7 +124,9 @@ export function normalizeToIsoDate(inputDate) {
       const day = String(d.getDate()).padStart(2, "0")
       return `${y}-${m}-${day}`
     }
-  } catch {}
+  } catch {
+    // ignore parse errors
+  }
 
   return today()
 }
@@ -136,7 +138,7 @@ export function formatDateDMY(inputDate) {
     const trimmed = inputDate.trim()
     if (!trimmed) return ""
     // Already DD/MM/YYYY or DD-MM-YYYY
-    const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+    const dmyMatch = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/)
     if (dmyMatch) {
       const [, d, m, y] = dmyMatch
       return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`
@@ -161,7 +163,9 @@ export function formatDateDMY(inputDate) {
         const year = d.getFullYear()
         return `${day}/${month}/${year}`
       }
-    } catch {}
+    } catch {
+      // ignore parse errors
+    }
     return trimmed
   }
   if (inputDate instanceof Date && !isNaN(inputDate.getTime())) {
@@ -208,19 +212,24 @@ export const calcFullCost = (recipe, inv, flavors, decorationIds, accessoryPct, 
 
 
 
-export async function callClaude(messages, system = "", maxTokens = 4000) {
+export async function callClaude(messages, system = "", maxTokens = 4000, options = {}) {
+  const creditCost = typeof options === "number" ? options : (Number(options?.creditCost) || (options?.feature === "bank_statement" ? 5 : 2))
+  const feature = typeof options === "object" ? options?.feature : undefined
+
   const tenantInfo = typeof loadLocal === "function" ? loadLocal("ll_tenant_info", null) : null
-  if (tenantInfo && typeof tenantInfo.tokenBalance === "number" && tenantInfo.tokenBalance < 0.7) {
+  if (tenantInfo && typeof tenantInfo.tokenBalance === "number" && tenantInfo.tokenBalance < creditCost) {
     if (typeof window !== "undefined") {
       const detail = {
         currentBalance: tenantInfo.tokenBalance,
-        requiredTokens: 0.7,
-        message: `You need at least 0.7 tokens to use this AI feature. You currently have ${tenantInfo.tokenBalance.toFixed(1)} tokens. Please buy tokens to continue.`
+        requiredTokens: creditCost,
+        requiredCredits: creditCost,
+        message: `You need at least ${creditCost} credits to use this AI feature. You currently have ${tenantInfo.tokenBalance.toFixed(1)} credits. Please buy credits to continue.`
       }
       window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail }))
       window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail }))
+      window.dispatchEvent(new CustomEvent("layerledger:insufficient-credits", { detail }))
     }
-    throw new Error(`Insufficient tokens: You have ${tenantInfo.tokenBalance.toFixed(1)} tokens remaining. Each AI feature requires 0.7 tokens. Please buy tokens to continue.`)
+    throw new Error(`Insufficient credits: You have ${tenantInfo.tokenBalance.toFixed(1)} credits remaining. Each AI feature requires ${creditCost} credits. Please buy credits to continue.`)
   }
 
   const headers = getAuthHeaders() || {}
@@ -239,7 +248,9 @@ export async function callClaude(messages, system = "", maxTokens = 4000) {
         model: "claude-sonnet-5",
         max_tokens: maxTokens || 4000,
         system,
-        messages
+        messages,
+        creditCost,
+        feature
       })
     })
   } catch (netErr) {
@@ -258,25 +269,28 @@ export async function callClaude(messages, system = "", maxTokens = 4000) {
           errMsg = `Anthropic API error: Model not found (${errMsg}). This usually means your Anthropic account has no credits/funds left or billing is inactive. Please fund your account in the Anthropic Console.`
         }
       }
-    } catch (e) {
+    } catch {
       // Ignore JSON parse errors and fallback to status checks
     }
 
-    if (res.status === 402 || errJson?.code === "INSUFFICIENT_TOKENS" || (errMsg && errMsg.toLowerCase().includes("insufficient token"))) {
+    if (res.status === 402 || errJson?.code === "INSUFFICIENT_CREDITS" || errJson?.code === "INSUFFICIENT_TOKENS" || (errMsg && (errMsg.toLowerCase().includes("insufficient token") || errMsg.toLowerCase().includes("insufficient credit")))) {
       const balance = errJson?.currentBalance ?? tenantInfo?.tokenBalance ?? 0
+      const required = errJson?.requiredCredits ?? errJson?.requiredTokens ?? creditCost
       if (tenantInfo && typeof saveLocal === "function") {
         saveLocal("ll_tenant_info", { ...tenantInfo, tokenBalance: balance })
       }
       if (typeof window !== "undefined") {
         const detail = {
           currentBalance: balance,
-          requiredTokens: 0.7,
-          message: errMsg || `You need at least 0.7 tokens to use this AI feature. Please buy tokens to continue.`
+          requiredTokens: required,
+          requiredCredits: required,
+          message: errMsg || `You need at least ${required} credits to use this AI feature. Please buy credits to continue.`
         }
         window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail }))
         window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail }))
+        window.dispatchEvent(new CustomEvent("layerledger:insufficient-credits", { detail }))
       }
-      throw new Error(errMsg || "Insufficient tokens. Please buy tokens to continue.")
+      throw new Error(errMsg || "Insufficient credits. Please buy credits to continue.")
     }
 
     if (errMsg) {
@@ -297,14 +311,14 @@ export async function callClaude(messages, system = "", maxTokens = 4000) {
   let data
   try {
     data = JSON.parse(text)
-  } catch (e) {
+  } catch {
     throw new Error("Invalid API response: " + text.slice(0, 200))
   }
   if (data.error) {
     throw new Error("API error: " + (data.error.message || JSON.stringify(data.error)))
   }
 
-  // Real-time token balance update on successful deduction
+  // Real-time credit balance update on successful deduction
   if (data.tokenUsage && typeof data.tokenUsage.newBalance === "number") {
     const curTenant = (typeof loadLocal === "function" ? loadLocal("ll_tenant_info", null) : null) || {}
     curTenant.tokenBalance = data.tokenUsage.newBalance
@@ -312,12 +326,15 @@ export async function callClaude(messages, system = "", maxTokens = 4000) {
       saveLocal("ll_tenant_info", curTenant)
     }
     if (typeof window !== "undefined") {
+      const deducted = data.tokenUsage.creditsDeducted ?? data.tokenUsage.tokensDeducted ?? creditCost
       const detail = {
         tokenBalance: data.tokenUsage.newBalance,
-        tokensDeducted: data.tokenUsage.tokensDeducted || 0.7
+        creditsDeducted: deducted,
+        tokensDeducted: deducted
       }
       window.dispatchEvent(new CustomEvent("bakewealth:token-updated", { detail }))
       window.dispatchEvent(new CustomEvent("layerledger:token-updated", { detail }))
+      window.dispatchEvent(new CustomEvent("layerledger:credit-updated", { detail }))
     }
   }
 

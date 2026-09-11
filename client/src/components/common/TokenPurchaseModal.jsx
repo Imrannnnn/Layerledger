@@ -7,27 +7,30 @@ const TOKEN_PACKS = [
   {
     id: "starter",
     name: "Starter Pack",
-    tokens: 10,
-    scans: 14,
+    tokens: 5,
+    credits: 5,
+    scans: 2,
     price: "₦1,000",
-    description: "Ideal for light usage & occasional receipt scanning.",
+    description: "Ideal for light usage & receipt scanning.",
     popular: false
   },
   {
     id: "pro",
     name: "Baker Pro Pack",
-    tokens: 50,
-    scans: 71,
-    price: "₦4,500",
+    tokens: 12.5,
+    credits: 12.5,
+    scans: 6,
+    price: "₦2,500",
     description: "Best value for busy bakeries with regular orders & expenses.",
     popular: true
   },
   {
     id: "commercial",
     name: "Commercial Bakery Pack",
-    tokens: 100,
-    scans: 142,
-    price: "₦8,000",
+    tokens: 25,
+    credits: 25,
+    scans: 12,
+    price: "₦5,000",
     description: "Maximum savings for high-volume bakeries & teams.",
     popular: false
   }
@@ -38,7 +41,8 @@ export function TokenPurchaseModal({
   onClose,
   currentBalance = 0,
   isInsufficient = false,
-  requiredTokens = 0.7,
+  requiredTokens = 2,
+  requiredCredits,
   company = {},
   onOpenSettings
 }) {
@@ -47,13 +51,14 @@ export function TokenPurchaseModal({
 
   if (!isOpen) return null
 
+  const effectiveRequired = requiredCredits !== undefined ? requiredCredits : requiredTokens
   const chosenPack = TOKEN_PACKS.find(p => p.id === selectedPack) || TOKEN_PACKS[1]
 
   const handleWhatsAppBuy = () => {
     const adminPhone = company.phone || "2348000000000"
     const cleanPhone = adminPhone.replace(/[^0-9]/g, "").replace(/^0/, "234")
     const text = encodeURIComponent(
-      `Hello! I would like to purchase the ${chosenPack.name} (${chosenPack.tokens} AI Tokens for ${chosenPack.price}) for my bakery account: "${company.name || "My Bakery"}". Current balance: ${Number(currentBalance).toFixed(1)} tokens.`
+      `Hello! I would like to purchase the ${chosenPack.name} (${chosenPack.tokens} AI Credits for ${chosenPack.price}) for my bakery account: "${company.name || "My Bakery"}". Current balance: ${Number(currentBalance).toFixed(1)} credits.`
     )
     window.open(`https://wa.me/${cleanPhone}?text=${text}`, "_blank")
   }
@@ -84,15 +89,15 @@ export function TokenPurchaseModal({
           </div>
           <div>
             <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
-              AI Feature Tokens
+              AI Feature Credits
             </div>
             <div style={{ fontSize: 12, color: "var(--muted)" }}>
-              Smart receipt scanning, price list readers, and recipe AI
+              Smart receipt scanning, bank statements, and recipe AI
             </div>
           </div>
         </div>
 
-        {/* Insufficient Tokens Warning Banner */}
+        {/* Insufficient Credits Warning Banner */}
         {isInsufficient ? (
           <div
             style={{
@@ -108,7 +113,7 @@ export function TokenPurchaseModal({
           >
             <AlertTriangle size={18} color="#D97706" style={{ flexShrink: 0, marginTop: 2 }} />
             <div style={{ fontSize: 12, color: "#92400E", lineHeight: 1.4 }}>
-              <strong>Insufficient Token Balance:</strong> You need at least <strong>{requiredTokens} tokens</strong> to use this AI feature. Your current balance is <strong>{Number(currentBalance).toFixed(1)} tokens</strong>. Please top up to continue.
+              <strong>Insufficient Credit Balance:</strong> You need at least <strong>{effectiveRequired} credits</strong> to use this AI feature. Your current balance is <strong>{Number(currentBalance).toFixed(1)} credits</strong>. Please top up to continue.
             </div>
           </div>
         ) : (
@@ -125,11 +130,11 @@ export function TokenPurchaseModal({
             }}
           >
             <div style={{ fontSize: 12, color: "var(--text)" }}>
-              Current Token Balance:
+              Current Credit Balance:
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "var(--gold)", display: "flex", alignItems: "center", gap: 5 }}>
               <Coins size={16} />
-              <span>{Number(currentBalance).toFixed(1)} Tokens</span>
+              <span>{Number(currentBalance).toFixed(1)} Credits</span>
             </div>
           </div>
         )}
@@ -137,10 +142,10 @@ export function TokenPurchaseModal({
         {/* Rate Notice */}
         <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 14, display: "flex", alignItems: "center", gap: 6 }}>
           <Zap size={13} color="var(--gold)" />
-          <span>Every AI feature usage consumes exactly <strong>0.7 tokens</strong>.</span>
+          <span>Receipt scanner consumes <strong>2 credits</strong> • Bank statements consume <strong>5 credits</strong>.</span>
         </div>
 
-        {/* Token Packages */}
+        {/* Credit Packages */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
           {TOKEN_PACKS.map(pack => {
             const isSelected = selectedPack === pack.id
@@ -191,7 +196,7 @@ export function TokenPurchaseModal({
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                      {pack.tokens} Tokens (~{pack.scans} AI scans) • {pack.description}
+                      {pack.tokens} Credits (~{pack.scans} receipt scans) • {pack.description}
                     </div>
                   </div>
                 </div>
@@ -264,7 +269,7 @@ export function TokenPurchaseModal({
         {/* Security & Support note */}
         <div style={{ fontSize: 10.5, color: "var(--muted)", textAlign: "center", marginTop: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
           <ShieldCheck size={12} color="#27AE60" />
-          <span>Instant token top-up via Paystack test simulator. Tokens never expire.</span>
+          <span>Instant credit top-up via Paystack test simulator. Credits never expire.</span>
         </div>
       </div>
 

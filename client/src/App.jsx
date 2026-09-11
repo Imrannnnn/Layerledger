@@ -150,22 +150,26 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
   const [tenantInfo, setTenantInfo] = useState(loadTenantInfo())
   const [tokenModalOpen, setTokenModalOpen] = useState(false)
-  const [tokenModalData, setTokenModalData] = useState({ isInsufficient: false, requiredTokens: 0.7, currentBalance: 0 })
+  const [tokenModalData, setTokenModalData] = useState({ isInsufficient: false, requiredTokens: 2, requiredCredits: 2, currentBalance: 0 })
   const [settingsTab, setSettingsTab] = useState("company")
 
   useEffect(() => {
     const onInsufficient = (e) => {
       const detail = e.detail || {}
+      const req = detail.requiredCredits !== undefined ? detail.requiredCredits : (detail.requiredTokens || 2)
       setTokenModalData({
         isInsufficient: true,
-        requiredTokens: detail.requiredTokens || 0.7,
+        requiredTokens: req,
+        requiredCredits: req,
         currentBalance: detail.currentBalance ?? (tenantInfo?.tokenBalance || 0)
       })
       setTokenModalOpen(true)
     }
 
     const onTokenUpdated = (e) => {
-      const newBal = e.detail?.tokenBalance
+      const newBal = e.detail?.creditsDeducted !== undefined
+        ? (e.detail?.newBalance ?? e.detail?.tokenBalance)
+        : (e.detail?.creditBalance ?? e.detail?.tokenBalance)
       if (typeof newBal === "number") {
         setTenantInfo(prev => prev ? { ...prev, tokenBalance: newBal } : { tokenBalance: newBal })
       }
@@ -173,13 +177,17 @@ export default function App() {
 
     window.addEventListener("bakewealth:insufficient-tokens", onInsufficient)
     window.addEventListener("layerledger:insufficient-tokens", onInsufficient)
+    window.addEventListener("layerledger:insufficient-credits", onInsufficient)
     window.addEventListener("bakewealth:token-updated", onTokenUpdated)
     window.addEventListener("layerledger:token-updated", onTokenUpdated)
+    window.addEventListener("layerledger:credit-updated", onTokenUpdated)
     return () => {
       window.removeEventListener("bakewealth:insufficient-tokens", onInsufficient)
       window.removeEventListener("layerledger:insufficient-tokens", onInsufficient)
+      window.removeEventListener("layerledger:insufficient-credits", onInsufficient)
       window.removeEventListener("bakewealth:token-updated", onTokenUpdated)
       window.removeEventListener("layerledger:token-updated", onTokenUpdated)
+      window.removeEventListener("layerledger:credit-updated", onTokenUpdated)
     }
   }, [tenantInfo])
 
@@ -638,16 +646,16 @@ export default function App() {
           {loading ? <Spinner /> :
             <Suspense fallback={<Spinner />}>
               {view === "dashboard" && <Dashboard productions={productions} inventory={inventory} expenses={expenses} setView={setViewWithSync} user={currentUser} tenantInfo={tenantInfo} />}
-              {view === "masterlist" && <MasterList inventory={inventory} setInventory={setInventory} recipes={recipes} setRecipes={setRecipes} user={currentUser} setView={setViewWithSync} />}
+              {view === "masterlist" && <MasterList inventory={inventory} setInventory={setInventory} recipes={recipes} setRecipes={setRecipes} user={currentUser} setView={setViewWithSync} company={company} />}
               {(view === "openingstock" || view === "stock") && <Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory} setInventory={setInventory} user={currentUser} setView={setViewWithSync} initialTab="stock" />}
               {view === "calculator" && <OrderCalculator inventory={inventory} recipes={recipes} settings={settings} setView={setViewWithSync} company={company} />}
               {view === "clients" && <Clients setView={setViewWithSync} company={company} />}
               {view === "production" && <ProductionEntry inventory={inventory} setInventory={setInventory} recipes={recipes} productions={productions} setProductions={setProductions} settings={settings} setView={setViewWithSync} user={currentUser} />}
               {view === "receipts" && <ReceiptScanner inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses} setView={setViewWithSync} />}
-              {view === "purchases" && <Purchases inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses} setView={setViewWithSync} isOwner={!currentUser || currentUser?.role === "owner"} />}
-              {view === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} isOwner={!currentUser || currentUser?.role === "owner"} />}
+              {view === "purchases" && <Purchases inventory={inventory} setInventory={setInventory} expenses={expenses} setExpenses={setExpenses} setView={setViewWithSync} isOwner={!currentUser || currentUser?.role === "owner"} company={company} />}
+              {view === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} isOwner={!currentUser || currentUser?.role === "owner"} company={company} />}
               {view === "quotes" && <QuotesPage inventory={inventory} setInventory={setInventory} recipes={recipes} setView={setViewWithSync} productions={productions} setProductions={setProductions} />}
-              {view === "records" && <Records productions={productions} setProductions={setProductions} setView={setViewWithSync} setPrefillProd={setPrefillProd} user={currentUser} />}
+              {view === "records" && <Records productions={productions} setProductions={setProductions} setView={setViewWithSync} setPrefillProd={setPrefillProd} user={currentUser} company={company} />}
               {view === "prodlist" && <ProductionList productions={productions} setProductions={setProductions} company={company} setView={setViewWithSync} />}
               {view === "bank" && <BankImport transactions={transactions} setTransactions={setTransactions} productions={productions} setProductions={setProductions} expenses={expenses} setExpenses={setExpenses} />}
               {view === "monthly" && <MonthlyOverview inventory={inventory} recipes={recipes} productions={productions} setProductions={setProductions} expenses={expenses} setExpenses={setExpenses} company={company} isOwner={!currentUser || currentUser?.role === "owner"} />}
@@ -702,7 +710,8 @@ export default function App() {
       onClose={() => setTokenModalOpen(false)}
       currentBalance={tenantInfo?.tokenBalance || 0}
       isInsufficient={tokenModalData.isInsufficient}
-      requiredTokens={tokenModalData.requiredTokens || 0.7}
+      requiredTokens={tokenModalData.requiredTokens || 2}
+      requiredCredits={tokenModalData.requiredCredits || 2}
       company={company}
       onOpenSettings={() => {
         setSettingsTab("tokens")

@@ -7,8 +7,9 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Card, SHead, TH, TR2, Spinner, Pagination } from "../common/ui.jsx"
 import { fmt, uid, DEFAULT_CATEGORIES, mapCategory, formatDateDMY, normalizeToIsoDate, isDateInMonth } from "../../lib/helpers.js"
-import { saveInventory, saveExpenses, loadLocal, saveLocal, savePurchases, fetchPaginatedPurchases, deletePurchaseFromServer, deletePurchasesFromServer } from "../../lib/data.js"
-import { Link, Receipt, Trash2, Check, Calendar, AlertCircle } from "lucide-react"
+import { saveInventory, saveExpenses, loadLocal, saveLocal, savePurchases, fetchPaginatedPurchases, deletePurchaseFromServer, deletePurchasesFromServer, clearAllPurchasesFromServer } from "../../lib/data.js"
+import { Link, Receipt, Trash2, Check, Calendar, AlertCircle, Download } from "lucide-react"
+import { exportPurchasesPDF } from "../../lib/pdfReportGenerator.js"
 
 const formatMonthLabel = (m) => {
   if (!m || m === "all") return "All Months"
@@ -23,7 +24,7 @@ const formatMonthLabel = (m) => {
 }
 
 // ═══════════════════════════════════════════════════════════
-export function Purchases({ inventory, setInventory, expenses, setExpenses, setView, isOwner }) {
+export function Purchases({ inventory, setInventory, expenses, setExpenses, setView, isOwner, company = {} }) {
   const [showForm, setShowForm] = useState(false)
   const initialPurchases = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
   const [purchases, setPurchases] = useState(initialPurchases)
@@ -378,8 +379,16 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     if (!window.confirm("Are you sure you want to delete ALL logged purchase records? This will clear the purchase history log and remove corresponding entries in Expenses. (Inventory stock/cost levels will remain). This cannot be undone.")) return
     setDeletingAll(true)
     try {
-      if (typeof savePurchases === "function") await savePurchases([])
-      else await saveLocal("ll_purchases", [])
+      if (typeof clearAllPurchasesFromServer === "function") {
+        await clearAllPurchasesFromServer()
+      } else if (typeof savePurchases === "function") {
+        await savePurchases([])
+      } else {
+        await saveLocal("ll_purchases", [])
+      }
+      setPurchases([])
+      setTotalCount(0)
+      setSelectedIds(new Set())
       const updatedExpenses = expenses.filter(e => e.source !== "purchase")
       setExpenses(updatedExpenses)
       await saveExpenses(updatedExpenses)
@@ -522,7 +531,14 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
           ))}
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <Btn
+          variant="outline"
+          onClick={() => exportPurchasesPDF(purchases, selectedMonth, stats, company)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+        >
+          <Download size={13} /> Download PDF
+        </Btn>
         {isOwner && paginatedPurchases.length > 0 && (
           <Btn
             variant="danger"

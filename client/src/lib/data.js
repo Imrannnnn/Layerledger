@@ -28,13 +28,13 @@ const normalizeDateToIso = (inputDate) => {
   const trimmed = inputDate.trim()
   if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
 
-  const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  const dmyMatch = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/)
   if (dmyMatch) {
     const [, d, m, y] = dmyMatch
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
   }
 
-  const ymdMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)
+  const ymdMatch = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
   if (ymdMatch) {
     const [, y, m, d] = ymdMatch
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
@@ -48,7 +48,9 @@ const normalizeDateToIso = (inputDate) => {
       const day = String(d.getDate()).padStart(2, "0")
       return `${y}-${m}-${day}`
     }
-  } catch {}
+  } catch {
+    // ignore parse errors
+  }
   return new Date().toISOString().slice(0, 10)
 }
 
@@ -837,13 +839,16 @@ const syncPurchasesList = async (headers, localPurchases) => {
     const serverPurchases = await res.json()
 
     // Merge server purchases not present locally into local cache (prevents accidental data loss)
-    const missingInLocal = (Array.isArray(serverPurchases) ? serverPurchases : (serverPurchases.data || []))
-      .map(mapServerPurchaseToLocal)
-      .filter(sp => !localPurchases.some(lp => lp.id === sp.id))
-    if (missingInLocal.length > 0) {
-      const merged = [...localPurchases, ...missingInLocal]
-      saveLocal("ll_purchases", merged)
-      cache["ll_purchases"] = merged
+    // Only merge if localPurchases is not explicitly empty (e.g. user cleared history)
+    if (localPurchases.length > 0) {
+      const missingInLocal = (Array.isArray(serverPurchases) ? serverPurchases : (serverPurchases.data || []))
+        .map(mapServerPurchaseToLocal)
+        .filter(sp => !localPurchases.some(lp => lp.id === sp.id))
+      if (missingInLocal.length > 0) {
+        const merged = [...localPurchases, ...missingInLocal]
+        saveLocal("ll_purchases", merged)
+        cache["ll_purchases"] = merged
+      }
     }
 
     // Create/Update local purchases to server
@@ -2666,7 +2671,11 @@ export const savePurchases = async (data) => {
   }
   const headers = getAuthHeaders()
   if (!headers) return
-  await syncPurchasesList(headers, data)
+  if (Array.isArray(data) && data.length === 0) {
+    await clearAllPurchasesFromServer()
+  } else {
+    await syncPurchasesList(headers, data)
+  }
 }
 
 export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = "" } = {}) => {
@@ -2709,6 +2718,22 @@ export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = ""
       const json = await res.json()
       if (json && json.data) {
         const mapped = json.data.map(mapServerPurchaseToLocal)
+        // If server confirms 0 purchases (or all purchases cleared), clear local cache
+        if ((!isMonthFilter && (json.pagination?.total === 0 || json.total === 0)) || (mapped.length === 0 && (!json.pagination?.total && !json.total))) {
+          saveLocal("ll_purchases", [])
+          cache["ll_purchases"] = []
+          return {
+            ...json,
+            data: [],
+            stats: {
+              ...json.stats,
+              totalSpent: 0,
+              totalPurchases: 0,
+              availableMonths: []
+            }
+          }
+        }
+
         // Keep local cache in sync
         const local = loadLocal("ll_purchases", [])
         const merged = [...local]
@@ -2792,6 +2817,39 @@ export const deletePurchasesFromServer = async (ids) => {
     await Promise.allSettled(
       ids.map(id => fetchWithTimeout(`${apiUrl}/api/purchases/${id}`, { method: "DELETE", headers }).catch(() => {}))
     )
+  }
+}
+
+export const clearAllPurchasesFromServer = async () => {
+  saveLocal("ll_purchases", [])
+  cache["ll_purchases"] = []
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("layerledger:purchases-updated", { detail: { purchases: [] } }))
+  }
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (apiUrl && headers) {
+    try {
+      const res = await fetchWithTimeout(`${apiUrl}/api/purchases/all`, {
+        method: "DELETE",
+        headers
+      })
+      if (!res.ok) {
+        // Fallback: If /all is not available or errors, fetch and delete remaining by ID
+        const allRes = await fetchWithTimeout(`${apiUrl}/api/purchases?limit=1000`, { headers }).catch(() => null)
+        if (allRes && allRes.ok) {
+          const json = await allRes.json()
+          const items = Array.isArray(json) ? json : (json.data || [])
+          if (items.length > 0) {
+            await Promise.allSettled(
+              items.map(item => fetchWithTimeout(`${apiUrl}/api/purchases/${item.id}`, { method: "DELETE", headers }).catch(() => {}))
+            )
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("clearAllPurchasesFromServer error:", e)
+    }
   }
 }
 

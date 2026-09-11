@@ -275,10 +275,36 @@ const deletePurchase = asyncHandler(async (req, res) => {
     res.json(result);
 });
 
+/**
+ * @desc    Delete all purchases for tenant (clear purchase history log)
+ * @route   DELETE /api/purchases/all
+ * @access  Private (Owner only)
+ */
+const deleteAllPurchases = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+
+    const result = await prisma.$transaction(async (tx) => {
+        // Unlink itemId from purchases before deletion to avoid foreign key conflicts
+        await tx.purchase.updateMany({
+            where: { tenantId, itemId: { not: null } },
+            data: { itemId: null }
+        });
+
+        const deleted = await tx.purchase.deleteMany({
+            where: { tenantId }
+        });
+
+        return deleted;
+    }, { maxWait: 10000, timeout: 30000 });
+
+    res.json({ message: 'All purchase records deleted successfully', count: result.count });
+});
+
 module.exports = {
     getPurchases,
     getPurchaseById,
     createPurchase,
     updatePurchase,
-    deletePurchase
+    deletePurchase,
+    deleteAllPurchases
 };

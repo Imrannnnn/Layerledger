@@ -25,7 +25,8 @@ import {
   updateRecipeOnServer,
   deleteRecipeOnServer
 } from "../../lib/data.js"
-import { Pencil, Trash2, Check, X, AlertTriangle, ShoppingCart, Folder, FileSpreadsheet, Camera, Sparkles, Plus, ChevronUp, ChevronDown } from "lucide-react"
+import { Pencil, Trash2, Check, X, AlertTriangle, ShoppingCart, Folder, FileSpreadsheet, Camera, Sparkles, Plus, ChevronUp, ChevronDown, Download } from "lucide-react"
+import { exportInventoryPDF } from "../../lib/pdfReportGenerator.js"
 
 
 
@@ -228,17 +229,18 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
 //  DECORATIONS TAB (standalone — own state, saved to sessionStorage)
 
 // ═══════════════════════════════════════════════════════════
-export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setView,setTab,searchQuery=""}){
+export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setView,setTab,searchQuery="",company={}}){
   const [showImport,setShowImport]=useState(false)
   const [showAdd,setShowAdd]=useState(false)
   const [saving,setSaving]=useState(false)
   const [deletingAll,setDeletingAll]=useState(false)
   const [currentPage,setCurrentPage]=useState(1)
   const [pageSize,setPageSize]=useState(25)
+  const [selectedCategory,setSelectedCategory]=useState("all")
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery])
+  }, [searchQuery, selectedCategory])
 
   const [importStep,setImportStep]=useState(1) // 1=paste 2=preview 3=done
   const [prevItems,setPrevItems]=useState([])
@@ -308,8 +310,9 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
 
   const L=v=>v.trim().split(String.fromCharCode(10)).map(s=>s.replace(/,/g,"").trim()).filter(Boolean)
 
-  const lowStock=inventory.filter(i=>i.stock<=(i.minStock||5))
-  const okCount=inventory.filter(i=>i.stock>(i.minStock||5)).length
+  const getMinStock = (item) => (item?.minStock !== undefined && item?.minStock !== null && item?.minStock !== "" && !isNaN(Number(item?.minStock)) ? Number(item.minStock) : 5)
+  const lowStock=inventory.filter(i=>(Number(i.stock) || 0) <= getMinStock(i))
+  const okCount=inventory.filter(i=>(Number(i.stock) || 0) > getMinStock(i)).length
 
   // Check row counts match as user types
   const checkMatch=()=>{
@@ -393,7 +396,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
         unit: newItem.unit || "kg",
         cost: +cost,
         stock: 0,
-        minStock: +newItem.minStock || 5,
+        minStock: newItem.minStock !== "" && !isNaN(Number(newItem.minStock)) ? Number(newItem.minStock) : 5,
         cat: selectedCat || "Dry Goods"
       }
       const savedItem = await createInventoryItemOnServer(itemToSave)
@@ -431,7 +434,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
         unit: editRow.unit,
         cost: +editRow.cost,
         stock: +editRow.stock || 0,
-        minStock: +editRow.minStock || 5
+        minStock: editRow.minStock !== "" && !isNaN(Number(editRow.minStock)) ? Number(editRow.minStock) : 5
       }
       const updatedItem = await updateInventoryItemOnServer(editId, itemToUpdate)
       const updated = inventory.map(i => i.id === editId ? updatedItem : i)
@@ -581,10 +584,18 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
 
 
   const badge=(item)=>{
-    if(item.stock===0)return<span style={{background:"#FDEBE9",color:"#912622",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Out of Stock</span>
-    if(item.stock<=(item.minStock||5))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600,display:"inline-flex",alignItems:"center",gap:3}}>Low stock <AlertTriangle size={10}/></span>
+    if((Number(item.stock) || 0) === 0)return<span style={{background:"#FDEBE9",color:"#912622",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>Out of Stock</span>
+    if((Number(item.stock) || 0) <= getMinStock(item))return<span style={{background:"#FDF2DC",color:"var(--gold)",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600,display:"inline-flex",alignItems:"center",gap:3}}>Low stock <AlertTriangle size={10}/></span>
     return<span style={{background:"#E5F4EC",color:"#2D7A50",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>In Stock</span>
   }
+
+  const storedDecorations = useMemo(() => loadLocal("ll_decorations", DECORATION_ITEMS), [])
+  const decorIids = useMemo(() => new Set(storedDecorations.map(d => d.iid)), [storedDecorations])
+
+  const getItemCategory = useCallback((item) => {
+    if (decorIids.has(item.id)) return "Decoration Extras"
+    return mapCategory(item.cat, item.name)
+  }, [decorIids])
 
   const filteredInventory = useMemo(() => {
     if (!searchQuery.trim()) return inventory
@@ -592,27 +603,49 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
     return inventory.filter(i => (i.name || "").toLowerCase().includes(q) || (i.cat || i.category || "").toLowerCase().includes(q))
   }, [inventory, searchQuery])
 
+  // Count items per category across active search
+  const categoryCounts = useMemo(() => {
+    const counts = {}
+    filteredInventory.forEach(item => {
+      const c = getItemCategory(item)
+      counts[c] = (counts[c] || 0) + 1
+    })
+    return counts
+  }, [filteredInventory, getItemCategory])
+
+  // Categories that have items in the search results, ordered by allCategoryOptions
+  const activeCategoriesList = useMemo(() => {
+    const list = allCategoryOptions.filter(c => (categoryCounts[c] || 0) > 0)
+    Object.keys(categoryCounts).forEach(c => {
+      if (!list.includes(c)) list.push(c)
+    })
+    return list
+  }, [allCategoryOptions, categoryCounts])
+
+  // Inventory filtered by selected category tab
+  const categoryFilteredInventory = useMemo(() => {
+    if (selectedCategory === "all") return filteredInventory
+    return filteredInventory.filter(item => getItemCategory(item) === selectedCategory)
+  }, [filteredInventory, selectedCategory, getItemCategory])
+
+  // Paginated slice for current page
   const paginatedInventory = useMemo(() => {
-    if (pageSize === "all") return filteredInventory
+    if (pageSize === "all") return categoryFilteredInventory
     const sz = Number(pageSize) || 25
     const start = (currentPage - 1) * sz
-    return filteredInventory.slice(start, start + sz)
-  }, [filteredInventory, currentPage, pageSize])
+    return categoryFilteredInventory.slice(start, start + sz)
+  }, [categoryFilteredInventory, currentPage, pageSize])
 
-  // Group inventory by mapped category
+  // Group paginated items by mapped category
   const categories = {}
   allCategoryOptions.forEach(c => {
-    categories[c] = []
+    if (selectedCategory === "all" || selectedCategory === c) {
+      categories[c] = []
+    }
   })
 
-  const storedDecorations = loadLocal("ll_decorations", DECORATION_ITEMS)
-  const decorIids = new Set(storedDecorations.map(d => d.iid))
-
   paginatedInventory.forEach(item => {
-    let mapped = mapCategory(item.cat, item.name)
-    if (decorIids.has(item.id)) {
-      mapped = "Decoration Extras"
-    }
+    const mapped = getItemCategory(item)
     if (!categories[mapped]) {
       categories[mapped] = []
     }
@@ -627,15 +660,19 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
         <span style={{fontSize:13,color:"var(--muted)",fontWeight:500}}>{inventory.length} items total</span>
         {lowStock.length>0&&<span onClick={()=>setView("shopping")} style={{fontSize:12.5,color:"#B03A2E",fontWeight:600,cursor:"pointer",background:"#FDEBE9",padding:"3px 10px",borderRadius:20,display:"inline-flex",alignItems:"center",gap:4}}><AlertTriangle size={12}/> {lowStock.length} low stock → Shopping List</span>}
       </div>
-      {isOwner&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
-        {inventory.length > 0 && (
-          <Btn small variant="ghost" onClick={selectAllItems}>
-            {selectedItemIds.size === inventory.length ? "Deselect All" : "Select All"}
-          </Btn>
-        )}
-        <Btn small variant="outline" onClick={() => setShowAddCatModal(true)}>+ New Category</Btn>
-        <Btn small variant="ghost" onClick={()=>{setShowImport(s=>!s);setShowAdd(false);setImportStep(1)}} style={{display:"inline-flex",alignItems:"center",gap:4}}><FileSpreadsheet size={13}/> Import from Excel</Btn>
-        <Btn small onClick={()=>{setShowAdd(s=>!s);setShowImport(false)}}>+ Add Item</Btn>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <Btn small variant="outline" onClick={() => exportInventoryPDF(inventory, company)} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <Download size={13} /> Download PDF
+        </Btn>
+        {isOwner&&<>
+          {inventory.length > 0 && (
+            <Btn small variant="ghost" onClick={selectAllItems}>
+              {selectedItemIds.size === inventory.length ? "Deselect All" : "Select All"}
+            </Btn>
+          )}
+          <Btn small variant="outline" onClick={() => setShowAddCatModal(true)}>+ New Category</Btn>
+          <Btn small variant="ghost" onClick={()=>{setShowImport(s=>!s);setShowAdd(false);setImportStep(1)}} style={{display:"inline-flex",alignItems:"center",gap:4}}><FileSpreadsheet size={13}/> Import from Excel</Btn>
+          <Btn small onClick={()=>{setShowAdd(s=>!s);setShowImport(false)}}>+ Add Item</Btn>
         {inventory.length > 0 && (
           <Btn
             small
@@ -648,7 +685,8 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
             <Trash2 size={12} /> {deletingAll ? "Deleting..." : "Delete All"}
           </Btn>
         )}
-      </div>}
+        </>}
+      </div>
     </div>
 
 
@@ -796,7 +834,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
           </select>
         </div>
         <Sel label="Unit *" value={newItem.unit} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["kg","g","L","ml","pcs","pack","bottle","roll","set"].map(u=>({value:u,label:u}))}/>
-        <Inp label="Min Alert" type="number" value={newItem.minStock} onChange={v=>setNewItem(p=>({...p,minStock:v}))} placeholder="e.g. 10"/>
+        <Inp label="Min Alert" type="number" step="any" min="0" value={newItem.minStock} onChange={v=>setNewItem(p=>({...p,minStock:v}))} placeholder="e.g. 0.5"/>
       </div>
 
       {newItem.cat === "__new__" && (
@@ -962,12 +1000,135 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
       </div>
     )}
 
+    {/* CATEGORY FILTER TABS / PILLS */}
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      flexWrap: "wrap",
+      marginBottom: 16,
+      padding: "8px 10px",
+      background: "#FAF7F0",
+      border: "1px solid var(--border)",
+      borderRadius: 10
+    }}>
+      <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--muted)", marginRight: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>
+        Category:
+      </span>
+      <button
+        type="button"
+        onClick={() => setSelectedCategory("all")}
+        style={{
+          background: selectedCategory === "all" ? "var(--gold)" : "var(--panel)",
+          color: selectedCategory === "all" ? "#fff" : "var(--text)",
+          border: selectedCategory === "all" ? "1px solid var(--gold)" : "1px solid var(--border)",
+          borderRadius: 20,
+          padding: "4px 12px",
+          fontSize: 12,
+          fontWeight: selectedCategory === "all" ? 600 : 500,
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          transition: "all 0.15s"
+        }}
+      >
+        All Categories
+        <span style={{
+          background: selectedCategory === "all" ? "rgba(255,255,255,0.28)" : "#EBE3D5",
+          color: selectedCategory === "all" ? "#fff" : "var(--muted)",
+          borderRadius: 10,
+          padding: "1px 6px",
+          fontSize: 11,
+          fontWeight: 700
+        }}>
+          {filteredInventory.length}
+        </span>
+      </button>
+
+      {activeCategoriesList.map(cat => {
+        const count = categoryCounts[cat] || 0
+        const isSelected = selectedCategory === cat
+        return (
+          <button
+            key={cat}
+            type="button"
+            onClick={() => setSelectedCategory(isSelected ? "all" : cat)}
+            style={{
+              background: isSelected ? "var(--gold)" : "var(--panel)",
+              color: isSelected ? "#fff" : "var(--text)",
+              border: isSelected ? "1px solid var(--gold)" : "1px solid var(--border)",
+              borderRadius: 20,
+              padding: "4px 12px",
+              fontSize: 12,
+              fontWeight: isSelected ? 600 : 500,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              transition: "all 0.15s"
+            }}
+          >
+            {cat}
+            <span style={{
+              background: isSelected ? "rgba(255,255,255,0.28)" : "#EBE3D5",
+              color: isSelected ? "#fff" : "var(--muted)",
+              borderRadius: 10,
+              padding: "1px 6px",
+              fontSize: 11,
+              fontWeight: 700
+            }}>
+              {count}
+            </span>
+          </button>
+        )
+      })}
+
+      {selectedCategory !== "all" && (
+        <button
+          type="button"
+          onClick={() => setSelectedCategory("all")}
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--gold)",
+            fontSize: 12,
+            cursor: "pointer",
+            textDecoration: "underline",
+            marginLeft: "auto",
+            fontWeight: 500,
+            padding: "4px 6px"
+          }}
+        >
+          Reset to All Categories
+        </button>
+      )}
+    </div>
+
+    {categoryFilteredInventory.length === 0 && (
+      <Card style={{ textAlign: "center", padding: "36px 20px", marginBottom: 20 }}>
+        <Folder size={36} color="var(--muted)" style={{ opacity: 0.5, marginBottom: 10 }} />
+        <div style={{ fontWeight: 600, fontSize: 15, color: "var(--text)", marginBottom: 4 }}>
+          {selectedCategory !== "all" ? `No items in "${selectedCategory}"` : "No inventory items found"}
+        </div>
+        <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
+          {searchQuery ? `No items matched your search "${searchQuery}".` : `There are currently no items in this category.`}
+        </div>
+        {selectedCategory !== "all" && (
+          <Btn small variant="outline" onClick={() => setSelectedCategory("all")}>
+            View All Categories
+          </Btn>
+        )}
+      </Card>
+    )}
+
     {/* COLLAPSIBLE CATEGORIES */}
     <div>
       {Object.entries(categories).map(([catName, items]) => {
         const filteredItems = items.filter(i => (i.name || "").toLowerCase().includes(searchQuery.toLowerCase()))
         if (searchQuery.trim() && filteredItems.length === 0) return null
         const displayItems = searchQuery.trim() ? filteredItems : items
+        if (displayItems.length === 0) return null
         const isCollapsed = collapsedCats[catName]
         return (
           <div key={catName} style={{ marginBottom: 14 }}>
@@ -1060,7 +1221,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
                       <tr><td colSpan={isOwner ? 9 : 6} style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:12.5}}>No items in this category yet.</td></tr>
                     ) : (
                       displayItems.map((item, idx) => {
-                        const isLow = item.stock <= (item.minStock || 5)
+                        const isLow = (Number(item.stock) || 0) <= getMinStock(item)
                         const editing = editId === item.id
                         const isSelected = selectedItemIds.has(item.id)
                         return (
@@ -1079,9 +1240,9 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
                               <>
                                 <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12}}/></td>
                                 <td style={{padding:"6px 8px"}}><select value={editRow.unit||"kg"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}>{["kg","g","L","ml","pcs","pack","bottle"].map(u=><option key={u}>{u}</option>)}</select></td>
-                                <td style={{padding:"6px 8px"}}><input type="number" value={editRow.stock||""} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:70}}/></td>
-                                <td style={{padding:"6px 8px"}}><input type="number" value={editRow.cost||""} onChange={e=>setEditRow(r=>({...r,cost:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:80}}/></td>
-                                <td style={{padding:"6px 8px"}}><input type="number" value={editRow.minStock||""} onChange={e=>setEditRow(r=>({...r,minStock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}/></td>
+                                <td style={{padding:"6px 8px"}}><input type="number" step="any" min="0" value={editRow.stock !== undefined ? editRow.stock : ""} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:70}}/></td>
+                                <td style={{padding:"6px 8px"}}><input type="number" step="any" min="0" value={editRow.cost !== undefined ? editRow.cost : ""} onChange={e=>setEditRow(r=>({...r,cost:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:80}}/></td>
+                                <td style={{padding:"6px 8px"}}><input type="number" step="any" min="0" value={editRow.minStock !== undefined ? editRow.minStock : ""} onChange={e=>setEditRow(r=>({...r,minStock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}/></td>
                                 <td style={{padding:"6px 8px"}}></td>
                                 <td style={{padding:"6px 8px"}}>
                                   <select value={editRow.cat||catName} onChange={e=>setEditRow(r=>({...r,cat:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:11}}>
@@ -1100,7 +1261,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
                                 <td style={{padding:"9px 10px",color:"var(--muted)",fontSize:13}}>{item.unit}</td>
                                 <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{item.stock||0} {item.unit}</td>
                                 <td style={{padding:"9px 10px",fontSize:13,fontWeight:500,color:"var(--gold)"}}>{fmt(item.cost)}/{item.unit}</td>
-                                <td style={{padding:"9px 10px",fontSize:13,color:"var(--muted)"}}>{item.minStock||5} {item.unit}</td>
+                                <td style={{padding:"9px 10px",fontSize:13,color:"var(--muted)"}}>{getMinStock(item)} {item.unit}</td>
                                 <td style={{padding:"9px 10px"}}>{badge(item)}</td>
                                 {isOwner && (
                                   <td style={{padding:"9px 10px"}} onClick={e=>e.stopPropagation()}>
@@ -1151,7 +1312,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
     {/* PAGINATION */}
     <Pagination
       currentPage={currentPage}
-      totalItems={filteredInventory.length}
+      totalItems={categoryFilteredInventory.length}
       pageSize={pageSize}
       onPageChange={setCurrentPage}
       onPageSizeChange={(sz) => {
@@ -1159,7 +1320,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
         setCurrentPage(1)
       }}
       pageSizeOptions={[10, 25, 50, 100]}
-      itemLabel="inventory items"
+      itemLabel={selectedCategory === "all" ? "inventory items" : `${selectedCategory} items`}
     />
 
     <div style={{marginTop:8,fontSize:11.5,color:"var(--muted)",lineHeight:1.7}}>Stock reduces automatically as production orders are saved. Set opening stock in <strong>Settings → Opening Stock</strong>. Restock by scanning a purchase receipt.</div>
@@ -1857,7 +2018,7 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
 
 
 
-export function MasterList({inventory,setInventory,recipes,setRecipes,user,setView}){
+export function MasterList({inventory,setInventory,recipes,setRecipes,user,setView,company}){
   const [tab,setTab]=useState("inventory")
   const [msg,setMsg]=useState("")
   const [msgColor,setMsgColor]=useState("gold")
@@ -1989,7 +2150,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     </div>
 
     {/* ── INVENTORY ── */}
-    {tab==="inventory"&&<InventoryTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} showMsg={showMsg} setView={setView} setTab={setTab} searchQuery={searchQuery}/>}
+    {tab==="inventory"&&<InventoryTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} showMsg={showMsg} setView={setView} setTab={setTab} searchQuery={searchQuery} company={company}/>}
 
     {/* ── RECIPES ── */}
     {tab==="recipes"&&<div>
@@ -2344,7 +2505,7 @@ export function RecipeScanModal({ inventory, onClose, onImport }) {
           role: "user",
           content: content
         }
-      ], "Parse recipe sheets and extract ingredients with quantities matching inventory list. Return valid JSON only.")
+      ], "Parse recipe sheets and extract ingredients with quantities matching inventory list. Return valid JSON only.", 1000, { creditCost: 2, feature: "recipe_scanner" })
 
       const cleanJson = raw.replace(/```json|```/g, "").trim()
       const result = JSON.parse(cleanJson)
@@ -2426,23 +2587,24 @@ export function RecipeScanModal({ inventory, onClose, onImport }) {
           </div>
 
           {error && (
-            <div style={{ padding: "8px 12px", background: error.toLowerCase().includes("token") ? "#FFF4E5" : "#FDEBE9", border: error.toLowerCase().includes("token") ? "1px solid #FFE0B2" : "1px solid #FCDAD7", borderRadius: 8, fontSize: 12.5, color: error.toLowerCase().includes("token") ? "#92400E" : "#B03A2E", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+            <div style={{ padding: "8px 12px", background: (error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "#FFF4E5" : "#FDEBE9", border: (error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "1px solid #FFE0B2" : "1px solid #FCDAD7", borderRadius: 8, fontSize: 12.5, color: (error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "#92400E" : "#B03A2E", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <AlertTriangle size={13} color={error.toLowerCase().includes("token") ? "#D97706" : "#B03A2E"} />
+                <AlertTriangle size={13} color={(error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) ? "#D97706" : "#B03A2E"} />
                 <span>{error}</span>
               </div>
-              {error.toLowerCase().includes("token") && (
+              {(error.toLowerCase().includes("credit") || error.toLowerCase().includes("token")) && (
                 <button
                   type="button"
                   onClick={() => {
                     if (typeof window !== "undefined") {
-                      window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
-                      window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                      window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+                      window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+                      window.dispatchEvent(new CustomEvent("layerledger:insufficient-credits", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
                     }
                   }}
                   style={{ background: "var(--gold)", color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
                 >
-                  Buy Tokens
+                  Buy Credits
                 </button>
               )}
             </div>
@@ -2450,7 +2612,7 @@ export function RecipeScanModal({ inventory, onClose, onImport }) {
 
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
             <Btn onClick={scan} disabled={loading || (!pasteText.trim() && !photoB64)} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              {loading ? "AI is reading recipe..." : <><Sparkles size={13} /> AI Scan & Extract <span style={{ fontSize: 10.5, opacity: 0.85 }}>(0.7 tokens)</span></>}
+              {loading ? "AI is reading recipe..." : <><Sparkles size={13} /> AI Scan & Extract <span style={{ fontSize: 10.5, opacity: 0.85 }}>(2 credits)</span></>}
             </Btn>
             <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
           </div>

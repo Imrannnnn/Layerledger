@@ -14,7 +14,8 @@ jest.mock("../../lib/data", () => ({
   savePurchases: jest.fn().mockResolvedValue(true),
   fetchPaginatedPurchases: jest.fn(),
   saveLocal: jest.fn().mockResolvedValue(true),
-  loadLocal: jest.fn().mockImplementation((key, fallback) => fallback)
+  loadLocal: jest.fn().mockImplementation((key, fallback) => fallback),
+  clearAllPurchasesFromServer: jest.fn().mockResolvedValue(true)
 }))
 
 // Mock UI components
@@ -531,5 +532,59 @@ describe("Expenses and Purchases Bulk / Batch Operations", () => {
         limit: 25
       })
     )
+  })
+
+  test("Purchases: Clear History calls clearAllPurchasesFromServer, cleans expenses and refreshes list", async () => {
+    window.confirm = jest.fn(() => true)
+    dataLib.fetchPaginatedPurchases.mockResolvedValue({
+      data: [
+        { id: "pur-1", date: "2026-08-20", item: "Flour 50kg", total: 45000, qty: 1 }
+      ],
+      pagination: { page: 1, limit: 25, total: 1, totalPages: 1 },
+      stats: { totalSpent: 45000, totalPurchases: 1, availableMonths: ["2026-08"] }
+    })
+
+    const mockExpenses = [
+      { id: "exp-1", description: "Purchase: Flour", source: "purchase", amount: 45000 },
+      { id: "exp-2", description: "Electricity", source: "manual", amount: 20000 }
+    ]
+    const mockSetExpenses = jest.fn()
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <Purchases
+          inventory={[]}
+          setInventory={jest.fn()}
+          expenses={mockExpenses}
+          setExpenses={mockSetExpenses}
+          isOwner={true}
+        />
+      )
+    })
+
+    const clearBtn = Array.from(container.querySelectorAll("button")).find(
+      el => el.textContent.includes("Clear History")
+    )
+    expect(clearBtn).toBeDefined()
+
+    // Mock subsequent fetch returning empty
+    dataLib.fetchPaginatedPurchases.mockResolvedValueOnce({
+      data: [],
+      pagination: { page: 1, limit: 25, total: 0, totalPages: 1 },
+      stats: { totalSpent: 0, totalPurchases: 0, availableMonths: [] }
+    })
+
+    await act(async () => {
+      clearBtn.click()
+    })
+
+    expect(dataLib.clearAllPurchasesFromServer).toHaveBeenCalled()
+    expect(mockSetExpenses).toHaveBeenCalledWith([
+      { id: "exp-2", description: "Electricity", source: "manual", amount: 20000 }
+    ])
+    expect(dataLib.saveExpenses).toHaveBeenCalledWith([
+      { id: "exp-2", description: "Electricity", source: "manual", amount: 20000 }
+    ])
   })
 })

@@ -159,7 +159,7 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
   "accessoriesDescription": "describe all decorations, toppings, extras visible",
   "photoNotes": "one sentence summary for the record"
 }`}
-      ]}],"You analyze cake photos for bookkeeping. Return valid JSON only, no markdown.")
+      ]}], "You analyze cake photos for bookkeeping. Return valid JSON only, no markdown.", 800, { creditCost: 2, feature: "photo_reader" })
       const r=JSON.parse(raw.replace(/```json|```/g,"").trim())
       setAiObs(r)
       // Auto-fill fields
@@ -221,24 +221,25 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
           {photo?<img src={photo} alt="cake" style={{maxHeight:180,maxWidth:"100%",borderRadius:8}}/>:<div style={{display:"flex",flexDirection:"column",alignItems:"center"}}><Camera size={32} color="var(--muted)" style={{marginBottom:6}}/><div style={{fontSize:13,color:"var(--muted)"}}>Tap to upload cake photo</div></div>}
         </div>
         <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
-        {photo&&!aiObs&&!aiLoading&&<Btn full onClick={analyzePhoto}><Sparkles size={14} /> Let AI Read This Photo <span style={{ fontSize: 11, opacity: 0.85 }}>(0.7 tokens)</span></Btn>}
+        {photo&&!aiObs&&!aiLoading&&<Btn full onClick={analyzePhoto}><Sparkles size={14} /> Let AI Read This Photo <span style={{ fontSize: 11, opacity: 0.85 }}>(2 credits)</span></Btn>}
         {aiLoading&&<div style={{textAlign:"center",padding:"10px",color:"var(--muted)",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Sparkles size={14} /> AI is reading the photo...</div>}
-        {aiMsg&&<div style={{marginTop:8,padding:"8px 12px",background:aiMsg.isError?(aiMsg.text.toLowerCase().includes("token")?"#FFF4E5":"#FDEBE9"):"#EEF8F3",borderRadius:8,fontSize:12.5,color:aiMsg.isError?(aiMsg.text.toLowerCase().includes("token")?"#92400E":"#B03A2E"):"#357A52",lineHeight:1.5,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+        {aiMsg&&<div style={{marginTop:8,padding:"8px 12px",background:aiMsg.isError?((aiMsg.text.toLowerCase().includes("credit")||aiMsg.text.toLowerCase().includes("token"))?"#FFF4E5":"#FDEBE9"):"#EEF8F3",borderRadius:8,fontSize:12.5,color:aiMsg.isError?((aiMsg.text.toLowerCase().includes("credit")||aiMsg.text.toLowerCase().includes("token"))?"#92400E":"#B03A2E"):"#357A52",lineHeight:1.5,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
             {aiMsg.isError?<AlertTriangle size={14}/>:<Check size={14}/>} {aiMsg.text}
           </div>
-          {aiMsg.isError&&aiMsg.text.toLowerCase().includes("token")&&(
+          {aiMsg.isError&&(aiMsg.text.toLowerCase().includes("credit")||aiMsg.text.toLowerCase().includes("token"))&&(
             <button
               type="button"
               onClick={() => {
                 if (typeof window !== "undefined") {
-                  window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
-                  window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 0.7 } }))
+                  window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+                  window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+                  window.dispatchEvent(new CustomEvent("layerledger:insufficient-credits", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
                 }
               }}
               style={{ background: "var(--gold)", color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
             >
-              Buy Tokens
+              Buy Credits
             </button>
           )}
         </div>}

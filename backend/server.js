@@ -95,7 +95,7 @@ app.use((err, req, res, _next) => {
 });
 
 // Process crash prevention for transient network / database drops
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason, _promise) => {
     console.warn('Unhandled Rejection caught (preventing crash):', reason?.message || reason);
 });
 

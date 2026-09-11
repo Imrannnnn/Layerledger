@@ -8,9 +8,10 @@ import React, { useState, useEffect, useMemo } from "react"
 import { Btn, Card, Badge, SHead, Tabs, TH, TR2, iSt, Pagination } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { updateProdStatus } from "../../lib/data.js"
-import { Check } from "lucide-react"
+import { Check, Download } from "lucide-react"
+import { exportRecordsPDF } from "../../lib/pdfReportGenerator.js"
 
-export function Records({ productions, setProductions, setView, setPrefillProd, user }) {
+export function Records({ productions, setProductions, setView, setPrefillProd, user, company = {} }) {
   const [clientSearch, setClientSearch] = useState("")
   const [productType, setProductType] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -70,7 +71,17 @@ export function Records({ productions, setProductions, setView, setPrefillProd, 
 
   return (
     <div>
-      <SHead title="Order History" sub={`${productions.length} total confirmed orders`} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+        <SHead title="Order History" sub={`${productions.length} total confirmed orders`} style={{ marginBottom: 0 }} />
+        <Btn
+          small
+          variant="outline"
+          onClick={() => exportRecordsPDF(filtered, company)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+        >
+          <Download size={13} /> Download PDF ({filtered.length})
+        </Btn>
+      </div>
 
       {/* Advanced Filter Bar */}
       <Card style={{ marginBottom: 16, padding: "14px 16px" }}>

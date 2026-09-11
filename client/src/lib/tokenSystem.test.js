@@ -29,54 +29,55 @@ describe("AI Token System Unit Tests", () => {
     container = null
   })
 
-  test("callClaude throws error and emits layerledger:insufficient-tokens if local token balance < 0.7", async () => {
+  test("callClaude throws error and emits layerledger:insufficient-credits if local credit balance < 2", async () => {
     dataLib.saveLocal("ll_tenant_info", { tokenBalance: 0.4 })
 
     const eventListener = jest.fn()
-    window.addEventListener("layerledger:insufficient-tokens", eventListener)
+    window.addEventListener("layerledger:insufficient-credits", eventListener)
 
     await expect(callClaude([{ role: "user", content: "Hi" }])).rejects.toThrow(
-      /Insufficient tokens/i
+      /Insufficient credits|Insufficient tokens/i
     )
 
     expect(eventListener).toHaveBeenCalled()
     expect(global.fetch).not.toHaveBeenCalled()
-    window.removeEventListener("layerledger:insufficient-tokens", eventListener)
+    window.removeEventListener("layerledger:insufficient-credits", eventListener)
   })
 
-  test("callClaude emits layerledger:insufficient-tokens when server responds with 402 INSUFFICIENT_TOKENS", async () => {
+  test("callClaude emits layerledger:insufficient-credits when server responds with 402 INSUFFICIENT_CREDITS", async () => {
     dataLib.saveLocal("ll_tenant_info", { tokenBalance: 5.0 })
 
     global.fetch.mockResolvedValueOnce({
       ok: false,
       status: 402,
       text: async () => JSON.stringify({
-        code: "INSUFFICIENT_TOKENS",
-        message: "You need at least 0.7 tokens to use this AI feature.",
-        currentBalance: 0.2
+        code: "INSUFFICIENT_CREDITS",
+        message: "You need at least 2 credits to use this AI feature.",
+        currentBalance: 0.2,
+        requiredCredits: 2
       })
     })
 
     const eventListener = jest.fn()
-    window.addEventListener("layerledger:insufficient-tokens", eventListener)
+    window.addEventListener("layerledger:insufficient-credits", eventListener)
 
     await expect(callClaude([{ role: "user", content: "Hi" }])).rejects.toThrow(
-      /at least 0.7 tokens|Insufficient tokens/i
+      /at least 2 credits|Insufficient/i
     )
 
     expect(eventListener).toHaveBeenCalledWith(
       expect.objectContaining({
         detail: expect.objectContaining({
           currentBalance: 0.2,
-          requiredTokens: 0.7
+          requiredCredits: 2
         })
       })
     )
 
-    window.removeEventListener("layerledger:insufficient-tokens", eventListener)
+    window.removeEventListener("layerledger:insufficient-credits", eventListener)
   })
 
-  test("callClaude emits layerledger:token-updated with newBalance when AI call succeeds", async () => {
+  test("callClaude emits layerledger:credit-updated with newBalance when AI call succeeds", async () => {
     dataLib.saveLocal("ll_tenant_info", { tokenBalance: 10.0 })
 
     global.fetch.mockResolvedValueOnce({
@@ -85,31 +86,32 @@ describe("AI Token System Unit Tests", () => {
       text: async () => JSON.stringify({
         content: [{ type: "text", text: "AI answer" }],
         tokenUsage: {
-          tokensDeducted: 0.7,
-          newBalance: 9.3
+          creditsDeducted: 2,
+          tokensDeducted: 2,
+          newBalance: 8.0
         }
       })
     })
 
-    const tokenUpdatedListener = jest.fn()
-    window.addEventListener("layerledger:token-updated", tokenUpdatedListener)
+    const creditUpdatedListener = jest.fn()
+    window.addEventListener("layerledger:credit-updated", creditUpdatedListener)
 
     const result = await callClaude([{ role: "user", content: "Hi" }])
     expect(result).toBe("AI answer")
 
-    expect(tokenUpdatedListener).toHaveBeenCalledWith(
+    expect(creditUpdatedListener).toHaveBeenCalledWith(
       expect.objectContaining({
         detail: expect.objectContaining({
-          tokenBalance: 9.3,
-          tokensDeducted: 0.7
+          tokenBalance: 8.0,
+          creditsDeducted: 2
         })
       })
     )
 
     const updatedTenant = dataLib.loadLocal("ll_tenant_info", null)
-    expect(updatedTenant.tokenBalance).toBe(9.3)
+    expect(updatedTenant.tokenBalance).toBe(8.0)
 
-    window.removeEventListener("layerledger:token-updated", tokenUpdatedListener)
+    window.removeEventListener("layerledger:credit-updated", creditUpdatedListener)
   })
 
   test("TokenPurchaseModal displays insufficient warning and packages when open", () => {
@@ -120,18 +122,18 @@ describe("AI Token System Unit Tests", () => {
           onClose={jest.fn()}
           currentBalance={0.3}
           isInsufficient={true}
-          requiredTokens={0.7}
+          requiredCredits={2}
           company={{ name: "Sweet Treats Bakery", phone: "08012345678" }}
         />
       )
     })
 
-    expect(container.textContent).toContain("AI Feature Tokens")
-    expect(container.textContent).toContain("Insufficient Token Balance:")
-    expect(container.textContent).toContain("0.3 tokens")
+    expect(container.textContent).toContain("AI Feature Credits")
+    expect(container.textContent).toContain("Insufficient Credit Balance:")
+    expect(container.textContent).toContain("0.3 credits")
     expect(container.textContent).toContain("Starter Pack")
     expect(container.textContent).toContain("Baker Pro Pack")
     expect(container.textContent).toContain("Commercial Bakery Pack")
-    expect(container.textContent).toContain("0.7 tokens")
+    expect(container.textContent).toContain("2 credits")
   })
 })

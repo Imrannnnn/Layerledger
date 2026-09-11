@@ -79,7 +79,7 @@ const createItem = asyncHandler(async (req, res) => {
                 cost: parsedCost,
                 stock: parsedStock,
                 totalValueOnHand: openingValue,
-                minStock: minStock || 0
+                minStock: minStock !== undefined && !isNaN(parseFloat(minStock)) ? parseFloat(minStock) : 0
             }
         });
 
@@ -137,7 +137,7 @@ const updateItem = asyncHandler(async (req, res) => {
                 cost: newCost,
                 stock: newStock,
                 totalValueOnHand: newValue,
-                minStock: minStock !== undefined ? parseInt(minStock) : undefined
+                minStock: minStock !== undefined && !isNaN(parseFloat(minStock)) ? parseFloat(minStock) : undefined
             }
         });
 

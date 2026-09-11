@@ -16,9 +16,10 @@ import {
   loadLocal,
   calculateOrderUsages
 } from "../../lib/data.js"
-import { PackageCheck, AlertTriangle, Lock, Unlock, Plus, Upload, Trash2, Search, Edit3, Check, Calculator, RefreshCw } from "lucide-react"
+import { PackageCheck, AlertTriangle, Lock, Unlock, Plus, Upload, Trash2, Search, Edit3, Check, Calculator, RefreshCw, Download } from "lucide-react"
+import { exportOpeningStockPDF } from "../../lib/pdfReportGenerator.js"
 
-export function OpeningStock({ inventory, setInventory, user }) {
+export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const currentMonthStr = new Date().toISOString().slice(0, 7)
   const curMonthName = new Date().toLocaleDateString("en-NG", { month: "long", year: "numeric" })
 
@@ -603,6 +604,14 @@ export function OpeningStock({ inventory, setInventory, user }) {
 
           {/* Action buttons */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <Btn
+              small
+              variant="outline"
+              onClick={() => exportOpeningStockPDF(items, currentMonthStr, totalVal, company)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <Download size={13} /> Download PDF
+            </Btn>
             <Btn small onClick={() => setAddingItem(true)}>
               <Plus size={13} /> Add Item
             </Btn>

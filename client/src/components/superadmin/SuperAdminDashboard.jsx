@@ -126,7 +126,7 @@ export function SuperAdminDashboard() {
     e.preventDefault()
     if (!adjustingTenant) return
     const amt = parseFloat(tokenAmount)
-    if (isNaN(amt)) return alert("Please enter a valid number of tokens")
+    if (isNaN(amt)) return alert("Please enter a valid number of credits")
 
     try {
       const res = await fetch(`${apiUrl}/api/superadmin/tenants/${adjustingTenant.id}/tokens`, {
@@ -137,12 +137,12 @@ export function SuperAdminDashboard() {
         },
         body: JSON.stringify({ amount: amt, description: adjustmentDesc })
       })
-      if (!res.ok) throw new Error("Could not adjust tokens")
+      if (!res.ok) throw new Error("Could not adjust credits")
       setRefreshTrigger(p => p + 1)
       setAdjustingTenant(null)
       setTokenAmount("")
       setAdjustmentDesc("")
-      alert("Tokens adjusted successfully.")
+      alert("Credits adjusted successfully.")
     } catch (err) {
       alert(err.message)
     }
@@ -277,7 +277,7 @@ export function SuperAdminDashboard() {
                   <th style={{ textAlign: "left", padding: "10px 14px", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Business Details</th>
                   <th style={{ textAlign: "left", padding: "10px 14px", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Registered</th>
                   <th style={{ textAlign: "left", padding: "10px 14px", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Plan</th>
-                  <th style={{ textAlign: "left", padding: "10px 14px", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Token Bal</th>
+                  <th style={{ textAlign: "left", padding: "10px 14px", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Credit Bal</th>
                   <th style={{ textAlign: "left", padding: "10px 14px", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Last Active</th>
                   <th style={{ textAlign: "left", padding: "10px 14px", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Status</th>
                   <th style={{ textAlign: "right", padding: "10px 14px", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Actions</th>
@@ -304,7 +304,7 @@ export function SuperAdminDashboard() {
                       </td>
                       <td style={{ padding: "12px 14px", textAlign: "right" }}>
                         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                          <Btn small variant="outline" onClick={() => setAdjustingTenant(t)}>🪙 Tokens</Btn>
+                          <Btn small variant="outline" onClick={() => setAdjustingTenant(t)}>🪙 Credits</Btn>
                           <Btn
                             small
                             variant={t.status === "Active" ? "warning" : "success"}
@@ -343,15 +343,15 @@ export function SuperAdminDashboard() {
         </Card>
       )}
 
-      {/* Adjust Tokens Modal */}
+      {/* Adjust Credits Modal */}
       {adjustingTenant && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <Card style={{ width: "100%", maxWidth: 400, padding: 24 }}>
             <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
-              Adjust Tokens: {adjustingTenant.name}
+              Adjust Credits: {adjustingTenant.name}
             </div>
             <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
-              Current token balance: <strong>{adjustingTenant.tokenBalance}</strong>
+              Current credit balance: <strong>{adjustingTenant.tokenBalance}</strong>
             </p>
             <form onSubmit={adjustTokens} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <Inp

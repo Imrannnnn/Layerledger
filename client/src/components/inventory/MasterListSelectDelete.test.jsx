@@ -24,10 +24,10 @@ jest.mock("../common/ui.jsx", () => {
     Btn: ({ children, onClick, disabled, variant }) => (
       <button onClick={onClick} disabled={disabled} data-variant={variant}>{children}</button>
     ),
-    Inp: ({ label, value, onChange, type }) => (
+    Inp: ({ label, value, onChange, type, placeholder, step, min, max }) => (
       <div>
         <label>{label}</label>
-        <input type={type} value={value || ""} onChange={e => onChange(e.target.value)} />
+        <input type={type} value={value || ""} onChange={e => onChange(e.target.value)} placeholder={placeholder} step={step} min={min} max={max} />
       </div>
     ),
     Sel: ({ label, value, onChange, options }) => (
@@ -210,4 +210,117 @@ describe("Multi-Item Select and Delete Tests", () => {
     expect(window.confirm).toHaveBeenCalled()
     expect(dataLib.saveLocal).toHaveBeenCalledWith("ll_quote_invoices", [])
   })
+
+  it("should render category filter pills and filter inventory when clicked", async () => {
+    const mockInventory = [
+      { id: "i-1", name: "Flour", cat: "Dry Goods", unit: "kg", cost: 1000, stock: 10 },
+      { id: "i-2", name: "Sugar", cat: "Dry Goods", unit: "kg", cost: 800, stock: 15 },
+      { id: "i-3", name: "Milk", cat: "Dairy and Fats", unit: "L", cost: 1200, stock: 5 },
+      { id: "i-4", name: "Vanilla Extract", cat: "Flavours and Extracts", unit: "btl", cost: 2500, stock: 3 }
+    ]
+    const mockSetInventory = jest.fn()
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <InventoryTab
+          inventory={mockInventory}
+          setInventory={mockSetInventory}
+          isOwner={true}
+          searchQuery=""
+        />
+      )
+    })
+
+    // Category pills should be present
+    expect(container.textContent).toContain("All Categories")
+    expect(container.textContent).toContain("Dry Goods")
+    expect(container.textContent).toContain("Dairy and Fats")
+    expect(container.textContent).toContain("Flavours and Extracts")
+    // Empty categories such as "Board and Packaging" should not be rendered in the category accordions
+    expect(container.textContent).not.toContain("Board and Packaging (0 items)")
+
+    // Initially displays Flour, Sugar, Milk, Vanilla
+    expect(container.textContent).toContain("Flour")
+    expect(container.textContent).toContain("Milk")
+
+    // Find the "Dairy and Fats" pill button
+    const dairyPill = Array.from(container.querySelectorAll("button")).find(
+      btn => btn.textContent.includes("Dairy and Fats")
+    )
+    expect(dairyPill).toBeDefined()
+
+    // Click "Dairy and Fats"
+    await act(async () => {
+      dairyPill.click()
+    })
+
+    // Now only Milk should be displayed in table; Flour and Vanilla should be hidden
+    const tableText = container.querySelector("table").textContent
+    expect(tableText).toContain("Milk")
+    expect(tableText).not.toContain("Flour")
+    expect(tableText).not.toContain("Vanilla Extract")
+
+    // Reset button should be visible
+    const resetBtn = Array.from(container.querySelectorAll("button")).find(
+      btn => btn.textContent.includes("Reset to All Categories")
+    )
+    expect(resetBtn).toBeDefined()
+
+    // Click Reset
+    await act(async () => {
+      resetBtn.click()
+    })
+
+    // All items should be back
+    expect(container.textContent).toContain("Flour")
+    expect(container.textContent).toContain("Milk")
+    expect(container.textContent).toContain("Vanilla Extract")
+  })
+
+  it("should support decimal min alert (minStock) values such as 0.5", async () => {
+    const mockInventory = [
+      { id: "i-dec-1", name: "Saffron", cat: "Flavours and Extracts", unit: "g", cost: 15000, stock: 0.2, minStock: 0.5 },
+      { id: "i-dec-2", name: "Vanilla Extract", cat: "Flavours and Extracts", unit: "L", cost: 25000, stock: 1.2, minStock: 0.5 }
+    ]
+    const mockSetInventory = jest.fn()
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <InventoryTab
+          inventory={mockInventory}
+          setInventory={mockSetInventory}
+          isOwner={true}
+          searchQuery=""
+        />
+      )
+    })
+
+    // Both items should show 0.5 as their min alert level
+    expect(container.textContent).toContain("0.5 g")
+    expect(container.textContent).toContain("0.5 L")
+
+    // Saffron has 0.2 stock with 0.5 minStock -> should trigger Low stock
+    expect(container.textContent).toContain("Low stock")
+
+    // Click "+ Add Item"
+    const addBtn = Array.from(container.querySelectorAll("button")).find(
+      btn => btn.textContent.includes("+ Add Item")
+    )
+    expect(addBtn).toBeDefined()
+
+    await act(async () => {
+      addBtn.click()
+    })
+
+    // Verify Min Alert input is available and accepts decimal values
+    const minAlertInp = Array.from(container.querySelectorAll("input")).find(
+      inp => inp.getAttribute("placeholder") === "e.g. 0.5"
+    )
+    expect(minAlertInp).toBeDefined()
+    expect(minAlertInp.getAttribute("step")).toBe("any")
+  })
 })
+
+

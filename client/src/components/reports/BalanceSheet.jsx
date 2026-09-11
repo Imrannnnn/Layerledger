@@ -10,7 +10,8 @@ import { Btn, iSt, Card, SHead } from "../common/ui.jsx"
 import { fmt, today } from "../../lib/helpers.js"
 import { mergeRevenueSources, loadOpeningBalance, PLRow } from "../../lib/costing.jsx"
 import { saveLocal, loadLocal } from "../../lib/data.js"
-import { Lightbulb, Check, AlertTriangle } from "lucide-react"
+import { Lightbulb, Check, AlertTriangle, Download } from "lucide-react"
+import { exportBalanceSheetPDF } from "../../lib/pdfReportGenerator.js"
 
 export function BalanceSheet({productions,expenses,inventory,transactions,company}){
   const ob=loadOpeningBalance()
@@ -71,7 +72,29 @@ export function BalanceSheet({productions,expenses,inventory,transactions,compan
 
   return <div>
     <SHead title="Balance Sheet" sub={"As at "+new Date().toLocaleDateString("en-NG",{day:"numeric",month:"long",year:"numeric"})}/>
-    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+    <div style={{display:"flex",justifyContent:"flex-end",gap:8,alignItems:"center",marginBottom:12}}>
+      <Btn
+        small
+        variant="outline"
+        onClick={() => exportBalanceSheetPDF({
+          asOf: ob?.asOf,
+          cash,
+          inventoryValue,
+          receivables,
+          obEquip,
+          totalAssets,
+          payables,
+          obLoan,
+          totalLiabilities,
+          obCapital,
+          retainedEarnings,
+          totalEquity,
+          balanced
+        }, company)}
+        style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+      >
+        <Download size={13} /> Download PDF
+      </Btn>
       <Btn small variant="ghost" onClick={()=>{setOb2(ob||{cash:"",equipment:"",capital:"",loanBalance:"",asOf:today()});setEditing(true)}}>Edit opening balances</Btn>
     </div>
 

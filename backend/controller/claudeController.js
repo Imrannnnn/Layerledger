@@ -1,7 +1,8 @@
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
 
-const TOKEN_COST_PER_AI_REQUEST = 0.7;
+const DEFAULT_RECEIPT_SCANNER_CREDIT_COST = 2;
+const DEFAULT_BANK_STATEMENT_CREDIT_COST = 5;
 
 /**
  * @desc    Proxy request to Anthropic Claude API using server-side key
@@ -9,16 +10,21 @@ const TOKEN_COST_PER_AI_REQUEST = 0.7;
  * @access  Private
  */
 const handleClaudeProxy = asyncHandler(async (req, res) => {
-    const { messages, system, model, max_tokens } = req.body;
+    const { messages, system, model, max_tokens, creditCost, feature } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
         res.status(400);
         throw new Error("Messages array is required.");
     }
 
+    const requestedCost = Number(creditCost);
+    const cost = !isNaN(requestedCost) && requestedCost > 0
+        ? requestedCost
+        : (feature === 'bank_statement' ? DEFAULT_BANK_STATEMENT_CREDIT_COST : DEFAULT_RECEIPT_SCANNER_CREDIT_COST);
+
     const tenantId = req.user?.tenantId;
 
-    // 1. Enforce Token Balance Check if tenant is present
+    // 1. Enforce Credit Balance Check if tenant is present
     if (tenantId) {
         const tenant = await prisma.tenant.findUnique({
             where: { id: tenantId },
@@ -31,13 +37,14 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
         }
 
         const balance = tenant.tokenBalance || 0;
-        if (balance < TOKEN_COST_PER_AI_REQUEST) {
+        if (balance < cost) {
             return res.status(402).json({
-                error: "Insufficient tokens",
-                code: "INSUFFICIENT_TOKENS",
-                message: `You need at least ${TOKEN_COST_PER_AI_REQUEST} tokens to use this AI feature. You currently have ${balance.toFixed(1)} token${balance === 1 ? '' : 's'}. Please buy tokens to continue.`,
+                error: "Insufficient credits",
+                code: "INSUFFICIENT_CREDITS",
+                message: `You need at least ${cost} credit${cost === 1 ? '' : 's'} to use this AI feature. You currently have ${balance.toFixed(1)} credit${balance === 1 ? '' : 's'}. Please top up credits to continue.`,
                 currentBalance: balance,
-                requiredTokens: TOKEN_COST_PER_AI_REQUEST
+                requiredCredits: cost,
+                requiredTokens: cost
             });
         }
     }
@@ -100,7 +107,7 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
                 throw new Error(`Invalid JSON response from Anthropic API: ${responseText.substring(0, 200)}`);
             }
 
-            // 2. Successful AI response — atomically deduct 0.7 tokens & record transaction
+            // 2. Successful AI response — atomically deduct credits & record transaction
             let newBalance = null;
             if (tenantId) {
                 try {
@@ -109,7 +116,7 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
                             where: { id: tenantId },
                             data: {
                                 tokenBalance: {
-                                    decrement: TOKEN_COST_PER_AI_REQUEST
+                                    decrement: cost
                                 }
                             },
                             select: { tokenBalance: true }
@@ -118,9 +125,9 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
                         await tx.tokenTransaction.create({
                             data: {
                                 tenantId,
-                                amount: -TOKEN_COST_PER_AI_REQUEST,
+                                amount: -cost,
                                 type: "ai_usage",
-                                description: `AI feature usage (${TOKEN_COST_PER_AI_REQUEST} tokens deducted)`
+                                description: `AI feature usage (${cost} credit${cost === 1 ? '' : 's'} deducted)`
                             }
                         });
 
@@ -128,7 +135,7 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
                     });
                     newBalance = Math.round(txResult.tokenBalance * 100) / 100;
                 } catch (txErr) {
-                    console.error("Token deduction error after successful AI call:", txErr);
+                    console.error("Credit deduction error after successful AI call:", txErr);
                 }
             }
 
@@ -139,7 +146,8 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
             return res.json({
                 ...data,
                 tokenUsage: {
-                    tokensDeducted: TOKEN_COST_PER_AI_REQUEST,
+                    creditsDeducted: cost,
+                    tokensDeducted: cost,
                     newBalance: newBalance
                 }
             });

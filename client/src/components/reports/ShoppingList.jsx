@@ -14,14 +14,16 @@ export function ShoppingList({ inventory, setInventory, company }) {
   const [done, setDone] = useState(false)
 
 
+  const getMinStock = (i) => (i?.minStock !== undefined && i?.minStock !== null && i?.minStock !== "" && !isNaN(Number(i.minStock)) ? Number(i.minStock) : 5)
+
   // An ingredient appears on this list when its current stock level falls below its minimum stock level.
-  const low = inventory.filter(i => i.stock <= (i.minStock || 5))
-  const zero = inventory.filter(i => i.stock === 0)
+  const low = inventory.filter(i => (Number(i.stock) || 0) <= getMinStock(i))
+  const zero = inventory.filter(i => (Number(i.stock) || 0) === 0)
 
   // Calculate suggested restock quantity: minimum level minus current level
   const getRestockQty = (item) => {
-    const min = item.minStock || 5
-    return Math.max(0, parseFloat((min - item.stock).toFixed(3)))
+    const min = getMinStock(item)
+    return Math.max(0, parseFloat((min - (Number(item.stock) || 0)).toFixed(3)))
   }
 
   // Calculate estimated restock cost based on the last recorded purchase price
@@ -47,8 +49,8 @@ export function ShoppingList({ inventory, setInventory, company }) {
     if (!confirm("Are you sure you want to mark all low-stock items as purchased?")) return
     const updated = inventory.map(i => {
       const need = getRestockQty(i)
-      if (need > 0 && i.stock <= (i.minStock || 5)) {
-        return { ...i, stock: parseFloat((i.stock + need).toFixed(3)) }
+      if (need > 0 && (Number(i.stock) || 0) <= getMinStock(i)) {
+        return { ...i, stock: parseFloat(((Number(i.stock) || 0) + need).toFixed(3)) }
       }
       return i
     })
@@ -101,7 +103,7 @@ export function ShoppingList({ inventory, setInventory, company }) {
               <td><strong>${i.name}</strong> ${i.stock === 0 ? "*(OUT)*" : ""}</td>
               <td>${mapCategory(i.cat)}</td>
               <td>${i.stock} ${i.unit}</td>
-              <td>${i.minStock || 5} ${i.unit}</td>
+              <td>${getMinStock(i)} ${i.unit}</td>
               <td><strong>${need} ${i.unit}</strong></td>
               <td>₦${Math.round(estCost).toLocaleString()}</td>
             </tr>
@@ -160,7 +162,7 @@ export function ShoppingList({ inventory, setInventory, company }) {
                         <span style={{ fontSize: 10, background: "#FAF7F0", color: "var(--muted)", padding: "1px 6px", borderRadius: 4 }}>{mapCategory(i.cat)}</span>
                       </div>
                       <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                        Current: <strong>{i.stock} {i.unit}</strong> | Min level: <strong>{i.minStock || 5} {i.unit}</strong>
+                        Current: <strong>{i.stock} {i.unit}</strong> | Min level: <strong>{getMinStock(i)} {i.unit}</strong>
                       </div>
                       <div style={{ fontSize: 12.5, color: "var(--gold)", fontWeight: 600, marginTop: 4 }}>
                         Suggested to buy: {need} {i.unit} (Est. cost: {fmt(estCost)})
@@ -189,10 +191,10 @@ export function ShoppingList({ inventory, setInventory, company }) {
           <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 14 }}>Full Inventory Status</div>
           <div style={{ overflowY: "auto", maxHeight: 480, paddingRight: 6 }}>
             {inventory.map(i => {
-              const min = i.minStock || 5
+              const min = getMinStock(i)
               const max = min * 3
-              const pct = Math.min(100, (i.stock / max) * 100)
-              const isLow = i.stock <= min
+              const pct = Math.min(100, (((Number(i.stock) || 0) / (max || 1))) * 100)
+              const isLow = (Number(i.stock) || 0) <= min
               return (
                 <div key={i.id} style={{ marginBottom: 10 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>

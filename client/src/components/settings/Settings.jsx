@@ -327,7 +327,7 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
 
   const tabList = [
     { v: "company", l: "Company" },
-    { v: "tokens", l: "AI Tokens & Usage" },
+    { v: "tokens", l: "AI Credits & Usage" },
     { v: "pricing", l: "Pricing & Margins" },
     { v: "stock", l: "Opening Stock" },
     { v: "notifications", l: "Notifications" }
@@ -468,7 +468,7 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
           }}>Test Connection</Btn>
           <Btn variant="outline" onClick={() => setTab("tokens")} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
             <Coins size={13} color="var(--gold)" />
-            <span>Manage Tokens & Usage</span>
+            <span>Manage Credits & Usage</span>
           </Btn>
         </div>
       </Card>
@@ -506,7 +506,7 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
 
     {tab === "pricing" && <PricingSetup settings={settings} setSetting={st} />}
 
-    {tab === "stock" && <OpeningStock inventory={inventory} setInventory={setInventory} user={user} />}
+    {tab === "stock" && <OpeningStock inventory={inventory} setInventory={setInventory} user={user} company={company} />}
     {tab === "notifications" && <NotificationSettings />}
 
     {tab === "users" && <div>

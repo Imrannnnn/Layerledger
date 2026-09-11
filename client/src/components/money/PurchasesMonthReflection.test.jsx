@@ -17,6 +17,7 @@ jest.mock("../../lib/data.js", () => ({
   loadLocal: jest.fn().mockImplementation((key, fallback) => fallback),
   deletePurchaseFromServer: jest.fn().mockResolvedValue(true),
   deletePurchasesFromServer: jest.fn().mockResolvedValue(true),
+  clearAllPurchasesFromServer: jest.fn().mockResolvedValue(true),
   loadAliases: jest.fn().mockImplementation((fallback) => fallback || {}),
   saveAliases: jest.fn().mockResolvedValue(true)
 }))

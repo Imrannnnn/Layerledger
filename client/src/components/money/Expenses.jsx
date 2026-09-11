@@ -10,9 +10,10 @@ import { Btn, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, iSt, Spinner, Paginat
 import { fmt, uid, today, formatDateDMY, isDateInMonth } from "../../lib/helpers.js"
 import { EXP_CATS } from "../../constants.js"
 import { saveExpenses } from "../../lib/data.js"
-import { Lightbulb, Trash2, Zap, Pencil, Check, X } from "lucide-react"
+import { Lightbulb, Trash2, Zap, Pencil, Check, X, Download } from "lucide-react"
+import { exportExpensesPDF } from "../../lib/pdfReportGenerator.js"
 
-export function Expenses({ expenses, setExpenses, isOwner }) {
+export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
   const [tab, setTab] = useState("monthly")
   const [adding, setAdding] = useState(false)
   const [editingRows, setEditingRows] = useState({}) // { [id]: editData }
@@ -324,7 +325,15 @@ export function Expenses({ expenses, setExpenses, isOwner }) {
             </select>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <Btn
+            small
+            variant="outline"
+            onClick={() => exportExpensesPDF(expenses, selectedMonth, company)}
+            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+          >
+            <Download size={13} /> Download PDF
+          </Btn>
           {isOwner && (
             deletingAll ? (
               <Spinner />
