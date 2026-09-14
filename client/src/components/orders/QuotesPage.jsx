@@ -12,7 +12,7 @@ import { fmt, uid, parseSpecialDate } from "../../lib/helpers.js"
 import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal, calculateOrderUsages, updateInventoryItemOnServer } from "../../lib/data.js"
 import { DEFAULT_MULTS } from "../../constants.js"
 import { Invoices } from "./Invoices.jsx"
-import { ChevronUp, ChevronDown, Clock, Check, CreditCard, Pencil, Receipt, AlertTriangle, MessageSquare, Cake, Heart } from "lucide-react"
+import { ChevronUp, ChevronDown, Clock, Check, CreditCard, Pencil, Receipt, AlertTriangle, MessageSquare, Cake, Heart, Calendar } from "lucide-react"
 
 const QUOTE_STATUSES = [
   { v: "pending", l: "Pending", c: "#BA7517", bg: "#FAEEDA" },

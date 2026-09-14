@@ -707,28 +707,32 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
 
   const getMult = (size, shape) => {
     if (!size || !shape) return 0
-    const key = `${String(size).replace('"', '')}-${shape.toLowerCase()}`
+    const key = `${String(size).replace(/"/g, '').trim()}-${String(shape).trim().toLowerCase()}`
     return mults[key] || 1
   }
 
   const layerCost = (flavour, size, shape) => {
-    const r = recipes.find(x => x.name.toLowerCase().includes(flavour.toLowerCase()))
+    if (!flavour || typeof flavour !== "string" || !flavour.trim()) return 0
+    const r = recipes.find(x => x.name.toLowerCase() === flavour.trim().toLowerCase()) ||
+              recipes.find(x => x.name.toLowerCase().includes(flavour.trim().toLowerCase()))
     if (!r) return 0
-    const base = r.ing.reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it ? it.cost * ing.qty : 0) }, 0)
+    const base = (r.ing || []).reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it ? (Number(it.cost) || 0) * (Number(ing.qty) || 0) : 0) }, 0)
     return base * getMult(size, shape)
   }
 
   const FALLBACK_CPK = { "Buttercream": 3500, "Fondant": 7500, "Drip": 4000, "Ganache": 5000, "Whipped Cream": 3000, "Mirror Glaze": 6000, "Jam": 2000, "Custard": 1800, "Cream Cheese": 4500 }
   const coverFillCost = (type, grams) => {
-    if (!grams || grams === 0) return 0
-    const r = recipes.find(x => (x.type === "covering" || !x.type) && x.name.toLowerCase().includes(type.toLowerCase()))
+    const numGrams = Number(grams) || 0
+    if (!type || typeof type !== "string" || !type.trim() || numGrams <= 0) return 0
+    const r = recipes.find(x => (x.type === "covering" || !x.type) && x.name.toLowerCase() === type.trim().toLowerCase()) ||
+              recipes.find(x => (x.type === "covering" || !x.type) && x.name.toLowerCase().includes(type.trim().toLowerCase()))
     if (r) {
-      const totalCost = r.ing.reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it ? it.cost * ing.qty : 0) }, 0)
-      const batchGrams = +(r.batchWeight) || r.ing.reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it?.unit === "kg" ? ing.qty * 1000 : it?.unit === "g" ? ing.qty : it?.unit === "L" || it?.unit === "l" ? ing.qty * 1000 : 0) }, 0)
-      if (batchGrams > 0) return (totalCost / batchGrams) * grams
+      const totalCost = (r.ing || []).reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it ? (Number(it.cost) || 0) * (Number(ing.qty) || 0) : 0) }, 0)
+      const batchGrams = +(r.batchWeight) || (r.ing || []).reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it?.unit === "kg" ? (Number(ing.qty) || 0) * 1000 : it?.unit === "g" ? (Number(ing.qty) || 0) : it?.unit === "L" || it?.unit === "l" ? (Number(ing.qty) || 0) * 1000 : 0) }, 0)
+      if (batchGrams > 0) return (totalCost / batchGrams) * numGrams
     }
     const cpk = FALLBACK_CPK[type] || 3000
-    return (cpk / 1000) * grams
+    return (cpk / 1000) * numGrams
   }
 
   const layerRecipes = recipes.filter(r => !r.type || r.type === "layer")
@@ -988,9 +992,9 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
 
   // Calculation helpers per item
   const tierCost = (tier) =>
-    tier.layers.reduce((s, l) => s + (l.flavour ? layerCost(l.flavour, tier.size, tier.shape) * (l.qty || 1) : 0), 0) +
-    tier.coverings.reduce((s, c) => s + coverFillCost(c.type, c.grams), 0) +
-    tier.fillings.reduce((s, f) => s + coverFillCost(f.type, f.grams), 0)
+    (tier.layers || []).reduce((s, l) => s + (l.flavour ? layerCost(l.flavour, tier.size, tier.shape) * (Number(l.qty) || 1) : 0), 0) +
+    (tier.coverings || []).reduce((s, c) => s + coverFillCost(c.type, Number(c.grams) || 0), 0) +
+    (tier.fillings || []).reduce((s, f) => s + coverFillCost(f.type, Number(f.grams) || 0), 0)
 
   const calcItemCost = (item) => {
     if (item.type === "cake") {
@@ -998,7 +1002,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       const dCost = decorations.reduce((s, d) => {
         const qty = item.decQty?.[d.id] || 0
         const it = inventory.find(x => x.id === d.iid)
-        return s + (it && qty ? it.cost * d.qty * qty : 0)
+        return s + (it && qty ? (Number(it.cost) || 0) * (Number(d.qty) || 0) * qty : 0)
       }, 0)
       const topCost = (+item.topper?.make || 0) + (+item.topper?.deliver || 0)
       const pkgCost = (item.accRows || []).reduce((s, r) => {
@@ -1020,7 +1024,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   }
 
   // Direct costs across all items
-  const subtotal = useMemo(() => items.reduce((sum, it) => sum + calcItemCost(it), [items, inventory, recipes, mults]), [items, inventory, recipes, mults])
+  const subtotal = useMemo(() => items.reduce((sum, it) => sum + calcItemCost(it), 0), [items, inventory, recipes, mults])
 
   const accessoryPct = settings.accessoryPct || 10
   const profitPct = margin
@@ -1040,13 +1044,37 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   const grandTotal = cakePrice + delivCharge + vatAmount
 
   // Individual item suggested / proportional price for quote summary display
-  const getItemPrice = (item) => {
-    if (orderPurpose === "gift" || orderPurpose === "sample") return 0
-    if (subtotal === 0) return 0
-    const iCost = calcItemCost(item)
-    const effectiveTotal = +salePrice || suggestedPrice
-    return Math.round((iCost / subtotal) * effectiveTotal)
-  }
+  const itemPrices = useMemo(() => {
+    if (orderPurpose === "gift" || orderPurpose === "sample") {
+      return items.reduce((acc, it) => { acc[it.id] = 0; return acc }, {})
+    }
+    const effectiveTotal = +salePrice || suggestedPrice || 0
+    if (items.length === 0 || effectiveTotal === 0) {
+      return items.reduce((acc, it) => { acc[it.id] = 0; return acc }, {})
+    }
+    if (items.length === 1) {
+      return { [items[0].id]: effectiveTotal }
+    }
+
+    const costs = items.map(it => calcItemCost(it))
+    const totalCostSum = costs.reduce((s, c) => s + c, 0)
+
+    let allocated = 0
+    const res = {}
+    items.forEach((it, idx) => {
+      if (idx === items.length - 1) {
+        res[it.id] = Math.max(0, effectiveTotal - allocated)
+      } else {
+        const ratio = totalCostSum > 0 ? (costs[idx] / totalCostSum) : (1 / items.length)
+        const price = Math.round(ratio * effectiveTotal)
+        allocated += price
+        res[it.id] = price
+      }
+    })
+    return res
+  }, [items, inventory, recipes, mults, salePrice, suggestedPrice, orderPurpose, subtotal])
+
+  const getItemPrice = (item) => itemPrices[item?.id] ?? 0
 
   // Helper to extract the primary inspiration thumbnail for an item
   const getItemThumb = (item) => {
@@ -1277,9 +1305,10 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                       <input
                         type="number"
                         min="1"
-                        value={l.qty || 1}
+                        value={l.qty === undefined ? 1 : l.qty}
                         onChange={e => {
-                          const val = Math.max(1, parseInt(e.target.value) || 1)
+                          const raw = e.target.value
+                          const val = raw === "" ? "" : Math.max(1, parseInt(raw) || 1)
                           updateItem(item.id, it => ({
                             ...it,
                             tiers: it.tiers.map(t => t.id === tier.id ? {
@@ -1288,11 +1317,22 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                             } : t)
                           }))
                         }}
+                        onBlur={() => {
+                          if (!l.qty || Number(l.qty) < 1) {
+                            updateItem(item.id, it => ({
+                              ...it,
+                              tiers: it.tiers.map(t => t.id === tier.id ? {
+                                ...t,
+                                layers: t.layers.map(layer => layer.id === l.id ? { ...layer, qty: 1 } : layer)
+                              } : t)
+                            }))
+                          }
+                        }}
                         style={{ ...iSt, width: 44, textAlign: "center", padding: "6px 2px" }}
                       />
                     </div>
                     <span style={{ fontSize: 11, color: "var(--gold)", whiteSpace: "nowrap" }}>
-                      {l.flavour ? fmt(layerCost(l.flavour, tier.size, tier.shape) * (l.qty || 1)) : ""}
+                      {l.flavour ? fmt(layerCost(l.flavour, tier.size, tier.shape) * (Number(l.qty) || 1)) : ""}
                     </span>
                     {tier.layers.length > 1 ? (
                       <button
@@ -1318,7 +1358,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                       ...it,
                       tiers: it.tiers.map(t => t.id === tier.id ? {
                         ...t,
-                        layers: [...t.layers, { id: uid2(), flavour: "", qty: 1 }]
+                        layers: [...t.layers, { id: uid2(), flavour: t.layers[t.layers.length - 1]?.flavour || "", qty: 1 }]
                       } : t)
                     }))
                   }}
@@ -1514,7 +1554,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                   id: uid2(),
                   size: "8",
                   shape: "Round",
-                  layers: [{ id: uid2(), flavour: "", qty: 1 }],
+                  layers: [{ id: uid2(), flavour: it.tiers[it.tiers.length - 1]?.layers?.[0]?.flavour || "", qty: 1 }],
                   coverings: [{ id: uid2(), type: "Buttercream", grams: 300 }],
                   fillings: [{ id: uid2(), type: "Buttercream", grams: 150 }],
                   photos: [],
@@ -2939,6 +2979,18 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     </div>
                   )
                 })}
+                {delivCharge > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", paddingTop: 5 }}>
+                    <span>Delivery</span>
+                    <span>{fmt(delivCharge)}</span>
+                  </div>
+                )}
+                {vatAmount > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", paddingTop: 3 }}>
+                    <span>VAT ({vatRate}%)</span>
+                    <span>{fmt(vatAmount)}</span>
+                  </div>
+                )}
                 <div
                   style={{
                     display: "flex",
@@ -2952,7 +3004,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 >
                   <span>Total (one invoice)</span>
                   <span style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: "var(--gold)" }}>
-                    {fmt(cakePrice)}
+                    {fmt(grandTotal)}
                   </span>
                 </div>
               </div>

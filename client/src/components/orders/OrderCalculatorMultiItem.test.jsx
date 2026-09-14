@@ -710,4 +710,144 @@ describe("OrderCalculator Multi-Item Tests", () => {
     expect(container.textContent).not.toContain("Item 1 — Cake")
     expect(container.textContent).toContain("No items added yet")
   })
+
+  it("should calculate suggested price and increment when adding layers and changing layer quantity", async () => {
+    // Start with 1 cake item configured with Red Velvet recipe
+    sessionStorage.setItem("ll_calc_prefill", JSON.stringify({
+      clientName: "Tunde Ade",
+      items: [
+        {
+          id: "cake-1",
+          type: "cake",
+          name: "Item 1 — Cake",
+          tiers: [
+            {
+              id: 1,
+              size: "10",
+              shape: "Round",
+              layers: [{ id: 101, flavour: "Red Velvet", qty: 1 }],
+              coverings: [{ id: 102, type: "Buttercream", grams: 400 }],
+              fillings: [{ id: 103, type: "Buttercream", grams: 200 }]
+            }
+          ],
+          decQty: {},
+          accRows: []
+        }
+      ]
+    }))
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <OrderCalculator
+          inventory={mockInventory}
+          recipes={mockRecipes}
+          settings={mockSettings}
+          setView={jest.fn()}
+          company={{ name: "BakeWealth" }}
+        />
+      )
+    })
+
+    // Suggested price must be visible and > 0 (not ₦0 or NaN)
+    const suggestedPriceCard = Array.from(container.querySelectorAll("div")).find(
+      d => d.textContent.includes("Suggested price") && d.textContent.includes("Profit:")
+    )
+    expect(suggestedPriceCard).toBeDefined()
+    expect(suggestedPriceCard.textContent).not.toContain("₦0")
+    expect(suggestedPriceCard.textContent).not.toContain("NaN")
+
+    // Extract initial suggested price
+    const initialPriceText = suggestedPriceCard.textContent.match(/₦[0-9,]+/)[0]
+    const initialPriceNum = parseInt(initialPriceText.replace(/[^0-9]/g, ""), 10)
+    expect(initialPriceNum).toBeGreaterThan(0)
+
+    // Click "+ Add layer"
+    const addLayerBtn = Array.from(container.querySelectorAll("button")).find(
+      b => b.textContent.includes("+ Add layer")
+    )
+    expect(addLayerBtn).toBeDefined()
+
+    await act(async () => {
+      addLayerBtn.click()
+    })
+
+    // Now we should have 2 layers L1 and L2
+    expect(container.textContent).toContain("L1")
+    expect(container.textContent).toContain("L2")
+
+    // Suggested price should have INCREMENTED
+    const updatedPriceText = suggestedPriceCard.textContent.match(/₦[0-9,]+/)[0]
+    const updatedPriceNum = parseInt(updatedPriceText.replace(/[^0-9]/g, ""), 10)
+    expect(updatedPriceNum).toBeGreaterThan(initialPriceNum)
+  })
+
+  it("should accurately add up quote summary with items, delivery charge, and VAT", async () => {
+    sessionStorage.setItem("ll_calc_prefill", JSON.stringify({
+      clientName: "Folake Ojo",
+      items: [
+        {
+          id: "cake-1",
+          type: "cake",
+          name: "Item 1 — Birthday Cake",
+          tiers: [
+            {
+              id: 1,
+              size: "10",
+              shape: "Round",
+              layers: [{ id: 101, flavour: "Red Velvet", qty: 1 }],
+              coverings: [{ id: 102, type: "Buttercream", grams: 400 }],
+              fillings: [{ id: 103, type: "Buttercream", grams: 200 }]
+            }
+          ],
+          decQty: {},
+          accRows: []
+        },
+        {
+          id: "cake-2",
+          type: "cake",
+          name: "Item 2 — Anniversary Cake",
+          tiers: [
+            {
+              id: 2,
+              size: "8",
+              shape: "Round",
+              layers: [{ id: 201, flavour: "Chocolate", qty: 1 }],
+              coverings: [{ id: 202, type: "Buttercream", grams: 300 }],
+              fillings: []
+            }
+          ],
+          decQty: {},
+          accRows: []
+        }
+      ],
+      deliveryCharge: "5000",
+      vatEnabled: true,
+      vatRate: 7.5
+    }))
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <OrderCalculator
+          inventory={mockInventory}
+          recipes={mockRecipes}
+          settings={mockSettings}
+          setView={jest.fn()}
+          company={{ name: "BakeWealth" }}
+        />
+      )
+    })
+
+    // Verify Quote summary contains both items
+    expect(container.textContent).toContain("Quote Summary")
+    expect(container.textContent).toContain("Item 1 — Birthday Cake")
+    expect(container.textContent).toContain("Item 2 — Anniversary Cake")
+    expect(container.textContent).toContain("Delivery")
+    expect(container.textContent).toContain("VAT (7.5%)")
+    expect(container.textContent).toContain("Total (one invoice)")
+
+    // Ensure no NaN anywhere in the container
+    expect(container.textContent).not.toContain("NaN")
+  })
 })
