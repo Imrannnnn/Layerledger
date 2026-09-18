@@ -23,17 +23,32 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
         : (feature === 'bank_statement' ? DEFAULT_BANK_STATEMENT_CREDIT_COST : DEFAULT_RECEIPT_SCANNER_CREDIT_COST);
 
     const tenantId = req.user?.tenantId;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const DAILY_AI_CEILING = 100;
 
-    // 1. Enforce Credit Balance Check if tenant is present
+    // 1. Enforce Credit Balance & Daily Ceiling Check if tenant is present
     if (tenantId) {
         const tenant = await prisma.tenant.findUnique({
             where: { id: tenantId },
-            select: { tokenBalance: true }
+            select: { tokenBalance: true, settings: true }
         });
 
         if (!tenant) {
             res.status(404);
             throw new Error("Tenant not found.");
+        }
+
+        const dailyUsage = tenant.settings?.dailyAiUsage || {};
+        const countToday = dailyUsage.date === todayStr ? (dailyUsage.count || 0) : 0;
+
+        if (countToday >= DAILY_AI_CEILING) {
+            return res.status(429).json({
+                error: "Daily AI ceiling reached",
+                code: "DAILY_AI_CEILING_REACHED",
+                message: `Your account has reached the daily limit of ${DAILY_AI_CEILING} AI scans to protect your balance from unintended loops. The limit resets at midnight.`,
+                limit: DAILY_AI_CEILING,
+                used: countToday
+            });
         }
 
         const balance = tenant.tokenBalance || 0;
@@ -112,11 +127,26 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
             if (tenantId) {
                 try {
                     const txResult = await prisma.$transaction(async (tx) => {
+                        const currentT = await tx.tenant.findUnique({
+                            where: { id: tenantId },
+                            select: { settings: true, tokenBalance: true }
+                        });
+                        const curSettings = currentT?.settings || {};
+                        const curDaily = curSettings.dailyAiUsage || {};
+                        const curCount = curDaily.date === todayStr ? (curDaily.count || 0) : 0;
+
                         const updatedTenant = await tx.tenant.update({
                             where: { id: tenantId },
                             data: {
                                 tokenBalance: {
                                     decrement: cost
+                                },
+                                settings: {
+                                    ...curSettings,
+                                    dailyAiUsage: {
+                                        date: todayStr,
+                                        count: curCount + 1
+                                    }
                                 }
                             },
                             select: { tokenBalance: true }

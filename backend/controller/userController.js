@@ -8,6 +8,7 @@
 const bcrypt = require('bcrypt');
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+const { getEffectivePlan, PLAN_LIMITS } = require('./planController');
 
 /**
  * @desc    Get all users for the current tenant
@@ -57,6 +58,29 @@ const getUserById = asyncHandler(async (req, res) => {
 const createUser = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
     const { name, email, password, role, pin } = req.body;
+
+    // Check staff logins limit for the tenant's plan
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const effective = getEffectivePlan(tenant);
+    const planLimits = PLAN_LIMITS[effective.plan] || PLAN_LIMITS.free;
+
+    const currentStaffCount = await prisma.user.count({
+        where: { tenantId, role: { not: 'owner' } }
+    });
+
+    if (currentStaffCount >= planLimits.staffLogins) {
+        res.status(403);
+        if (effective.plan === 'free') {
+            throw new Error('Free plan is for owner login only. Upgrade to Standard for 2 staff logins or Premium for 4 staff logins.');
+        } else if (effective.plan === 'standard') {
+            throw new Error('Standard plan allows up to 2 staff logins. Upgrade to Premium for 4 staff logins.');
+        } else {
+            throw new Error(`Premium plan allows up to ${planLimits.staffLogins} staff logins.`);
+        }
+    }
 
     // Check if user already exists
     const userExists = await prisma.user.findUnique({ where: { email } });

@@ -1,5 +1,6 @@
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+const { getEffectivePlan, PLAN_LIMITS } = require('./planController');
 
 /**
  * @desc    Get all inventory items for a tenant (with optional pagination)
@@ -63,6 +64,22 @@ const getInventory = asyncHandler(async (req, res) => {
 const createItem = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
     const { name, category, unit, cost, stock, minStock } = req.body;
+
+    // Enforce inventory item limits based on plan
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const effective = getEffectivePlan(tenant);
+    const planLimits = PLAN_LIMITS[effective.plan] || PLAN_LIMITS.free;
+
+    if (planLimits.inventoryItems !== Infinity) {
+        const currentCount = await prisma.inventoryItem.count({ where: { tenantId } });
+        if (currentCount >= planLimits.inventoryItems) {
+            res.status(403);
+            throw new Error(`Inventory item limit reached (${planLimits.inventoryItems} items for ${planLimits.name} plan). Upgrade to ${effective.plan === 'free' ? 'Standard (250 items)' : 'Premium (unlimited items)'}.`);
+        }
+    }
 
     const parsedCost = parseFloat(cost) || 0;
     const parsedStock = parseFloat(stock) || 0;

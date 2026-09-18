@@ -5,19 +5,49 @@
  * Reconciles income to orders and overhead expenses.
  * ----------------------------------------------------------------------------
  */
-import React, { useState, useRef } from "react"
+import React, { useState, useRef, useEffect } from "react"
 import { Btn, Card, Badge, SHead, TH, TR2 } from "../common/ui.jsx"
 import { fmt, uid, callClaude, today, formatDateDMY } from "../../lib/helpers.js"
-import { saveTxns, saveExpenses, saveProductionsList, loadLocal } from "../../lib/data.js"
-import { Calendar, ClipboardList, FileUp, FileText, AlertTriangle, Sparkles, Check } from "lucide-react"
+import { saveTxns, saveExpenses, saveProductionsList, loadLocal, refundScanCredits, fetchTokenBalance } from "../../lib/data.js"
+import { Calendar, ClipboardList, FileUp, FileText, AlertTriangle, Sparkles, Check, Coins } from "lucide-react"
 
 export function BankImport({ transactions, setTransactions, productions, setProductions, expenses, setExpenses }) {
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [refundNotice, setRefundNotice] = useState("")
   const [parsed, setParsed] = useState([]) // Array of: { id, date, description, amount, type, category, matchedProdId }
   const [mode, setMode] = useState("paste") // paste | file
   const fileRef = useRef()
+
+  const [balance, setBalance] = useState(() => {
+    const t = loadLocal("ll_tenant_info", null)
+    return typeof t?.tokenBalance === "number" ? t.tokenBalance : 0
+  })
+
+  useEffect(() => {
+    if (typeof fetchTokenBalance === "function") {
+      fetchTokenBalance().then(res => {
+        if (typeof res?.tokenBalance === "number") setBalance(res.tokenBalance)
+      }).catch(() => {})
+    }
+
+    const onTokenUpdated = (e) => {
+      const newBal = e.detail?.creditsDeducted !== undefined
+        ? (e.detail?.newBalance ?? e.detail?.tokenBalance)
+        : (e.detail?.creditBalance ?? e.detail?.tokenBalance)
+      if (typeof newBal === "number") setBalance(newBal)
+    }
+
+    window.addEventListener("bakewealth:token-updated", onTokenUpdated)
+    window.addEventListener("layerledger:token-updated", onTokenUpdated)
+    window.addEventListener("layerledger:credit-updated", onTokenUpdated)
+    return () => {
+      window.removeEventListener("bakewealth:token-updated", onTokenUpdated)
+      window.removeEventListener("layerledger:token-updated", onTokenUpdated)
+      window.removeEventListener("layerledger:credit-updated", onTokenUpdated)
+    }
+  }, [])
 
   // Clean and filter transactions (bank charges, stamp duty, VAT < 500 NGN)
   const cleanAndFilterTransactions = (txList) => {
@@ -48,8 +78,17 @@ export function BankImport({ transactions, setTransactions, productions, setProd
   }
 
   const parseFromText = async (text) => {
+    if (balance < 5) {
+      setError("Insufficient credits: 5 credits required to import a bank statement. Current balance: " + Number(balance).toFixed(1) + " credits. Please top up your credits.")
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
+        window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
+      }
+      return
+    }
     setLoading(true)
     setError("")
+    setRefundNotice("")
     try {
       const raw = await callClaude([
         {
@@ -77,6 +116,14 @@ ${text.slice(0, 8000)}`
       const cleaned = cleanAndFilterTransactions(result)
       setParsed(cleaned)
     } catch (err) {
+      if (!err.message?.includes("DAILY_AI_CEILING_REACHED") && !err.message?.includes("Insufficient")) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(5, "Failed bank statement import: " + err.message)
+            setRefundNotice("Statement parsing failed. 5 credits refunded automatically.")
+          } catch (_) {}
+        }
+      }
       setError("Could not parse: " + err.message)
     } finally {
       setLoading(false)
@@ -87,8 +134,19 @@ ${text.slice(0, 8000)}`
     const file = e.target.files[0]
     if (!file) return
     e.target.value = ""
+
+    if (balance < 5) {
+      setError("Insufficient credits: 5 credits required to import a bank statement. Current balance: " + Number(balance).toFixed(1) + " credits.")
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
+        window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 5, requiredCredits: 5 } }))
+      }
+      return
+    }
+
     setLoading(true)
     setError("")
+    setRefundNotice("")
     const isPDF = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
     const reader = new FileReader()
 
@@ -123,6 +181,14 @@ Ignore stamp duty and VAT lines under ₦500.`
           const cleaned = cleanAndFilterTransactions(result)
           setParsed(cleaned)
         } catch (err) {
+          if (!err.message?.includes("DAILY_AI_CEILING_REACHED") && !err.message?.includes("Insufficient")) {
+            if (typeof refundScanCredits === "function") {
+              try {
+                await refundScanCredits(5, "Failed PDF statement import: " + err.message)
+                setRefundNotice("PDF parsing failed. 5 credits refunded automatically.")
+              } catch (_) {}
+            }
+          }
           setError("Could not read PDF: " + err.message + ". Try using Paste Text instead.")
         } finally {
           setLoading(false)
@@ -241,6 +307,36 @@ Ignore stamp duty and VAT lines under ₦500.`
           Clients often pay deposits before delivery. After statement parsing, match credit transactions to confirmed orders in the <strong>Match to Order</strong> column. Debits (money out) are automatically categorised and added directly to your Overhead Expenses.
         </p>
       </Card>
+
+      {/* Pre-Action Credit & Cost Transparency Notice (Section 6: Balance and cost shown before every action) */}
+      <div style={{
+        background: balance >= 5 ? "rgba(200,145,42,0.07)" : "#FFF4E5",
+        border: balance >= 5 ? "1px solid rgba(200,145,42,0.2)" : "1px solid #FFE0B2",
+        borderRadius: 8,
+        padding: "10px 14px",
+        marginBottom: 14
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", display: "flex", alignItems: "center", gap: 5 }}>
+            <Coins size={14} color="var(--gold)" />
+            <span>Import Cost: <strong style={{ color: "var(--gold)" }}>5 Credits</strong> (1 bank statement import ≈ 2.5 receipt scans)</span>
+          </span>
+          <span style={{ fontSize: 11.5, color: balance >= 5 ? "#27AE60" : "#D97706", fontWeight: 700 }}>
+            Balance: {Number(balance).toFixed(1)} Credits
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>Balance after import: <strong>{balance >= 5 ? (balance - 5).toFixed(1) : 0} credits</strong></span>
+          <span>Credits never expire</span>
+        </div>
+      </div>
+
+      {refundNotice && (
+        <div style={{ background: "#EEF8F3", border: "1px solid #C2E0CF", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12.5, color: "#2D7A50", display: "flex", alignItems: "center", gap: 6 }}>
+          <Check size={15} color="#2D7A50" />
+          <span>{refundNotice}</span>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <Btn small variant={mode === "paste" ? "primary" : "ghost"} onClick={() => setMode("paste")} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>

@@ -141,8 +141,8 @@ describe("Clients Directory & OrderCalculator — Birthday (No Year)", () => {
     sessionStorage.clear()
   })
 
-  test("Clients directory renders client special dates as badges without years", () => {
-    act(() => {
+  test("Clients directory renders client special dates as badges without years", async () => {
+    await act(async () => {
       root.render(<Clients setView={jest.fn()} company={{ name: "Test Bakery" }} />)
     })
 
@@ -152,7 +152,7 @@ describe("Clients Directory & OrderCalculator — Birthday (No Year)", () => {
     expect(container.textContent).toContain("Birthday: 22 September")
   })
 
-  test("Special Dates this month stat card calculates count accurately", () => {
+  test("Special Dates this month stat card calculates count accurately", async () => {
     const currentMonth = new Date().toLocaleString("en-US", { month: "long" })
     const clientsWithCurrentMonth = [
       ...mockClients,
@@ -171,7 +171,7 @@ describe("Clients Directory & OrderCalculator — Birthday (No Year)", () => {
     ]
     dataLib.loadClients.mockReturnValue(clientsWithCurrentMonth)
 
-    act(() => {
+    await act(async () => {
       root.render(<Clients setView={jest.fn()} company={{ name: "Test Bakery" }} />)
     })
 
@@ -181,13 +181,13 @@ describe("Clients Directory & OrderCalculator — Birthday (No Year)", () => {
   })
 
   test("Add Client modal allows selecting Birthday or Anniversary with month and day", async () => {
-    act(() => {
+    await act(async () => {
       root.render(<Clients setView={jest.fn()} company={{ name: "Test Bakery" }} />)
     })
 
     // Find and click "+ Add Client"
     const addBtn = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Add Client"))
-    act(() => {
+    await act(async () => {
       addBtn.click()
     })
 
@@ -197,14 +197,14 @@ describe("Clients Directory & OrderCalculator — Birthday (No Year)", () => {
     // Fill in client name
     const inputs = container.querySelectorAll("input")
     const nameInput = Array.from(inputs).find(i => i.placeholder?.includes("Folake"))
-    act(() => {
+    await act(async () => {
       typeIntoInput(nameInput, "Blessing Okon")
     })
 
     // Toggle to Anniversary
     const annivBtn = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Anniversary"))
     expect(annivBtn).toBeDefined()
-    act(() => {
+    await act(async () => {
       annivBtn.click()
     })
 
@@ -213,10 +213,10 @@ describe("Clients Directory & OrderCalculator — Birthday (No Year)", () => {
     const monthSelect = Array.from(selects).find(s => s.textContent.includes("Select Month"))
     const daySelect = Array.from(selects).find(s => s.textContent.includes("Day"))
 
-    act(() => {
+    await act(async () => {
       selectOption(monthSelect, "June")
     })
-    act(() => {
+    await act(async () => {
       selectOption(daySelect, "28")
     })
 
@@ -239,15 +239,15 @@ describe("Clients Directory & OrderCalculator — Birthday (No Year)", () => {
     )
   })
 
-  test("Clicking Quote for client saves birthday into sessionStorage prefill", () => {
+  test("Clicking Quote for client saves birthday into sessionStorage prefill", async () => {
     const setView = jest.fn()
 
-    act(() => {
+    await act(async () => {
       root.render(<Clients setView={setView} company={{ name: "Test Bakery" }} />)
     })
 
     const quoteBtn = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Quote"))
-    act(() => {
+    await act(async () => {
       quoteBtn.click()
     })
 

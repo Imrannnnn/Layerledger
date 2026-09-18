@@ -2,36 +2,37 @@ import React, { useState } from "react"
 import { Modal, Btn } from "./ui.jsx"
 import { Coins, AlertTriangle, ArrowRight, ShieldCheck, Zap, CreditCard } from "lucide-react"
 import { DummyPaymentGatewayModal } from "./DummyPaymentGatewayModal.jsx"
+import { purchaseCreditPack } from "../../lib/data.js"
 
 const TOKEN_PACKS = [
   {
-    id: "starter",
-    name: "Starter Pack",
-    tokens: 5,
-    credits: 5,
-    scans: 2,
-    price: "₦1,000",
-    description: "Ideal for light usage & receipt scanning.",
+    id: "small",
+    name: "Small Pack",
+    tokens: 20,
+    credits: 20,
+    scans: 10,
+    price: "₦3,000",
+    description: "Roughly 10 receipt scans or 4 bank statement imports.",
     popular: false
   },
   {
-    id: "pro",
-    name: "Baker Pro Pack",
-    tokens: 12.5,
-    credits: 12.5,
-    scans: 6,
-    price: "₦2,500",
-    description: "Best value for busy bakeries with regular orders & expenses.",
+    id: "medium",
+    name: "Medium Pack",
+    tokens: 50,
+    credits: 50,
+    scans: 25,
+    price: "₦6,500",
+    description: "Roughly 25 receipt scans or 10 bank statement imports.",
     popular: true
   },
   {
-    id: "commercial",
-    name: "Commercial Bakery Pack",
-    tokens: 25,
-    credits: 25,
-    scans: 12,
-    price: "₦5,000",
-    description: "Maximum savings for high-volume bakeries & teams.",
+    id: "large",
+    name: "Large Pack",
+    tokens: 120,
+    credits: 120,
+    scans: 60,
+    price: "₦14,000",
+    description: "Roughly 60 receipt scans or 24 bank statement imports.",
     popular: false
   }
 ]
@@ -46,7 +47,7 @@ export function TokenPurchaseModal({
   company = {},
   onOpenSettings
 }) {
-  const [selectedPack, setSelectedPack] = useState("pro")
+  const [selectedPack, setSelectedPack] = useState("medium")
   const [gatewayOpen, setGatewayOpen] = useState(false)
 
   if (!isOpen) return null
@@ -276,10 +277,16 @@ export function TokenPurchaseModal({
       <DummyPaymentGatewayModal
         isOpen={gatewayOpen}
         onClose={() => setGatewayOpen(false)}
-        amount={parseInt(chosenPack.price.replace(/[^0-9]/g, ""), 10) || 1000}
-        tokens={chosenPack.tokens}
+        amount={parseInt(chosenPack.price.replace(/[^0-9]/g, ""), 10) || 3000}
+        tokens={chosenPack.credits}
         packageName={chosenPack.name}
         customerEmail={company.email || "bakery@bakewealth.com"}
+        resourceType="credit_pack"
+        resourceId={chosenPack.id}
+        options={{ packId: chosenPack.id }}
+        onConfirmPay={async (ref) => {
+          return await purchaseCreditPack(chosenPack.id, ref)
+        }}
         onPaymentSuccess={() => {
           setTimeout(() => {
             onClose()

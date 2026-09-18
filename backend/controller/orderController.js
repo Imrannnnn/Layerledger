@@ -1,5 +1,6 @@
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+const { getEffectivePlan, PLAN_LIMITS } = require('./planController');
 
 /**
  * @desc    Get all orders
@@ -26,7 +27,11 @@ const getOrders = asyncHandler(async (req, res) => {
                 skip,
                 take: limitNum,
                 include: {
-                    client: { select: { name: true, phone: true } }
+                    items: true,
+                    payments: true,
+                    client: {
+                        select: { name: true, phone: true }
+                    }
                 },
                 orderBy: { orderDate: 'desc' }
             }),
@@ -45,7 +50,11 @@ const getOrders = asyncHandler(async (req, res) => {
     const orders = await prisma.order.findMany({
         where,
         include: {
-            client: { select: { name: true, phone: true } }
+            items: true,
+            payments: true,
+            client: {
+                select: { name: true, phone: true }
+            }
         },
         orderBy: { orderDate: 'desc' }
     });
@@ -53,7 +62,7 @@ const getOrders = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Get order details
+ * @desc    Get a single order by ID
  * @route   GET /api/orders/:id
  * @access  Private
  */
@@ -62,9 +71,11 @@ const getOrderById = asyncHandler(async (req, res) => {
     const order = await prisma.order.findFirst({
         where: { id: req.params.id, tenantId },
         include: {
-            client: { select: { name: true, phone: true, email: true, address: true } },
             items: true,
-            payments: true
+            payments: true,
+            client: {
+                select: { name: true, phone: true }
+            }
         }
     });
     
@@ -76,13 +87,37 @@ const getOrderById = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Create a new order or quote
+ * @desc    Create a new order (with items, payments, and optional client upsert)
  * @route   POST /api/orders
  * @access  Private
  */
 const createOrder = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
     const { clientId, status, dueDate, items, totalPrice, totalCost, payments, notes, usages, metadata } = req.body;
+
+    // Check order limits for Free plan (8 orders/month)
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const effective = getEffectivePlan(tenant);
+    const planLimits = PLAN_LIMITS[effective.plan] || PLAN_LIMITS.free;
+
+    if (planLimits.ordersPerMonth !== Infinity) {
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const monthlyOrdersCount = await prisma.order.count({
+            where: {
+                tenantId,
+                createdAt: { gte: startOfMonth }
+            }
+        });
+
+        if (monthlyOrdersCount >= planLimits.ordersPerMonth) {
+            res.status(403);
+            throw new Error(`Free plan order limit reached (${planLimits.ordersPerMonth} orders per month). Upgrade to Standard (₦5,000/mo) for unlimited orders.`);
+        }
+    }
 
     const result = await prisma.$transaction(async (tx) => {
         let ingredientsDeducted = false;

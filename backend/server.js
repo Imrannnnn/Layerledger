@@ -38,7 +38,12 @@ app.use('/api/', apiLimiter)
 app.use('/api/auth/', authLimiter)
 
 //middleware 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({
+    limit: '5mb',
+    verify: (req, _res, buf) => {
+        req.rawBody = buf;
+    }
+}));
 app.use(logger)
 app.use(addTimeStamp)
 
@@ -57,6 +62,8 @@ app.use('/api/packaging', require('./routes/packagingRoutes'));
 app.use('/api/decorations', require('./routes/decorationRoutes'));
 app.use('/api/purchases', require('./routes/purchaseRoutes'));
 app.use('/api/tokens', require('./routes/tokenRoutes'));
+app.use('/api/plans', require('./routes/planRoutes'));
+app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/superadmin', require('./routes/superadminRoutes'));
 app.use('/api/claude', require('./routes/claudeRoutes'));
 app.use('/api/opening-stock', require('./routes/openingStockRoutes'));

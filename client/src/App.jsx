@@ -243,6 +243,28 @@ export default function App() {
     return () => { isMounted = false }
   }, [currentUser])
 
+  // Handle Paystack redirect after hosted checkout
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    const ref = params.get("reference") || params.get("trxref")
+    if (ref) {
+      import("./lib/data.js").then(({ verifyGatewayPayment, syncFromBackend, loadTenantInfo }) => {
+        verifyGatewayPayment(ref)
+          .then(async (res) => {
+            const cleanUrl = window.location.origin + window.location.pathname
+            window.history.replaceState({}, document.title, cleanUrl)
+            await syncFromBackend()
+            setTenantInfo(loadTenantInfo())
+            alert("Payment verified successfully with Paystack! Your plan or credits have been updated.")
+          })
+          .catch(err => {
+            console.warn("Paystack redirect verify notice:", err)
+          })
+      })
+    }
+  }, [])
+
   const setViewWithSync = (v) => {
     goTo(v)
     if (v === "monthly" || v === "pandl" || v === "balance" || v === "expenses" || v === "records") {

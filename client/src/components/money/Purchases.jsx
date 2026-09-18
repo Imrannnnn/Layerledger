@@ -700,7 +700,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
             const invItem = inventory.find(item => item.id === p.itemId)
             const displayCat = invItem?.cat || p.category || "—"
             const displayUnit = invItem?.unit || p.unit || ""
-            return <TR2 key={p.id} i={i} row={[
+            return <TR2 key={`${p.id || 'purch'}-${i}`} i={i} row={[
               ...(isOwner ? [
                 <input
                   key={`cb-${p.id}`}

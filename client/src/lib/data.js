@@ -2943,3 +2943,375 @@ export const purchaseTokens = async (amount, description = "Token purchase") => 
   return data
 }
 
+export const fetchPlanInfo = async () => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) {
+    const tenant = loadLocal("ll_tenant_info", null) || {}
+    const plan = (tenant.settings?.plan || "free").toLowerCase()
+    return {
+      plan,
+      isExpired: false,
+      tokenBalance: tenant.tokenBalance || 0,
+      scansRemaining: Math.floor((tenant.tokenBalance || 0) / 2),
+      limits: {
+        ordersPerMonth: plan === "free" ? 8 : Infinity,
+        recipes: plan === "free" ? 10 : (plan === "standard" ? 60 : Infinity),
+        inventoryItems: plan === "free" ? 50 : (plan === "standard" ? 250 : Infinity),
+        clients: plan === "free" ? 20 : (plan === "standard" ? 150 : Infinity),
+        staffLogins: plan === "free" ? 0 : (plan === "standard" ? 2 : 4)
+      },
+      usage: {
+        ordersThisMonth: 0,
+        recipes: 0,
+        inventoryItems: 0,
+        clients: 0,
+        staffLogins: 0
+      }
+    }
+  }
+
+  try {
+    const res = await fetch(`${apiUrl}/api/plans/current`, { headers })
+    if (res.ok) {
+      const data = await res.json()
+      saveLocal("ll_plan_info", data)
+      if (typeof data.tokenBalance === "number") {
+        const tenant = loadLocal("ll_tenant_info", null) || {}
+        tenant.tokenBalance = data.tokenBalance
+        if (!tenant.settings) tenant.settings = {}
+        tenant.settings.plan = data.plan
+        tenant.settings.planExpiresAt = data.planExpiresAt
+        saveLocal("ll_tenant_info", tenant)
+      }
+      return data
+    }
+  } catch (err) {
+    console.warn("fetchPlanInfo error:", err)
+  }
+  return loadLocal("ll_plan_info", null)
+}
+
+export const purchasePlan = async (plan, months, reference = "") => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) {
+    throw new Error("Cannot purchase subscription plan in offline mode.")
+  }
+
+  const res = await fetch(`${apiUrl}/api/plans/purchase`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      plan,
+      months,
+      reference
+    })
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    let msg = text
+    try {
+      const json = JSON.parse(text)
+      msg = json.error || json.message || text
+    } catch {
+      // Ignore JSON parse error and fallback to raw text
+    }
+    throw new Error(msg || "Failed to complete plan purchase.")
+  }
+
+  const data = await res.json()
+  const newBal = data.tokenBalance
+  if (typeof newBal === "number") {
+    const tenant = loadLocal("ll_tenant_info", null) || {}
+    tenant.tokenBalance = newBal
+    if (!tenant.settings) tenant.settings = {}
+    tenant.settings.plan = plan
+    tenant.settings.planExpiresAt = data.details?.newExpiresAt
+    saveLocal("ll_tenant_info", tenant)
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("bakewealth:token-updated", { detail: { tokenBalance: newBal } }))
+      window.dispatchEvent(new CustomEvent("bakewealth:plan-updated", { detail: data }))
+    }
+  }
+  return data
+}
+
+export const claimFreeScans = async () => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) return null
+
+  try {
+    const res = await fetch(`${apiUrl}/api/plans/claim-free`, {
+      method: "POST",
+      headers
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (typeof data.tokenBalance === "number") {
+        const tenant = loadLocal("ll_tenant_info", null) || {}
+        tenant.tokenBalance = data.tokenBalance
+        saveLocal("ll_tenant_info", tenant)
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("bakewealth:token-updated", { detail: { tokenBalance: data.tokenBalance } }))
+        }
+      }
+      return data
+    }
+  } catch (err) {
+    console.warn("claimFreeScans error:", err)
+  }
+  return null
+}
+
+export const purchaseCreditPack = async (packId, reference = "") => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) {
+    throw new Error("Cannot purchase credit pack in offline mode.")
+  }
+
+  const res = await fetch(`${apiUrl}/api/tokens/pack`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ packId, reference })
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    let msg = text
+    try {
+      const json = JSON.parse(text)
+      msg = json.error || json.message || text
+    } catch {
+      // Ignore JSON parse error and fallback to raw text
+    }
+    throw new Error(msg || "Failed to purchase credit pack.")
+  }
+
+  const data = await res.json()
+  const newBal = data.newBalance
+  if (typeof newBal === "number") {
+    const tenant = loadLocal("ll_tenant_info", null) || {}
+    tenant.tokenBalance = newBal
+    saveLocal("ll_tenant_info", tenant)
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("bakewealth:token-updated", { detail: { tokenBalance: newBal } }))
+      window.dispatchEvent(new CustomEvent("layerledger:credit-updated", { detail: { newBalance: newBal } }))
+    }
+  }
+  return data
+}
+
+export const refundScanCredits = async (credits = 2, reason = "Failed receipt scan") => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) return null
+
+  try {
+    const res = await fetch(`${apiUrl}/api/tokens/refund`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ credits, reason })
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      const newBal = data.newBalance
+      if (typeof newBal === "number") {
+        const tenant = loadLocal("ll_tenant_info", null) || {}
+        tenant.tokenBalance = newBal
+        saveLocal("ll_tenant_info", tenant)
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("bakewealth:token-updated", { detail: { tokenBalance: newBal } }))
+          window.dispatchEvent(new CustomEvent("layerledger:credit-updated", { detail: { newBalance: newBal } }))
+        }
+      }
+      return data
+    }
+  } catch (err) {
+    console.warn("refundScanCredits error:", err)
+  }
+  return null
+}
+
+// ═══════════════════════════════════════════════════════════
+//  LAYERLEDGER PAYMENT GATEWAY CLIENT API (50 Principles)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Initialize payment with backend authority and idempotency
+ */
+export const initializeGatewayPayment = async ({
+  resourceType,
+  resourceId,
+  options = {},
+  idempotencyKey,
+  callbackUrl
+}) => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) throw new Error("API configuration or authentication token missing")
+
+  const res = await fetch(`${apiUrl}/api/payments/initialize`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      resourceType,
+      resourceId,
+      options,
+      idempotencyKey: idempotencyKey || `CLI-IDEM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      callbackUrl
+    })
+  })
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.message || "Payment initialization failed")
+  }
+
+  return data
+}
+
+/**
+ * Verify payment server-side and trigger atomic fulfillment
+ */
+export const verifyGatewayPayment = async (reference) => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) throw new Error("API configuration or authentication token missing")
+
+  const res = await fetch(`${apiUrl}/api/payments/verify`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ reference })
+  })
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.message || "Payment verification failed")
+  }
+
+  if (data && (data.status === "SUCCESS" || data.success)) {
+    const tenant = loadLocal("ll_tenant_info", null) || {}
+    if (data.fulfillment) {
+      if (typeof data.fulfillment.tokenBalance === "number") {
+        tenant.tokenBalance = data.fulfillment.tokenBalance
+      }
+      if (data.fulfillment.plan) {
+        if (!tenant.settings) tenant.settings = {}
+        tenant.settings.plan = data.fulfillment.plan
+        if (data.fulfillment.planExpiresAt) {
+          tenant.settings.planExpiresAt = data.fulfillment.planExpiresAt
+        }
+      }
+    }
+    saveLocal("ll_tenant_info", tenant)
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("layerledger:payment-completed", { detail: data }))
+      window.dispatchEvent(new CustomEvent("bakewealth:plan-updated", { detail: data }))
+      if (typeof tenant.tokenBalance === "number") {
+        window.dispatchEvent(new CustomEvent("bakewealth:token-updated", { detail: { tokenBalance: tenant.tokenBalance } }))
+        window.dispatchEvent(new CustomEvent("layerledger:credit-updated", { detail: { newBalance: tenant.tokenBalance } }))
+      }
+    }
+  }
+
+  return data
+}
+
+/**
+ * Get payment status and details
+ */
+export const getGatewayPaymentStatus = async (reference) => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) throw new Error("API configuration or authentication token missing")
+
+  const res = await fetch(`${apiUrl}/api/payments/${encodeURIComponent(reference)}`, {
+    headers
+  })
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.message || "Failed to fetch payment status")
+  }
+
+  return data
+}
+
+/**
+ * Get tenant payment history
+ */
+export const getGatewayPaymentHistory = async () => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) return []
+
+  try {
+    const res = await fetch(`${apiUrl}/api/payments/history`, {
+      headers
+    })
+    if (!res.ok) return []
+    return await res.json()
+  } catch (err) {
+    console.warn("getGatewayPaymentHistory error:", err)
+    return []
+  }
+}
+
+/**
+ * Request refund (Owner or Superadmin only)
+ */
+export const requestPaymentRefund = async ({
+  paymentReference,
+  amount,
+  reason,
+  idempotencyKey
+}) => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) throw new Error("API configuration or authentication token missing")
+
+  const res = await fetch(`${apiUrl}/api/payments/refund`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      paymentReference,
+      amount,
+      reason,
+      idempotencyKey: idempotencyKey || `REF-IDEM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    })
+  })
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.message || "Refund request failed")
+  }
+
+  return data
+}
+
+
+

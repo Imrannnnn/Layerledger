@@ -9,6 +9,10 @@ import * as dataLib from "../../lib/data.js"
 jest.mock("../../lib/data.js", () => ({
   fetchTokenBalance: jest.fn(),
   fetchTokenHistory: jest.fn(),
+  fetchPlanInfo: jest.fn(),
+  purchasePlan: jest.fn(),
+  claimFreeScans: jest.fn(),
+  purchaseCreditPack: jest.fn(),
   purchaseTokens: jest.fn(),
   loadLocal: jest.fn()
 }))
@@ -24,6 +28,31 @@ describe("TokenUsageSection Unit Tests", () => {
 
     dataLib.loadLocal.mockReturnValue({ tokenBalance: 12.5 })
     dataLib.fetchTokenBalance.mockResolvedValue({ tokenBalance: 12.5 })
+    dataLib.fetchPlanInfo.mockResolvedValue({
+      plan: "free",
+      planExpiresAt: null,
+      isExpired: false,
+      daysRemaining: 0,
+      freeScansGranted: true,
+      limits: {
+        ordersPerMonth: 8,
+        recipes: 10,
+        inventoryItems: 50,
+        clients: 20,
+        staffLogins: 1,
+        scansPerMonth: "10 free once",
+        invoiceBranding: "BakeWealth mark",
+        accountingReports: "Full"
+      },
+      usage: {
+        ordersThisMonth: 2,
+        recipesCount: 3,
+        inventoryCount: 15,
+        clientsCount: 5,
+        staffCount: 1
+      },
+      tokenBalance: 12.5
+    })
     dataLib.fetchTokenHistory.mockResolvedValue([
       {
         id: "tx-1",
@@ -34,15 +63,23 @@ describe("TokenUsageSection Unit Tests", () => {
       },
       {
         id: "tx-2",
-        amount: 12.5,
-        type: "purchase",
-        description: "Credit Purchase: Baker Pro Pack (+12.5 credits)",
+        amount: 20,
+        type: "plan_grant",
+        description: "Prepaid Plan Scan Allowance: standard (+40 credits)",
         createdAt: "2026-09-02T15:30:00.000Z"
       }
     ])
-    dataLib.purchaseTokens.mockResolvedValue({
-      transaction: { id: "tx-new", amount: 12.5 },
-      newBalance: 25
+    dataLib.purchasePlan.mockResolvedValue({
+      message: "Plan upgraded to standard",
+      plan: "standard",
+      months: 1,
+      creditsGranted: 40,
+      newBalance: 52.5
+    })
+    dataLib.purchaseCreditPack.mockResolvedValue({
+      message: "Credit pack small purchased successfully",
+      pack: { id: "small", credits: 20 },
+      newBalance: 32.5
     })
   })
 
@@ -54,7 +91,7 @@ describe("TokenUsageSection Unit Tests", () => {
     container = null
   })
 
-  test("renders token balance, estimated scans, and packages", async () => {
+  test("renders token balance, estimated scans, and prepaid plans", async () => {
     await act(async () => {
       root.render(<TokenUsageSection company={{ name: "Sweet Bakery", phone: "08012345678" }} />)
     })
@@ -64,10 +101,34 @@ describe("TokenUsageSection Unit Tests", () => {
     expect(container.textContent).toContain("Credits")
     expect(container.textContent).toContain("6") // 12.5 / 2 = 6 scans
     expect(container.textContent).toContain("Scans Available")
-    expect(container.textContent).toContain("Make Payment for AI Credits")
-    expect(container.textContent).toContain("Starter Pack")
-    expect(container.textContent).toContain("Baker Pro Pack")
-    expect(container.textContent).toContain("Commercial Pack")
+    expect(container.textContent).toContain("Prepaid Stackable Plans")
+    expect(container.textContent).toContain("Standard Plan")
+    expect(container.textContent).toContain("Premium Plan")
+    expect(container.textContent).toContain("Unlimited")
+    expect(container.textContent).toContain("Full accounting reports")
+  })
+
+  test("renders credit packs when clicking Scan & Import Credit Packs tab", async () => {
+    await act(async () => {
+      root.render(<TokenUsageSection company={{ name: "Sweet Bakery" }} />)
+    })
+
+    const creditTab = Array.from(container.querySelectorAll("button")).find(b =>
+      b.textContent.includes("Scan & Import Credit Packs")
+    )
+    expect(creditTab).toBeTruthy()
+
+    await act(async () => {
+      creditTab.click()
+    })
+
+    expect(container.textContent).toContain("Small Pack")
+    expect(container.textContent).toContain("Medium Pack")
+    expect(container.textContent).toContain("Large Pack")
+    expect(container.textContent).toContain("₦3,000")
+    expect(container.textContent).toContain("₦6,500")
+    expect(container.textContent).toContain("₦14,000")
+    expect(container.textContent).toContain("Roughly 10 receipt scans")
   })
 
   test("renders token usage history rows with amounts and type badges", async () => {
@@ -78,31 +139,31 @@ describe("TokenUsageSection Unit Tests", () => {
     expect(container.textContent).toContain("Credit Usage & Transaction History")
     expect(container.textContent).toContain("AI feature usage (2 credits deducted)")
     expect(container.textContent).toContain("-2.0")
-    expect(container.textContent).toContain("Credit Purchase: Baker Pro Pack (+12.5 credits)")
-    expect(container.textContent).toContain("+12.5")
+    expect(container.textContent).toContain("Prepaid Plan Scan Allowance")
+    expect(container.textContent).toContain("+20.0")
   })
 
-  test("opens dummy payment gateway and tops up tokens", async () => {
+  test("opens dummy payment gateway and purchases a prepaid plan", async () => {
     jest.useFakeTimers()
     await act(async () => {
       root.render(<TokenUsageSection company={{ name: "Sweet Bakery" }} />)
     })
 
-    const payBtn = Array.from(container.querySelectorAll("button")).find(b =>
-      b.textContent.includes("Pay & Top-Up")
+    const upgradeBtn = Array.from(container.querySelectorAll("button")).find(b =>
+      b.textContent.includes("Upgrade to Standard Plan")
     )
-    expect(payBtn).toBeTruthy()
+    expect(upgradeBtn).toBeTruthy()
 
     await act(async () => {
-      payBtn.click()
+      upgradeBtn.click()
     })
 
     // Expect gateway modal to open
     expect(document.body.textContent).toContain("Payment Checkout (Paystack Sandbox)")
-    expect(document.body.textContent).toContain("Pay ₦2,500")
+    expect(document.body.textContent).toContain("Pay ₦5,000")
 
     const gatewayPayBtn = Array.from(document.body.querySelectorAll("button")).find(b =>
-      b.textContent.includes("Pay ₦2,500")
+      b.textContent.includes("Pay ₦5,000")
     )
     expect(gatewayPayBtn).toBeTruthy()
 
@@ -111,9 +172,10 @@ describe("TokenUsageSection Unit Tests", () => {
       jest.advanceTimersByTime(1500)
     })
 
-    expect(dataLib.purchaseTokens).toHaveBeenCalledWith(
-      12.5,
-      expect.stringContaining("Baker Pro Pack")
+    expect(dataLib.purchasePlan).toHaveBeenCalledWith(
+      "standard",
+      1,
+      expect.stringContaining("PAY-BW-")
     )
     jest.useRealTimers()
   })
@@ -163,7 +225,7 @@ describe("TokenUsageSection Unit Tests", () => {
         id: "tx-topup",
         amount: 25,
         type: "purchase",
-        description: "Commercial Pack purchase",
+        description: "Credit Pack purchase",
         createdAt: "2026-09-01T10:00:00.000Z"
       },
       {
@@ -189,7 +251,7 @@ describe("TokenUsageSection Unit Tests", () => {
       topUpsPill.click()
     })
 
-    expect(container.textContent).toContain("Commercial Pack purchase")
+    expect(container.textContent).toContain("Credit Pack purchase")
     expect(container.textContent).not.toContain("Bank statement reconciliation scan")
 
     // Filter by AI Usage
@@ -203,7 +265,7 @@ describe("TokenUsageSection Unit Tests", () => {
     })
 
     expect(container.textContent).toContain("Bank statement reconciliation scan")
-    expect(container.textContent).not.toContain("Commercial Pack purchase")
+    expect(container.textContent).not.toContain("Credit Pack purchase")
   })
 
   test("searches transaction history by text query", async () => {
@@ -243,4 +305,3 @@ describe("TokenUsageSection Unit Tests", () => {
     expect(container.textContent).not.toContain("Monthly Bank PDF Import")
   })
 })
-

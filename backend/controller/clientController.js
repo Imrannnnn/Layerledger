@@ -1,5 +1,6 @@
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+const { getEffectivePlan, PLAN_LIMITS } = require('./planController');
 
 /**
  * @desc    Get all clients for the tenant
@@ -117,6 +118,22 @@ const getClientById = asyncHandler(async (req, res) => {
 const createClient = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
     const { name, phone, email, address, notes, birthday } = req.body;
+
+    // Enforce client limit based on plan
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const effective = getEffectivePlan(tenant);
+    const planLimits = PLAN_LIMITS[effective.plan] || PLAN_LIMITS.free;
+
+    if (planLimits.clients !== Infinity) {
+        const currentCount = await prisma.client.count({ where: { tenantId } });
+        if (currentCount >= planLimits.clients) {
+            res.status(403);
+            throw new Error(`Client limit reached (${planLimits.clients} clients for ${planLimits.name} plan). Upgrade to ${effective.plan === 'free' ? 'Standard (150 clients)' : 'Premium (unlimited clients)'}.`);
+        }
+    }
 
     const client = await prisma.client.create({
         data: {

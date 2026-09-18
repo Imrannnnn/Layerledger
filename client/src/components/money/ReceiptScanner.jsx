@@ -8,10 +8,10 @@
  */
 import React, { useState, useEffect, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Modal } from "../common/ui.jsx"
-import { fmt, uid, today, callClaude, compressImage } from "../../lib/helpers.js"
-import { saveInventory, saveExpenses, savePurchases, saveLocal, loadLocal, loadAliases, saveAliases } from "../../lib/data.js"
+import { fmt, uid, today, callClaude, compressImage, recipeCost } from "../../lib/helpers.js"
+import { saveInventory, saveExpenses, savePurchases, saveLocal, loadLocal, loadAliases, saveAliases, refundScanCredits, fetchTokenBalance } from "../../lib/data.js"
 import { EXP_CATS } from "../../constants.js"
-import { Camera, Upload, PenLine, Sparkles, AlertTriangle, Check } from "lucide-react"
+import { Camera, Upload, PenLine, Sparkles, AlertTriangle, Check, Coins, TrendingUp, RefreshCw } from "lucide-react"
 
 // Normalizes various date string formats (DD/MM/YYYY, YYYY/MM/DD, natural text) to ISO YYYY-MM-DD
 export function normalizeToIsoDate(inputDate) {
@@ -580,10 +580,38 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses,
   const fileRef = useRef()
 
   const [aliases, setAliases] = useState({})
+  const [balance, setBalance] = useState(() => {
+    const t = loadLocal("ll_tenant_info", null)
+    return typeof t?.tokenBalance === "number" ? t.tokenBalance : 0
+  })
+  const [refundNotice, setRefundNotice] = useState("")
+  const [impactSummary, setImpactSummary] = useState(null)
 
   useEffect(() => {
     const loaded = loadAliases({})
     if (loaded) setAliases(loaded)
+
+    if (typeof fetchTokenBalance === "function") {
+      fetchTokenBalance().then(res => {
+        if (typeof res?.tokenBalance === "number") setBalance(res.tokenBalance)
+      }).catch(() => {})
+    }
+
+    const onTokenUpdated = (e) => {
+      const newBal = e.detail?.creditsDeducted !== undefined
+        ? (e.detail?.newBalance ?? e.detail?.tokenBalance)
+        : (e.detail?.creditBalance ?? e.detail?.tokenBalance)
+      if (typeof newBal === "number") setBalance(newBal)
+    }
+
+    window.addEventListener("bakewealth:token-updated", onTokenUpdated)
+    window.addEventListener("layerledger:token-updated", onTokenUpdated)
+    window.addEventListener("layerledger:credit-updated", onTokenUpdated)
+    return () => {
+      window.removeEventListener("bakewealth:token-updated", onTokenUpdated)
+      window.removeEventListener("layerledger:token-updated", onTokenUpdated)
+      window.removeEventListener("layerledger:credit-updated", onTokenUpdated)
+    }
   }, [])
 
   // State for creating a new inventory item directly from the review step
@@ -601,13 +629,24 @@ export function ReceiptScanner({ inventory, setInventory, expenses, setExpenses,
     setParsed(null)
     setSaved(false)
     setError("")
+    setRefundNotice("")
+    setImpactSummary(null)
   }
 
   // Scan receipt or photo with Claude
   const scan = async () => {
     if (!photoB64) return
+    if (balance < 2) {
+      setError("Insufficient credits: 2 credits required to scan a receipt. Current balance: " + Number(balance).toFixed(1) + " credits. Please top up your balance.")
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+        window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+      }
+      return
+    }
     setLoading(true)
     setError("")
+    setRefundNotice("")
     try {
       const compressed = await compressImage(photoB64, 1920, 0.88, { enhanceContrast: true })
       const invList = inventory.map(i => `${i.id}:${i.name}(${i.unit})`).join(", ")
@@ -705,6 +744,13 @@ Return ONLY valid JSON with this exact structure, no preamble:
       )
 
       if (!result || !rawItems || rawItems.length === 0) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, "Failed receipt scan: no readable items detected")
+            setRefundNotice("Scan could not read items. 2 credits refunded automatically.")
+          } catch (_) {}
+        }
+
         const notes = result?.scan_notes || "Could not clearly detect any items, ingredients, or text in this image. Please ensure the receipt or items are well lit and in focus."
         setError(notes)
         setParsed({
@@ -754,6 +800,14 @@ Return ONLY valid JSON with this exact structure, no preamble:
         if (result.receipt_total) setTotalAmount(String(result.receipt_total))
       }
     } catch (err) {
+      if (!err.message?.includes("DAILY_AI_CEILING_REACHED") && !err.message?.includes("Insufficient")) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, `Failed receipt scan: ${err.message}`)
+            setRefundNotice("Scan failed. 2 credits refunded automatically.")
+          } catch (_) {}
+        }
+      }
       setError(`Could not read receipt: ${err.message}`)
     } finally {
       setLoading(false)
@@ -1030,6 +1084,56 @@ Return ONLY valid JSON with this exact structure, no preamble:
         }
       }
 
+      // Compute post-scan changes to inventory & recipe costs
+      const allRecipes = (typeof loadLocal === "function" ? loadLocal("ll_recipes", []) : []) || []
+      const affectedInv = []
+      const affectedRec = []
+
+      updInv.forEach(newItem => {
+        const oldItem = inventory.find(i => i.id === newItem.id)
+        if (!oldItem) {
+          affectedInv.push({
+            name: newItem.name,
+            unit: newItem.unit,
+            stockChange: `+${newItem.stock} ${newItem.unit} (New item)`,
+            newStock: `${newItem.stock} ${newItem.unit}`,
+            costChange: newItem.cost > 0 ? `₦${Number(newItem.cost).toLocaleString()} / ${newItem.unit}` : null
+          })
+        } else {
+          const stockDelta = newItem.stock - oldItem.stock
+          const costMoved = newItem.cost !== oldItem.cost
+          if (stockDelta !== 0 || costMoved) {
+            affectedInv.push({
+              name: newItem.name,
+              unit: newItem.unit,
+              stockChange: stockDelta > 0 ? `+${stockDelta.toFixed(1)} ${newItem.unit}` : `${stockDelta.toFixed(1)} ${newItem.unit}`,
+              newStock: `${newItem.stock} ${newItem.unit}`,
+              costChange: costMoved ? `₦${Number(oldItem.cost).toLocaleString()} → ₦${Number(newItem.cost).toLocaleString()} / ${newItem.unit}` : null
+            })
+          }
+        }
+      })
+
+      allRecipes.forEach(r => {
+        const oldCost = recipeCost(r, inventory)
+        const newCost = recipeCost(r, updInv)
+        if (oldCost !== newCost) {
+          const delta = newCost - oldCost
+          affectedRec.push({
+            id: r.id,
+            name: r.name,
+            oldCost,
+            newCost,
+            delta
+          })
+        }
+      })
+
+      setImpactSummary({
+        inventoryUpdates: affectedInv,
+        recipeUpdates: affectedRec
+      })
+
       sessionStorage.setItem("ll_active_purchases_month", monthStr)
       setSavedMonth(monthStr)
       setParsed(null)
@@ -1207,11 +1311,76 @@ Return ONLY valid JSON with this exact structure, no preamble:
 
           <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
 
+          {/* Pre-Action Credit & Cost Transparency Notice (Section 6: Balance and cost shown before every action) */}
+          <div style={{
+            background: balance >= 2 ? "rgba(200,145,42,0.07)" : "#FFF4E5",
+            border: balance >= 2 ? "1px solid rgba(200,145,42,0.2)" : "1px solid #FFE0B2",
+            borderRadius: 8,
+            padding: "10px 14px",
+            marginBottom: 12
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", display: "flex", alignItems: "center", gap: 5 }}>
+                <Coins size={14} color="var(--gold)" />
+                <span>Scan Cost: <strong style={{ color: "var(--gold)" }}>2 Credits</strong> (1 receipt scan)</span>
+              </span>
+              <span style={{ fontSize: 11.5, color: balance >= 2 ? "#27AE60" : "#D97706", fontWeight: 700 }}>
+                Balance: {Number(balance).toFixed(1)} Credits
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Balance after this scan: <strong>{balance >= 2 ? (balance - 2).toFixed(1) : 0} credits</strong></span>
+              <span>Credits never expire</span>
+            </div>
+          </div>
+
+          {/* Automatic Refund Notification if scan failed */}
+          {refundNotice && (
+            <div style={{ background: "#EEF8F3", border: "1px solid #C2E0CF", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12.5, color: "#2D7A50", display: "flex", alignItems: "center", gap: 6 }}>
+              <Check size={15} color="#2D7A50" />
+              <span>{refundNotice}</span>
+            </div>
+          )}
+
           {photo && !parsed && !saved && (
             <>
-              <Btn full onClick={scan} disabled={loading} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                {loading ? "AI is reading the receipt…" : <><Sparkles size={14} /> Scan & Extract Items <span style={{ fontSize: 11, opacity: 0.85, fontWeight: 500 }}>(2 credits)</span></>}
+              <Btn
+                full
+                onClick={scan}
+                disabled={loading}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  background: balance >= 2 ? "var(--gold)" : "#9E9E9E",
+                  color: "#fff"
+                }}
+              >
+                {loading ? "AI is reading the receipt…" : (
+                  balance >= 2 ? (
+                    <><Sparkles size={14} /> Scan & Extract Items <span style={{ fontSize: 11, opacity: 0.9, fontWeight: 500 }}>(2 credits)</span></>
+                  ) : (
+                    <>Insufficient Credits (2 needed, {Number(balance).toFixed(1)} available)</>
+                  )
+                )}
               </Btn>
+              {balance < 2 && (
+                <div style={{ textAlign: "center", marginTop: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window !== "undefined") {
+                        window.dispatchEvent(new CustomEvent("bakewealth:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+                        window.dispatchEvent(new CustomEvent("layerledger:insufficient-tokens", { detail: { requiredTokens: 2, requiredCredits: 2 } }))
+                      }
+                    }}
+                    style={{ background: "none", border: "none", color: "var(--gold)", fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
+                  >
+                    Top up credit pack or renew plan →
+                  </button>
+                </div>
+              )}
               {loading && <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 8 }}>This may take 15-30 seconds…</div>}
               {error && (
                 <div style={{ marginTop: 10, padding: "8px 12px", background: (error.toLowerCase().includes("token") || error.toLowerCase().includes("credit")) ? "#FFF4E5" : "#FDEBE9", border: (error.toLowerCase().includes("token") || error.toLowerCase().includes("credit")) ? "1px solid #FFE0B2" : "1px solid #FCDAD7", borderRadius: 8, fontSize: 12.5, color: (error.toLowerCase().includes("token") || error.toLowerCase().includes("credit")) ? "#92400E" : "#B03A2E", lineHeight: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
@@ -1240,14 +1409,67 @@ Return ONLY valid JSON with this exact structure, no preamble:
           )}
 
           {saved && (
-            <div style={{ background: "#EEF8F3", borderRadius: 8, padding: 14, border: "1px solid #C2E0CF", marginBottom: 12 }}>
-              <div style={{ fontWeight: 600, color: "#357A52", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-                <Check size={16} /> Saved! Purchases and stock levels updated for {savedMonth}.
+            <div style={{ background: "#EEF8F3", borderRadius: 10, padding: 16, border: "1px solid #C2E0CF", marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: "#357A52", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                <Check size={18} /> Saved! Purchases and stock levels updated for {savedMonth}.
               </div>
               <div style={{ fontSize: 12, color: "#2E6944", marginBottom: 10, lineHeight: 1.5 }}>
-                Purchases have been logged to the {savedMonth} ledger and reflect in your Purchases tab and inventory.
+                Purchases have been logged to the {savedMonth} ledger and reflected in your inventory and recipe costs.
               </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+
+              {/* Visibly show what changed after each scan: inventory items and recipe costs */}
+              {impactSummary && (
+                <div style={{ marginTop: 10, background: "#fff", borderRadius: 8, padding: 12, border: "1px solid #D2E7DA" }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: "#2D7A50", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                    Post-Scan Impact Summary
+                  </div>
+
+                  {impactSummary.inventoryUpdates?.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", marginBottom: 4 }}>
+                        Updated Inventory Items ({impactSummary.inventoryUpdates.length}):
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {impactSummary.inventoryUpdates.map((item, idx) => (
+                          <div key={idx} style={{ fontSize: 12, color: "var(--text)", display: "flex", justifyContent: "space-between", background: "#FAF7F0", padding: "5px 8px", borderRadius: 5 }}>
+                            <span style={{ fontWeight: 600 }}>{item.name}</span>
+                            <span style={{ color: "#27AE60", fontWeight: 600 }}>
+                              {item.stockChange} {item.costChange ? `• ${item.costChange}` : ""}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {impactSummary.recipeUpdates?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", marginBottom: 4 }}>
+                        Recipe Costs Moved ({impactSummary.recipeUpdates.length}):
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {impactSummary.recipeUpdates.map((rec) => (
+                          <div key={rec.id} style={{ fontSize: 12, color: "var(--text)", display: "flex", justifyContent: "space-between", background: "#FAF7F0", padding: "5px 8px", borderRadius: 5 }}>
+                            <span style={{ fontWeight: 600 }}>{rec.name}</span>
+                            <span style={{ color: rec.delta > 0 ? "#D97706" : "#27AE60", fontWeight: 700 }}>
+                              ₦{Math.round(rec.oldCost).toLocaleString()} → ₦{Math.round(rec.newCost).toLocaleString()} ({rec.delta > 0 ? `+₦${Math.round(rec.delta).toLocaleString()}` : `-₦${Math.round(Math.abs(rec.delta)).toLocaleString()}`})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(!impactSummary.inventoryUpdates || impactSummary.inventoryUpdates.length === 0) &&
+                    (!impactSummary.recipeUpdates || impactSummary.recipeUpdates.length === 0) && (
+                    <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                      Purchases recorded to expense ledger without direct ingredient stock overrides.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
                 <Btn small variant="outline" onClick={() => setSaved(false)}>Log Another</Btn>
                 {setView && (
                   <Btn

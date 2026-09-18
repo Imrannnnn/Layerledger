@@ -32,12 +32,18 @@ const registerUser = asyncHandler(async (req, res) => {
     const finalCompanyName = companyName || name;
     const finalType = tenantType || (companyName ? 'organization' : 'individual');
 
-    // 3. Create Tenant and User atomically
+    // 3. Create Tenant and User atomically with 10 free scans (20 credits)
     const result = await prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.create({
             data: {
                 name: finalCompanyName,
-                type: finalType
+                type: finalType,
+                tokenBalance: 20, // 10 free scans * 2 credits
+                settings: {
+                    plan: 'free',
+                    freeScansGranted: true,
+                    freeScansClaimedAt: new Date().toISOString()
+                }
             }
         });
 
@@ -48,6 +54,15 @@ const registerUser = asyncHandler(async (req, res) => {
                 email,
                 passwordHash: hashedPassword,
                 role: 'owner' // default to owner if creating a new company
+            }
+        });
+
+        await tx.tokenTransaction.create({
+            data: {
+                tenantId: tenant.id,
+                amount: 20,
+                type: 'bonus',
+                description: 'Welcome allowance: 10 free scans (20 credits)'
             }
         });
 

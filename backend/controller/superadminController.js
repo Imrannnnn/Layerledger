@@ -77,13 +77,16 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
   // Subscription breakdowns
   let freeCount = 0
-  let proCount = 0
+  let standardCount = 0
+  let premiumCount = 0
   let tokenBalanceCount = 0
 
   tenants.forEach(t => {
-    const plan = t.settings?.plan || "free"
-    if (plan === "pro") {
-      proCount++
+    const plan = (t.settings?.plan || "free").toLowerCase()
+    if (plan === "standard") {
+      standardCount++
+    } else if (plan === "premium" || plan === "studio" || plan === "pro") {
+      premiumCount++
     } else if (t.tokenBalance > 0) {
       tokenBalanceCount++
     } else {
@@ -101,11 +104,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   })
 
   const tokensSoldThisMonth = tokenTransactionsThisMonth.reduce((sum, tx) => sum + tx.amount, 0)
-  // Assuming a standard token rate (e.g. ₦100 per token)
-  const tokenRevenueThisMonth = tokensSoldThisMonth * 100
+  // Standard credit pack rate ~₦130/credit (Small: ₦150, Med: ₦130, Large: ₦117)
+  const tokenRevenueThisMonth = tokensSoldThisMonth * 130
 
-  // Subscription revenue estimate (e.g. Pro is ₦15,000/mo)
-  const subscriptionRevenueThisMonth = proCount * 15000
+  // Subscription revenue estimate (Standard is ₦5,000/mo, Premium is ₦10,000/mo)
+  const subscriptionRevenueThisMonth = (standardCount * 5000) + (premiumCount * 10000)
   const totalRevenueThisMonth = tokenRevenueThisMonth + subscriptionRevenueThisMonth
 
   // Usage statistics (Totals across the whole system)
@@ -137,7 +140,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       activeTenants30Days,
       subscriptionBreakdown: {
         free: freeCount,
-        pro: proCount,
+        standard: standardCount,
+        premium: premiumCount,
+        pro: premiumCount,
         token: tokenBalanceCount
       },
       monthlyRevenue: {

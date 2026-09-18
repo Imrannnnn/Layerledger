@@ -1,5 +1,6 @@
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+const { getEffectivePlan, PLAN_LIMITS } = require('./planController');
 
 /**
  * @desc    Get all recipes
@@ -58,6 +59,22 @@ const getRecipeById = asyncHandler(async (req, res) => {
 const createRecipe = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
     const { name, notes, ingredients, type, batchWeight, batchSize } = req.body;
+
+    // Enforce Recipe limits based on plan
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const effective = getEffectivePlan(tenant);
+    const planLimits = PLAN_LIMITS[effective.plan] || PLAN_LIMITS.free;
+
+    if (planLimits.recipes !== Infinity) {
+        const currentCount = await prisma.recipe.count({ where: { tenantId } });
+        if (currentCount >= planLimits.recipes) {
+            res.status(403);
+            throw new Error(`Recipe limit reached (${planLimits.recipes} recipes for ${planLimits.name} plan). Upgrade to ${effective.plan === 'free' ? 'Standard (60 recipes)' : 'Premium (unlimited recipes)'}.`);
+        }
+    }
 
     const recipe = await prisma.recipe.create({
         data: {
