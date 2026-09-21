@@ -5,10 +5,10 @@
  * ----------------------------------------------------------------------------
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { Btn, iSt, Inp, Card, SHead, TH, TR2, Spinner, Pagination } from "../common/ui.jsx"
+import { Btn, iSt, Inp, Card, SHead, TH, TR2, Spinner, Pagination, Modal } from "../common/ui.jsx"
 import { fmt, uid, DEFAULT_CATEGORIES, mapCategory, formatDateDMY, normalizeToIsoDate, isDateInMonth } from "../../lib/helpers.js"
-import { saveInventory, saveExpenses, loadLocal, saveLocal, savePurchases, fetchPaginatedPurchases, deletePurchaseFromServer, deletePurchasesFromServer, clearAllPurchasesFromServer } from "../../lib/data.js"
-import { Link, Receipt, Trash2, Check, Calendar, AlertCircle, Download } from "lucide-react"
+import { saveInventory, saveExpenses, loadLocal, saveLocal, savePurchases, fetchPaginatedPurchases, deletePurchaseFromServer, deletePurchasesFromServer, clearAllPurchasesFromServer, updatePurchaseOnServer } from "../../lib/data.js"
+import { Link, Receipt, Trash2, Check, Calendar, AlertCircle, Download, Pencil } from "lucide-react"
 import { exportPurchasesPDF } from "../../lib/pdfReportGenerator.js"
 
 const formatMonthLabel = (m) => {
@@ -22,6 +22,18 @@ const formatMonthLabel = (m) => {
   } catch {}
   return m
 }
+
+const ModalComp = Modal || (({ children, title, onClose }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+    <div style={{ background: "var(--panel, #fff)", borderRadius: 14, padding: 24, maxWidth: 560, width: "100%", maxHeight: "90vh", overflowY: "auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 600, color: "var(--text)" }}>{title}</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", padding: 4 }}>×</button>
+      </div>
+      {children}
+    </div>
+  </div>
+))
 
 // ═══════════════════════════════════════════════════════════
 export function Purchases({ inventory, setInventory, expenses, setExpenses, setView, isOwner, company = {} }) {
@@ -58,6 +70,8 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
   const [deletingAll, setDeletingAll] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [logging, setLogging] = useState(false)
+  const [editingPurchase, setEditingPurchase] = useState(null)
+  const [savingEdit, setSavingEdit] = useState(false)
 
   // Fetch paginated slice directly from server/database
   const loadPage = async () => {
@@ -256,6 +270,206 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       await savePurchases(p)
     } else {
       await saveLocal("ll_purchases", p)
+    }
+  }
+
+  const openEditModal = (pur) => {
+    const invItem = inventory.find(i => i.id === pur.itemId)
+    setEditingPurchase({
+      id: pur.id,
+      original: { ...pur },
+      item: pur.itemId || "",
+      category: invItem?.cat || pur.category || "",
+      unitSize: pur.unitSize != null ? String(pur.unitSize) : "",
+      qty: pur.qty != null ? String(pur.qty) : "",
+      price: pur.price != null ? String(pur.price) : "",
+      date: pur.date ? normalizeToIsoDate(pur.date) : new Date().toISOString().slice(0, 10),
+      supplier: pur.supplier || "",
+      notes: pur.notes || ""
+    })
+  }
+
+  const updateEditField = (field, value) => {
+    setEditingPurchase(prev => {
+      if (!prev) return null
+      const updated = { ...prev, [field]: value }
+      if (field === "item" && value) {
+        const it = inventory.find(i => i.id === value)
+        if (it) {
+          updated.category = it.cat || mapCategory(it.cat, it.name)
+        }
+      }
+      return updated
+    })
+  }
+
+  const saveEditedPurchase = async () => {
+    if (!editingPurchase || savingEdit) return
+    const { id, original, item, category, unitSize, qty, price, date, supplier, notes } = editingPurchase
+
+    if (!item || !unitSize || !qty || !price) {
+      alert("Item, Pack size, Quantity bought, and Price per pack are required.")
+      return
+    }
+
+    const parsedUnitSize = parseFloat(unitSize)
+    const parsedQty = parseFloat(qty)
+    const parsedPrice = parseFloat(price)
+
+    if (isNaN(parsedUnitSize) || parsedUnitSize <= 0 || isNaN(parsedQty) || parsedQty <= 0 || isNaN(parsedPrice) || parsedPrice < 0) {
+      alert("Please enter valid positive numbers for Pack size, Quantity, and Price.")
+      return
+    }
+
+    setSavingEdit(true)
+    try {
+      const newStockAdded = parseFloat((parsedUnitSize * parsedQty).toFixed(3))
+      const newTotal = Math.round(parsedPrice * parsedQty)
+      const newCpu = parseFloat((parsedPrice / (parsedUnitSize || 1)).toFixed(2))
+
+      const oldItemId = original.itemId
+      const oldStockAdded = Number(original.stockAdded != null ? original.stockAdded : (Number(original.unitSize || 0) * Number(original.qty || 0))) || 0
+      const oldTotal = Number(original.total != null ? original.total : (Number(original.price || 0) * Number(original.qty || 0))) || 0
+      const oldItemName = original.item || ""
+
+      // 1. Update inventory stock and weighted average cost
+      let updInv = [...inventory]
+      if (oldItemId && oldItemId === item) {
+        const deltaStock = newStockAdded - oldStockAdded
+        const deltaValue = newTotal - oldTotal
+
+        updInv = updInv.map(i => {
+          if (i.id === item) {
+            const curStock = Number(i.stock || 0)
+            const curCost = Number(i.cost || 0)
+            const curValue = curStock * curCost
+            const newStock = Math.max(0, parseFloat((curStock + deltaStock).toFixed(3)))
+            const newValue = Math.max(0, parseFloat((curValue + deltaValue).toFixed(2)))
+            const newCost = newStock > 0 ? parseFloat((newValue / newStock).toFixed(2)) : curCost
+            return {
+              ...i,
+              stock: newStock,
+              cost: newCost,
+              cat: category || i.cat
+            }
+          }
+          return i
+        })
+      } else {
+        updInv = updInv.map(i => {
+          if (oldItemId && i.id === oldItemId) {
+            const curStock = Number(i.stock || 0)
+            const curCost = Number(i.cost || 0)
+            const curValue = curStock * curCost
+            const newStock = Math.max(0, parseFloat((curStock - oldStockAdded).toFixed(3)))
+            const newValue = Math.max(0, parseFloat((curValue - oldTotal).toFixed(2)))
+            const newCost = newStock > 0 ? parseFloat((newValue / newStock).toFixed(2)) : curCost
+            return {
+              ...i,
+              stock: newStock,
+              cost: newCost
+            }
+          }
+          if (i.id === item) {
+            const curStock = Number(i.stock || 0)
+            const curCost = Number(i.cost || 0)
+            const curValue = curStock * curCost
+            const newStock = parseFloat((curStock + newStockAdded).toFixed(3))
+            const newValue = parseFloat((curValue + newTotal).toFixed(2))
+            const newCost = newStock > 0 ? parseFloat((newValue / newStock).toFixed(2)) : curCost
+            return {
+              ...i,
+              stock: newStock,
+              cost: newCost,
+              cat: category || i.cat
+            }
+          }
+          return i
+        })
+      }
+
+      setInventory(updInv)
+      await saveInventory(updInv)
+
+      // 2. Update matching expense record
+      if (expenses && setExpenses) {
+        const selItem = updInv.find(i => i.id === item)
+        const newItemName = selItem?.name || item
+
+        let expCat = "Ingredients / Supplies"
+        if (category === "Board and Packaging" || category === "Packaging") {
+          expCat = "Packaging"
+        } else if (category === "Decoration Extras" || category === "Decorations") {
+          expCat = "Decorations"
+        }
+
+        let matchedExpense = false
+        const updatedExpenses = expenses.map(e => {
+          if (e.source !== "purchase") return e
+
+          const isDirectIdMatch = (e.id === id) || (e.purchaseId === id)
+          const isContentMatch = !matchedExpense &&
+            (e.description === `Purchase: ${oldItemName}` || e.description === oldItemName || e.description === `Purchase: ${newItemName}`) &&
+            (Math.abs(Number(e.amount || 0) - oldTotal) < 0.01 || e.date === original.date)
+
+          if (isDirectIdMatch || isContentMatch) {
+            matchedExpense = true
+            return {
+              ...e,
+              date: date || e.date,
+              description: `Purchase: ${newItemName}`,
+              amount: newTotal,
+              category: expCat,
+              notes: `${parsedQty}×${parsedUnitSize}${selItem?.unit || ""} @ ₦${parsedPrice.toLocaleString()} — cost/unit updated to ${fmt(newCpu)}`
+            }
+          }
+          return e
+        })
+
+        setExpenses(updatedExpenses)
+        await saveExpenses(updatedExpenses)
+      }
+
+      // 3. Update purchase record locally and on server
+      const selItem = updInv.find(i => i.id === item)
+      const updatedPurchaseRecord = {
+        ...original,
+        id,
+        date,
+        itemId: item,
+        item: selItem?.name || original.item,
+        category,
+        unit: selItem?.unit || original.unit,
+        unitSize: parsedUnitSize,
+        qty: parsedQty,
+        price: parsedPrice,
+        total: newTotal,
+        cpu: newCpu,
+        stockAdded: newStockAdded,
+        supplier: supplier || original.supplier || "Market Run",
+        notes: notes || `${selItem?.name || "Ingredient"} — Qty: ${parsedQty} (added: ${newStockAdded})`
+      }
+
+      setPurchases(prev => prev.map(p => p.id === id ? updatedPurchaseRecord : p))
+
+      const existingAll = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
+      const mergedPurchases = existingAll.map(p => p.id === id ? updatedPurchaseRecord : p)
+      saveLocal("ll_purchases", mergedPurchases)
+
+      if (typeof updatePurchaseOnServer === "function") {
+        await updatePurchaseOnServer(id, updatedPurchaseRecord)
+      }
+      if (typeof savePurchases === "function") {
+        await savePurchases(mergedPurchases)
+      }
+
+      setEditingPurchase(null)
+      await loadPage()
+    } catch (err) {
+      console.error("Failed to update purchase:", err)
+      alert("Error updating purchase: " + (err.message || "Unknown error"))
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -721,9 +935,14 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
               <span style={{ color: "var(--gold)", fontWeight: 500 }}>{fmt(p.cpu)}/{displayUnit}</span>,
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, background: "#E8EFFC", color: "#2355A0", padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}><Link size={10}/> Updated</span>,
               ...(isOwner ? [
-                <Btn key={`del-${p.id}`} small variant="danger" onClick={() => handleDeleteSingle(p.id)} title="Delete purchase" style={{ padding: "3px 6px", display: "inline-flex", alignItems: "center" }}>
-                  <Trash2 size={11} />
-                </Btn>
+                <div key={`act-${p.id}`} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <Btn key={`edit-${p.id}`} small variant="outline" onClick={() => openEditModal(p)} title="Edit purchase" style={{ padding: "3px 6px", display: "inline-flex", alignItems: "center" }}>
+                    <Pencil size={11} />
+                  </Btn>
+                  <Btn key={`del-${p.id}`} small variant="danger" onClick={() => handleDeleteSingle(p.id)} title="Delete purchase" style={{ padding: "3px 6px", display: "inline-flex", alignItems: "center" }}>
+                    <Trash2 size={11} />
+                  </Btn>
+                </div>
               ] : [])
             ]} />
           })
@@ -743,6 +962,162 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       pageSizeOptions={[10, 25, 50, 100]}
       itemLabel="purchases"
     />
+
+    {/* Edit Purchase Modal */}
+    {editingPurchase && (() => {
+      const selItem = inventory.find(i => i.id === editingPurchase.item)
+      const calcUnitSize = parseFloat(editingPurchase.unitSize) || 0
+      const calcQty = parseFloat(editingPurchase.qty) || 0
+      const calcPrice = parseFloat(editingPurchase.price) || 0
+      const calcTotal = Math.round(calcPrice * calcQty)
+      const calcStockAdded = parseFloat((calcUnitSize * calcQty).toFixed(3))
+      const calcCpu = calcUnitSize > 0 ? parseFloat((calcPrice / calcUnitSize).toFixed(2)) : 0
+      const unit = selItem?.unit || editingPurchase.original.unit || "unit"
+
+      const origTotal = editingPurchase.original.total || 0
+      const origStockAdded = editingPurchase.original.stockAdded || 0
+      const diffTotal = calcTotal - origTotal
+      const diffStock = parseFloat((calcStockAdded - origStockAdded).toFixed(3))
+
+      return (
+        <ModalComp title="Edit Purchase Record" onClose={() => !savingEdit && setEditingPurchase(null)}>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 16, lineHeight: 1.5 }}>
+            Update any mistakes in this purchase. Corrected pack size, quantity, or price will automatically adjust your inventory stock level, weighted average cost, and overhead expenses.
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 }}>
+                Item Purchased *
+              </label>
+              <select
+                data-testid="edit-purchase-item-select"
+                value={editingPurchase.item}
+                onChange={e => updateEditField("item", e.target.value)}
+                style={{ ...iSt, cursor: "pointer" }}
+              >
+                <option value="">— Select item —</option>
+                {inventory.map(i => (
+                  <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 }}>
+                Category *
+              </label>
+              <select
+                data-testid="edit-purchase-category-select"
+                value={editingPurchase.category}
+                onChange={e => updateEditField("category", e.target.value)}
+                style={{ ...iSt, cursor: "pointer" }}
+              >
+                <option value="">— Select category —</option>
+                {categoriesList.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
+            <Inp
+              label="Pack size *"
+              type="number"
+              value={editingPurchase.unitSize}
+              onChange={v => updateEditField("unitSize", v)}
+              placeholder="e.g. 50"
+            />
+
+            <Inp
+              label="Qty bought *"
+              type="number"
+              value={editingPurchase.qty}
+              onChange={v => updateEditField("qty", v)}
+              placeholder="e.g. 3"
+            />
+
+            <Inp
+              label="Price / pack (₦) *"
+              type="number"
+              value={editingPurchase.price}
+              onChange={v => updateEditField("price", v)}
+              placeholder="e.g. 57000"
+            />
+
+            <Inp
+              label="Purchase Date"
+              type="date"
+              value={editingPurchase.date}
+              onChange={v => updateEditField("date", v)}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <Inp
+              label="Supplier / Vendor"
+              value={editingPurchase.supplier}
+              onChange={v => updateEditField("supplier", v)}
+              placeholder="e.g. Market Run / Flour Mills"
+            />
+            <Inp
+              label="Notes (optional)"
+              value={editingPurchase.notes}
+              onChange={v => updateEditField("notes", v)}
+              placeholder="Additional notes"
+            />
+          </div>
+
+          {/* Real-time Calculation Summary */}
+          <div style={{
+            background: "#FFF9EE",
+            border: "1px solid var(--gold)",
+            borderRadius: 8,
+            padding: "12px 14px",
+            marginBottom: 16
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--gold)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
+              Calculated Impact
+            </div>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12.5 }}>
+              <div>
+                Total Spent: <strong>{fmt(calcTotal)}</strong>
+                {diffTotal !== 0 && (
+                  <span style={{ fontSize: 11, marginLeft: 6, color: diffTotal > 0 ? "#B03A2E" : "#357A52", fontWeight: 600 }}>
+                    ({diffTotal > 0 ? `+${fmt(diffTotal)}` : `-${fmt(Math.abs(diffTotal))}`})
+                  </span>
+                )}
+              </div>
+              <div>
+                Stock to Add: <strong style={{ color: "#357A52" }}>+{calcStockAdded} {unit}</strong>
+                {diffStock !== 0 && (
+                  <span style={{ fontSize: 11, marginLeft: 6, color: diffStock > 0 ? "#357A52" : "#B03A2E", fontWeight: 600 }}>
+                    ({diffStock > 0 ? `+${diffStock} ${unit}` : `${diffStock} ${unit}`})
+                  </span>
+                )}
+              </div>
+              <div>
+                New Cost/unit: <strong style={{ color: "var(--gold)" }}>{fmt(calcCpu)}/{unit}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Btn variant="ghost" disabled={savingEdit} onClick={() => setEditingPurchase(null)}>
+              Cancel
+            </Btn>
+            <Btn
+              variant="success"
+              loading={savingEdit}
+              loadingText="Saving & Updating..."
+              onClick={saveEditedPurchase}
+              style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+            >
+              <Check size={13} /> Save Changes & Update Inventory
+            </Btn>
+          </div>
+        </ModalComp>
+      )
+    })()}
 
     <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--muted)" }}>* Cost/unit = Price per pack ÷ Pack size. Updates inventory and starting inventory immediately.</div>
   </div>

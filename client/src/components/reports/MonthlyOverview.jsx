@@ -7,7 +7,7 @@
  */
 import React, { useState, useMemo, useEffect, useCallback } from "react"
 import { Btn, Card, SHead, TH, TR2, Spinner } from "../common/ui.jsx"
-import { fmt, isDateInMonth } from "../../lib/helpers.js"
+import { fmt, isDateInMonth, getMonthKeyFromDate } from "../../lib/helpers.js"
 import {
   loadLocal,
   saveLocal,
@@ -34,51 +34,83 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
   const [loadingOS, setLoadingOS] = useState(false)
   const [successMsg, setSuccessMsg] = useState("")
 
-  // Quote revenue mapped from quotesList
+  const isOrderConfirmed = (p) => {
+    if (!p) return false
+    if (p.status === "confirmed" || !!p.confirmedAt) return true
+    // Standalone production record must be confirmed or actively in production, not an unconfirmed quote
+    if (p.isProd && p.status !== "quote" && p.status !== "pending" && p.status !== "cancelled") return true
+    return false
+  }
+
+  // Quote revenue mapped from quotesList with full item, tier, and recipe details preserved
   const quoteRevenue = useMemo(() => {
+    const prodQuoteIds = new Set((productions || []).filter(p => p.quoteId).map(p => p.quoteId))
     return (quotesList || [])
-      .filter(q => q.status === "confirmed" || q.confirmedAt)
+      .filter(q => q.status === "confirmed" || !!q.confirmedAt || prodQuoteIds.has(q.id))
       .map(q => {
         const isGS = q.orderPurpose === "gift" || q.orderPurpose === "sample"
+        const prodMatch = (productions || []).find(p => p.quoteId === q.id || p.id === q.id)
         return {
+          ...q,
+          ...(prodMatch || {}),
           id: q.id,
           quoteId: q.id,
           fromQuote: true,
-          client: q.clientName || "",
-          clientPhone: q.clientPhone || "",
-          deliveryDate: q.deliveryDate || q.dueDate || q.date || "",
-          orderDate: q.orderDate || q.date || "",
-          confirmedAt: q.confirmedAt,
-          salePrice: isGS ? 0 : +(q.salePrice || q.quotePrice || 0),
-          cost: +(q.totalCost || 0),
+          client: q.clientName || prodMatch?.client || "",
+          clientPhone: q.clientPhone || prodMatch?.clientPhone || "",
+          deliveryDate: q.deliveryDate || q.dueDate || q.date || prodMatch?.deliveryDate || "",
+          orderDate: q.orderDate || q.date || prodMatch?.orderDate || "",
+          confirmedAt: q.confirmedAt || prodMatch?.confirmedAt || "",
+          salePrice: isGS ? 0 : +(q.salePrice || q.quotePrice || prodMatch?.salePrice || 0),
+          cost: +(q.totalCost || prodMatch?.cost || 0),
           deliveryCost: 0,
-          productType: q.productType || "Cake",
-          orderPurpose: q.orderPurpose || "sale",
-          size: q.tiers?.map(t => t.size + '" ' + t.shape).join(" + ") || "",
-          covering: q.tiers?.[0]?.coverings?.[0]?.type || "",
-          flavors: q.flavourSummary || "",
-          cakeSummary: q.cakeSummary || "",
-          notes: q.notes || "",
-          paymentType: isGS ? q.orderPurpose : "full",
-          status: "approved",
-          margin: q.margin || 0
+          productType: q.productType || prodMatch?.productType || "Cake",
+          orderPurpose: q.orderPurpose || prodMatch?.orderPurpose || "sale",
+          size: q.tiers?.map(t => t.size + '" ' + t.shape).join(" + ") || prodMatch?.size || "",
+          covering: q.tiers?.[0]?.coverings?.[0]?.type || prodMatch?.covering || "",
+          flavors: q.flavourSummary || prodMatch?.flavors || "",
+          cakeSummary: q.cakeSummary || prodMatch?.cakeSummary || "",
+          notes: q.notes || prodMatch?.notes || "",
+          paymentType: isGS ? q.orderPurpose : (prodMatch?.paymentType || "full"),
+          status: "confirmed",
+          margin: q.margin || prodMatch?.profitPct || 0,
+          // Explicitly ensure items, tiers, pastryItems, decQty, accessories, usages are preserved
+          items: (Array.isArray(q.items) && q.items.length > 0) ? q.items : (prodMatch?.items || []),
+          tiers: (Array.isArray(q.tiers) && q.tiers.length > 0) ? q.tiers : (prodMatch?.tiers || []),
+          pastryItems: (Array.isArray(q.pastryItems) && q.pastryItems.length > 0) ? q.pastryItems : (prodMatch?.pastryItems || []),
+          donutGroups: (Array.isArray(q.donutGroups) && q.donutGroups.length > 0) ? q.donutGroups : (prodMatch?.donutGroups || []),
+          loaves: (Array.isArray(q.loaves) && q.loaves.length > 0) ? q.loaves : (prodMatch?.loaves || []),
+          tartQty: q.tartQty || prodMatch?.tartQty || 0,
+          decQty: q.decQty || prodMatch?.decQty || null,
+          decorations: q.decorations || prodMatch?.decorations || null,
+          accRows: (Array.isArray(q.accRows) && q.accRows.length > 0) ? q.accRows : (prodMatch?.accRows || []),
+          usages: (Array.isArray(q.usages) && q.usages.length > 0) ? q.usages : (prodMatch?.usages || null),
+          matchedRecipe: q.matchedRecipe || prodMatch?.matchedRecipe || null,
+          recipeId: q.recipeId || prodMatch?.recipeId || ""
         }
       })
-  }, [quotesList])
+  }, [quotesList, productions])
 
-  // Combine confirmed quotes with standalone productions
+  // Combine confirmed quotes with standalone confirmed productions
   const allRevenue = useMemo(() => {
-    const quoteIds = new Set(quoteRevenue.map(q => q.quoteId))
-    const legacyProds = (productions || []).filter(p => !p.fromQuote && !p.quoteId && !quoteIds.has(p.quoteId))
+    const quoteIds = new Set(quoteRevenue.map(q => q.quoteId || q.id))
+    const legacyProds = (productions || []).filter(p => {
+      if (p.fromQuote || p.quoteId || quoteIds.has(p.id) || quoteIds.has(p.quoteId)) return false
+      if (p.status === "quote" || p.isProd === false) return false
+      return isOrderConfirmed(p)
+    })
     return [...quoteRevenue, ...legacyProds]
   }, [quoteRevenue, productions])
 
   const months = useMemo(() => {
     return [...new Set([
       cur,
-      ...allRevenue.map(p => p.confirmedAt ? p.confirmedAt.slice(0, 7) : (p.deliveryDate || p.dueDate || p.orderDate || "").slice(0, 7)),
-      ...(expenses || []).map(e => e.date?.slice(0, 7)),
-      ...(purchasesList || []).map(p => p.date?.slice(0, 7))
+      ...allRevenue.flatMap(p => [
+        p.confirmedAt ? (getMonthKeyFromDate(p.confirmedAt) || p.confirmedAt.slice(0, 7)) : "",
+        (p.deliveryDate || p.dueDate || p.orderDate || p.date) ? (getMonthKeyFromDate(p.deliveryDate || p.dueDate || p.orderDate || p.date) || (p.deliveryDate || p.dueDate || p.orderDate || p.date).slice(0, 7)) : ""
+      ]),
+      ...(expenses || []).map(e => getMonthKeyFromDate(e.date) || e.date?.slice(0, 7)),
+      ...(purchasesList || []).map(p => getMonthKeyFromDate(p.date) || p.date?.slice(0, 7))
     ].filter(Boolean))].sort().reverse()
   }, [cur, allRevenue, expenses, purchasesList])
 
@@ -136,15 +168,26 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
         const prevPurchases = allPurchases.filter(p => isDateInMonth(p.date, prevM))
         
         const prevMRev = allRevenue.filter(p => {
-          if (p.fromQuote && p.confirmedAt) return p.confirmedAt.startsWith(prevM)
-          return (p.deliveryDate || p.dueDate || p.orderDate || "").startsWith(prevM)
+          if (!isOrderConfirmed(p)) return false
+          if (p.confirmedAt) {
+            return isDateInMonth(p.confirmedAt, prevM) || isDateInMonth(p.deliveryDate || p.dueDate || p.orderDate || p.date, prevM)
+          }
+          return isDateInMonth(p.deliveryDate || p.dueDate || p.orderDate || p.date, prevM)
         })
 
         const prevUsageMap = {}
+        const prevUsageMapByName = {}
         prevMRev.forEach(order => {
           const usages = calculateOrderUsages(order, inventory, recipes)
           usages.forEach(u => {
-            prevUsageMap[u.itemId] = (prevUsageMap[u.itemId] || 0) + u.qty
+            if (u.itemId) {
+              prevUsageMap[u.itemId] = (prevUsageMap[u.itemId] || 0) + u.qty
+              const invItem = (inventory || []).find(i => i.id === u.itemId)
+              if (invItem && invItem.name) {
+                const cleanName = invItem.name.trim().toLowerCase()
+                prevUsageMapByName[cleanName] = (prevUsageMapByName[cleanName] || 0) + u.qty
+              }
+            }
           })
         })
 
@@ -152,7 +195,13 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
           const f = prevOS.find(i => i.id === item.id || i.itemId === item.id || i.name?.toLowerCase() === item.name?.toLowerCase())
           const op = f ? (Number(f.openingQty) || 0) : 0
           const bought = prevPurchases.filter(p => p.itemId === item.id || p.item?.toLowerCase() === item.name?.toLowerCase()).reduce((s, p) => s + (Number(p.stockAdded) || 0), 0)
-          const used = parseFloat((prevUsageMap[item.id] || 0).toFixed(3))
+          const itemName = item.name?.trim().toLowerCase()
+          const usedQty = prevUsageMap[item.id] !== undefined
+            ? prevUsageMap[item.id]
+            : (item.itemId && prevUsageMap[item.itemId] !== undefined)
+              ? prevUsageMap[item.itemId]
+              : (itemName ? (prevUsageMapByName[itemName] || 0) : 0)
+          const used = parseFloat((usedQty || 0).toFixed(3))
           const closing = Math.max(0, parseFloat((op + bought - used).toFixed(3)))
           return {
             id: item.id,
@@ -216,6 +265,20 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
     }
     window.addEventListener("layerledger:purchases-updated", handlePurchasesUpdated)
     return () => window.removeEventListener("layerledger:purchases-updated", handlePurchasesUpdated)
+  }, [])
+
+  // Listen for real-time quote & production updates from QuotesPage or Production
+  useEffect(() => {
+    const handleQuotesUpdated = () => {
+      const fresh = loadLocal("ll_quotes", [])
+      setQuotesList(fresh)
+    }
+    window.addEventListener("layerledger:quotes-updated", handleQuotesUpdated)
+    window.addEventListener("layerledger:productions-updated", handleQuotesUpdated)
+    return () => {
+      window.removeEventListener("layerledger:quotes-updated", handleQuotesUpdated)
+      window.removeEventListener("layerledger:productions-updated", handleQuotesUpdated)
+    }
   }, [])
 
   const handleClearMonthData = async () => {
@@ -290,13 +353,14 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
     }
   }
 
-  // Revenue comes from confirmed quotes/orders confirmed in the selected month
+  // Revenue comes from confirmed quotes/orders confirmed or scheduled in the selected month
   const mRevenue = useMemo(() => {
     return allRevenue.filter(p => {
-      if (p.fromQuote && p.confirmedAt) {
-        return p.confirmedAt.startsWith(sel)
+      if (!isOrderConfirmed(p)) return false
+      if (p.confirmedAt) {
+        return isDateInMonth(p.confirmedAt, sel) || isDateInMonth(p.deliveryDate || p.dueDate || p.orderDate || p.date, sel)
       }
-      return (p.deliveryDate || p.dueDate || p.orderDate || "").startsWith(sel)
+      return isDateInMonth(p.deliveryDate || p.dueDate || p.orderDate || p.date, sel)
     })
   }, [allRevenue, sel])
 
@@ -376,22 +440,45 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
   }, [mPurchases, inventory])
 
   // Calculate exact ingredient usage from confirmed orders for this month via Order Calculator
-  const monthUsages = useMemo(() => {
+  const { monthUsages, monthUsagesByName } = useMemo(() => {
     const usageMap = {}
+    const nameMap = {}
     mRevenue.forEach(order => {
       const usages = calculateOrderUsages(order, inventory, recipes)
       usages.forEach(u => {
-        usageMap[u.itemId] = (usageMap[u.itemId] || 0) + u.qty
+        if (u.itemId) {
+          usageMap[u.itemId] = (usageMap[u.itemId] || 0) + u.qty
+          const invItem = (inventory || []).find(i => i.id === u.itemId)
+          if (invItem && invItem.name) {
+            const cleanName = invItem.name.trim().toLowerCase()
+            nameMap[cleanName] = (nameMap[cleanName] || 0) + u.qty
+          }
+        }
       })
     })
-    return usageMap
+    return { monthUsages: usageMap, monthUsagesByName: nameMap }
   }, [mRevenue, inventory, recipes])
 
   const getUsed = useCallback((itemOrId) => {
     if (!itemOrId) return 0
-    let id = typeof itemOrId === "string" ? itemOrId : itemOrId.id
-    return parseFloat((monthUsages[id] || 0).toFixed(3))
-  }, [monthUsages])
+    let id = typeof itemOrId === "string" ? itemOrId : (itemOrId.id || itemOrId.itemId)
+    let altId = typeof itemOrId === "object" ? itemOrId.itemId : null
+    let name = (typeof itemOrId === "object" ? itemOrId.name : "")?.trim().toLowerCase()
+    if (!name && typeof itemOrId === "string") {
+      const foundInInv = (inventory || []).find(inv => inv.id === itemOrId)
+      if (foundInInv) name = foundInInv.name?.trim().toLowerCase()
+    }
+
+    let qty = 0
+    if (id && monthUsages[id] !== undefined) {
+      qty = monthUsages[id]
+    } else if (altId && monthUsages[altId] !== undefined) {
+      qty = monthUsages[altId]
+    } else if (name && monthUsagesByName[name] !== undefined) {
+      qty = monthUsagesByName[name]
+    }
+    return parseFloat((qty || 0).toFixed(3))
+  }, [monthUsages, monthUsagesByName, inventory])
 
   // Combined inventory list including items entered in Opening Stock and Purchases this month
   const allStockItems = useMemo(() => {
@@ -435,8 +522,28 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
       }
     })
 
+    // Also include any items used this month if not already in inventory, opening stock, or purchases
+    Object.keys(monthUsages).forEach(uId => {
+      if (!existingIds.has(uId)) {
+        const invMatch = (inventory || []).find(i => i.id === uId)
+        const uName = invMatch?.name || "Used Ingredient"
+        if (!existingNames.has(uName.toLowerCase())) {
+          list.push({
+            id: uId,
+            name: uName,
+            unit: invMatch?.unit || "kg",
+            cost: invMatch?.cost || 0,
+            stock: 0,
+            minStock: 5
+          })
+          existingIds.add(uId)
+          existingNames.add(uName.toLowerCase())
+        }
+      }
+    })
+
     return list
-  }, [inventory, osItems, mPurchases])
+  }, [inventory, osItems, mPurchases, monthUsages])
 
   const hasMonthData = mPurchases.length > 0 || mExp.length > 0 || osItems.length > 0 || mRevenue.length > 0
 

@@ -129,6 +129,8 @@ class PaystackProvider extends PaymentProviderInterface {
             provider: 'paystack',
             providerReference: data.reference || reference,
             amount: data.amount, // in kobo
+            requestedAmount: data.requested_amount, // in kobo
+            fees: data.fees, // in kobo
             currency: (data.currency || 'NGN').toUpperCase(),
             status: normalizedStatus,
             providerStatus: data.status,

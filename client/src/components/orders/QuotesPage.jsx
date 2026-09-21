@@ -30,10 +30,46 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
   const [expanded, setExpanded] = useState(null)
   const [confirming, setConfirming] = useState(false)
 
+  const checkIsConfirmed = (q) => {
+    if (!q) return false
+    return q.status === "confirmed" || !!q.confirmedAt || (Array.isArray(productions) && productions.some(p => p.quoteId === q.id))
+  }
+
   useEffect(() => {
     setCurrentPage(1)
   }, [filter, searchQuery])
 
+  // Sync state if quotes cache updates from server sync or another component
+  useEffect(() => {
+    const handleQuotesUpdated = (e) => {
+      if (e?.detail?.source === "QuotesPage") return
+      setQuotes(loadQuotes())
+    }
+    window.addEventListener("layerledger:quotes-updated", handleQuotesUpdated)
+    return () => window.removeEventListener("layerledger:quotes-updated", handleQuotesUpdated)
+  }, [])
+
+  // Auto-heal: If quote has a matching production record, ensure quote is marked confirmed
+  useEffect(() => {
+    if (!Array.isArray(productions) || productions.length === 0 || !Array.isArray(quotes) || quotes.length === 0) return
+    let needsUpdate = false
+    const healed = quotes.map(q => {
+      const prodMatch = productions.find(p => p.quoteId === q.id)
+      if (prodMatch && (q.status !== "confirmed" || !q.confirmedAt)) {
+        needsUpdate = true
+        return {
+          ...q,
+          status: "confirmed",
+          confirmedAt: q.confirmedAt || prodMatch.confirmedAt || prodMatch.orderDate || new Date().toISOString()
+        }
+      }
+      return q
+    })
+    if (needsUpdate) {
+      setQuotes(healed)
+      saveQuotes(healed)
+    }
+  }, [productions])
 
   const updateStatus = (id, status) => {
     const updated = quotes.map(q => q.id === id ? { ...q, status } : q)
@@ -82,7 +118,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
 
   const confirmOrder = async (q) => {
     // Block if already confirmed
-    if (q.status === "confirmed" || q.confirmedAt) {
+    if (checkIsConfirmed(q)) {
       alert("This quote is already confirmed and locked.")
       return
     }
@@ -143,16 +179,19 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
         console.error("Ingredient deduction error", e)
       }
 
+      const confirmedTime = new Date().toISOString()
+
       // Create production record with full details
       const prod = {
         id: uid(),
         quoteId: q.id,
         fromQuote: true,
+        isProd: true,
         client: q.clientName,
         clientPhone: q.clientPhone || "",
         clientEmail: "",
         orderDate: q.date,
-        confirmedAt: new Date().toISOString(),
+        confirmedAt: confirmedTime,
         deliveryDate: q.deliveryDate || "",
         items: q.items || [],
         hasMultiDeliveryDates: !!q.hasMultiDeliveryDates,
@@ -179,6 +218,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
         tartGarnish: q.tartGarnish || "",
         pastryItems: q.pastryItems || [],
         decorations: q.decQty ? Object.keys(q.decQty).join(", ") : "",
+        decQty: q.decQty || null,
+        accRows: q.accRows || [],
+        usages: usages || [],
         layers: q.tiers?.length || 1,
         accessoryPct: 10,
         profitPct: q.margin || 40,
@@ -191,8 +233,6 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
         notes: q.notes || "",
         recipeId: ""
       }
-      setProductions(prev => [prod, ...prev])
-      await saveProduction(prod)
 
       // Gift/sample — log the ingredient cost as a write-off expense
       if (q.orderPurpose === "gift" || q.orderPurpose === "sample") {
@@ -214,9 +254,24 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
       }
 
       // Update quote status to confirmed and mark as confirmed
-      const updated = quotes.map(x => x.id === q.id ? { ...x, status: "confirmed", confirmedAt: new Date().toISOString() } : x)
+      const updated = quotes.map(x => x.id === q.id ? {
+        ...x,
+        status: "confirmed",
+        confirmedAt: confirmedTime,
+        usages: usages || [],
+        accRows: q.accRows || [],
+        decQty: q.decQty || null,
+        isProd: false
+      } : x)
       setQuotes(updated)
       await saveQuotes(updated)
+
+      // Add to production and save production
+      setProductions(prev => [prod, ...prev])
+      await saveProduction(prod)
+
+      window.dispatchEvent(new CustomEvent("layerledger:quotes-updated", { detail: { source: "QuotesPage" } }))
+      window.dispatchEvent(new CustomEvent("layerledger:productions-updated", { detail: { source: "QuotesPage" } }))
 
       const msg = (q.orderPurpose === "gift" || q.orderPurpose === "sample")
         ? (q.orderPurpose === "gift" ? "Gift" : "Sample") + " logged! Ingredients deducted from inventory and cost recorded as a " + q.orderPurpose + " expense (no revenue)."
@@ -240,7 +295,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
 
   // 2. Tab filter
   const filtered = filter === "all" ? searchedQuotes : searchedQuotes.filter(q => {
-    if (filter === "confirmed") return q.status === "confirmed" || !!q.confirmedAt
+    const isConf = checkIsConfirmed(q)
+    if (filter === "confirmed") return isConf
+    if (filter === "pending") return !isConf && (q.status === "pending" || !q.status || q.status === "quote")
     return q.status === filter
   })
 
@@ -258,7 +315,10 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
     return sorted.slice(start, start + sz)
   }, [sorted, currentPage, pageSize])
 
-  const pendingCount = quotes.filter(q => q.status === "pending").length
+  const pendingCount = quotes.filter(q => {
+    const isConf = checkIsConfirmed(q)
+    return !isConf && (q.status === "pending" || !q.status || q.status === "quote")
+  }).length
 
   return (
     <div>
@@ -321,8 +381,8 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {paginatedQuotes.map(q => {
-            const isConfirmed = q.status === "confirmed" || !!q.confirmedAt
-            const currentStatus = isConfirmed ? "confirmed" : (q.status || "pending")
+            const isConfirmed = checkIsConfirmed(q)
+            const currentStatus = isConfirmed ? "confirmed" : ((q.status && q.status !== "quote") ? q.status : "pending")
             const st = QUOTE_STATUSES.find(s => s.v === currentStatus) || QUOTE_STATUSES[0]
             const isExp = expanded === q.id
             const daysPending = getDaysPending(q)

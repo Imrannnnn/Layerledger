@@ -34,21 +34,67 @@ export function StockStatement({inventory, productions = [], expenses = [], comp
   const totalPurchased=monthExp.reduce((s,e)=>s+(e.amount||0),0)
 
   // Calculate used in production this month per item via Order Calculator recipes
-  const monthProds=productions.filter(p=>(p.deliveryDate?.startsWith(sel)||p.confirmedAt?.startsWith(sel)||p.orderDate?.startsWith(sel)))
-  const totalUsedValue=monthProds.reduce((s,p)=>s+(p.cost||0),0)
+  const quotesList = loadLocal("ll_quotes", [])
+  const confirmedQuotes = (quotesList || []).filter(q => q.status === "confirmed" || !!q.confirmedAt)
+  const quoteIds = new Set(confirmedQuotes.map(q => q.id))
+  const standaloneProds = (productions || []).filter(p => {
+    if (p.fromQuote || p.quoteId || quoteIds.has(p.id) || quoteIds.has(p.quoteId)) return false
+    if (p.status === "quote" || p.isProd === false) return false
+    const isConfirmed = p.status === "confirmed" || !!p.confirmedAt || (p.isProd && p.status !== "quote" && p.status !== "pending" && p.status !== "cancelled")
+    return isConfirmed
+  })
+  const allOrders = [
+    ...confirmedQuotes,
+    ...standaloneProds
+  ]
+  const monthProds = allOrders.filter(p => {
+    const isConfirmed = p.status === "confirmed" || !!p.confirmedAt || (p.isProd && p.status !== "quote" && p.status !== "pending" && p.status !== "cancelled")
+    if (!isConfirmed) return false
+    if (p.confirmedAt) {
+      return isDateInMonth(p.confirmedAt, sel) || isDateInMonth(p.deliveryDate || p.dueDate || p.orderDate || p.date, sel)
+    }
+    return isDateInMonth(p.deliveryDate || p.dueDate || p.orderDate || p.date, sel)
+  })
+  const totalUsedValue = monthProds.reduce((s, p) => s + (p.cost || p.totalCost || 0), 0)
 
-  const monthUsages = useMemo(() => {
+  const { monthUsages, monthUsagesByName } = useMemo(() => {
     const usageMap = {}
+    const nameMap = {}
     monthProds.forEach(order => {
       const usages = calculateOrderUsages(order, inventory, recipes)
       usages.forEach(u => {
-        usageMap[u.itemId] = (usageMap[u.itemId] || 0) + u.qty
+        if (u.itemId) {
+          usageMap[u.itemId] = (usageMap[u.itemId] || 0) + u.qty
+          const invItem = (inventory || []).find(i => i.id === u.itemId)
+          if (invItem && invItem.name) {
+            const cleanName = invItem.name.trim().toLowerCase()
+            nameMap[cleanName] = (nameMap[cleanName] || 0) + u.qty
+          }
+        }
       })
     })
-    return usageMap
+    return { monthUsages: usageMap, monthUsagesByName: nameMap }
   }, [monthProds, inventory, recipes])
 
-  const getUsed = id => parseFloat((monthUsages[id] || 0).toFixed(3))
+  const getUsed = (itemOrId) => {
+    if (!itemOrId) return 0
+    let id = typeof itemOrId === "string" ? itemOrId : (itemOrId.id || itemOrId.itemId)
+    let altId = typeof itemOrId === "object" ? itemOrId.itemId : null
+    let name = (typeof itemOrId === "object" ? itemOrId.name : "")?.trim().toLowerCase()
+    if (!name && typeof itemOrId === "string") {
+      const foundInInv = (inventory || []).find(inv => inv.id === itemOrId)
+      if (foundInInv) name = foundInInv.name?.trim().toLowerCase()
+    }
+    let qty = 0
+    if (id && monthUsages[id] !== undefined) {
+      qty = monthUsages[id]
+    } else if (altId && monthUsages[altId] !== undefined) {
+      qty = monthUsages[altId]
+    } else if (name && monthUsagesByName[name] !== undefined) {
+      qty = monthUsagesByName[name]
+    }
+    return parseFloat((qty || 0).toFixed(3))
+  }
 
   const dl=()=>{
     const w=window.open("","_blank")

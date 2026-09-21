@@ -2304,6 +2304,10 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       grandTotal,
       margin,
       status: "pending",
+      isProd: false,
+      fromQuote: false,
+      quoteId: null,
+      confirmedAt: null,
       bankName: co.bankName || "",
       bankAccount: co.bankAccount || "",
       bankAccountName: co.bankAccountName || "",
@@ -2312,7 +2316,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
 
     const existing = loadQuotes()
     const updated = isEdit && editId
-      ? existing.map(q => q.id === editId ? { ...quote, id: editId, status: q.status } : q)
+      ? existing.map(q => q.id === editId ? { ...quote, id: editId, status: q.status || "pending", confirmedAt: q.confirmedAt || null, isProd: false } : q)
       : [quote, ...existing]
     saveQuotes(updated)
 

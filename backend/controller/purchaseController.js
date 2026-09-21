@@ -183,30 +183,177 @@ const createPurchase = asyncHandler(async (req, res) => {
  */
 const updatePurchase = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { date, supplier, amount, receiptUrl, notes } = req.body;
+    const { date, supplier, amount, receiptUrl, notes, itemId, unitSize, qty, price, total, cpu, stockAdded } = req.body;
 
-    let parsedAmount = amount !== undefined ? parseFloat(amount) : undefined;
+    const result = await prisma.$transaction(async (tx) => {
+        const existing = await tx.purchase.findFirst({
+            where: { id: req.params.id, tenantId }
+        });
 
-    const updated = await prisma.purchase.updateMany({
-        where: { id: req.params.id, tenantId },
-        data: {
-            date: date ? new Date(date) : undefined,
-            supplier,
-            amount: parsedAmount,
-            receiptUrl,
-            notes
+        if (!existing) {
+            res.status(404);
+            throw new Error('Purchase not found');
         }
-    });
 
-    if (updated.count === 0) {
-        res.status(404);
-        throw new Error('Purchase not found');
-    }
-    
-    const purchase = await prisma.purchase.findFirst({
-        where: { id: req.params.id, tenantId }
-    });
-    res.json(purchase);
+        const newItemId = itemId !== undefined ? (itemId || null) : existing.itemId;
+        const newUnitSize = unitSize !== undefined ? (unitSize !== null && unitSize !== '' ? parseFloat(unitSize) : null) : existing.unitSize;
+        const newQty = qty !== undefined ? (qty !== null && qty !== '' ? parseFloat(qty) : null) : existing.qty;
+        const newPrice = price !== undefined ? (price !== null && price !== '' ? parseFloat(price) : null) : existing.price;
+        const newTotal = total !== undefined ? (total !== null && total !== '' ? parseFloat(total) : null) : existing.total;
+        const newCpu = cpu !== undefined ? (cpu !== null && cpu !== '' ? parseFloat(cpu) : null) : existing.cpu;
+        const newStockAdded = stockAdded !== undefined ? (stockAdded !== null && stockAdded !== '' ? parseFloat(stockAdded) : null) : existing.stockAdded;
+        const parsedAmount = amount !== undefined ? parseFloat(amount) : (newTotal !== null && !isNaN(newTotal) ? newTotal : existing.amount);
+
+        const oldItemId = existing.itemId;
+        const oldStockAdded = existing.stockAdded ? parseFloat(existing.stockAdded) : 0;
+        const oldCpu = existing.cpu ? parseFloat(existing.cpu) : 0;
+        const oldValue = oldStockAdded * oldCpu;
+
+        const currentNewStockAdded = newStockAdded ? parseFloat(newStockAdded) : 0;
+        const currentNewCpu = newCpu ? parseFloat(newCpu) : 0;
+        const currentNewValue = currentNewStockAdded * currentNewCpu;
+
+        if (oldItemId || newItemId) {
+            if (oldItemId && newItemId && oldItemId === newItemId) {
+                // Same item: apply delta
+                const deltaStock = currentNewStockAdded - oldStockAdded;
+                const deltaValue = currentNewValue - oldValue;
+
+                if (Math.abs(deltaStock) > 0.0001 || Math.abs(deltaValue) > 0.01) {
+                    const invItem = await tx.inventoryItem.findFirst({
+                        where: { id: newItemId, tenantId }
+                    });
+
+                    if (invItem) {
+                        const updatedStock = Math.max(0, parseFloat((invItem.stock + deltaStock).toFixed(3)));
+                        const updatedValue = Math.max(0, parseFloat((invItem.totalValueOnHand + deltaValue).toFixed(2)));
+                        const updatedAvgCost = updatedStock > 0 ? parseFloat((updatedValue / updatedStock).toFixed(2)) : invItem.cost;
+
+                        await tx.inventoryItem.update({
+                            where: { id: newItemId },
+                            data: {
+                                stock: updatedStock,
+                                totalValueOnHand: updatedStock === 0 ? 0 : updatedValue,
+                                cost: updatedAvgCost
+                            }
+                        });
+
+                        await tx.inventoryHistory.create({
+                            data: {
+                                tenantId,
+                                inventoryItemId: newItemId,
+                                type: 'ADJUSTMENT',
+                                qtyDelta: deltaStock,
+                                valueDelta: deltaValue,
+                                pricePerUnit: currentNewCpu || invItem.cost,
+                                qtyAfter: updatedStock,
+                                valueAfter: updatedStock === 0 ? 0 : updatedValue,
+                                avgCostAfter: updatedAvgCost,
+                                referenceId: existing.id,
+                                reason: `EDIT: Purchase ${existing.id} modified`
+                            }
+                        });
+                    }
+                }
+            } else {
+                // Different items: revert from old item, apply to new item
+                if (oldItemId && oldStockAdded > 0) {
+                    const oldInvItem = await tx.inventoryItem.findFirst({
+                        where: { id: oldItemId, tenantId }
+                    });
+                    if (oldInvItem) {
+                        const revertedStock = Math.max(0, parseFloat((oldInvItem.stock - oldStockAdded).toFixed(3)));
+                        const revertedValue = Math.max(0, parseFloat((oldInvItem.totalValueOnHand - oldValue).toFixed(2)));
+                        const revertedAvgCost = revertedStock > 0 ? parseFloat((revertedValue / revertedStock).toFixed(2)) : oldInvItem.cost;
+
+                        await tx.inventoryItem.update({
+                            where: { id: oldItemId },
+                            data: {
+                                stock: revertedStock,
+                                totalValueOnHand: revertedStock === 0 ? 0 : revertedValue,
+                                cost: revertedAvgCost
+                            }
+                        });
+
+                        await tx.inventoryHistory.create({
+                            data: {
+                                tenantId,
+                                inventoryItemId: oldItemId,
+                                type: 'ADJUSTMENT',
+                                qtyDelta: -oldStockAdded,
+                                valueDelta: -oldValue,
+                                pricePerUnit: oldCpu || oldInvItem.cost,
+                                qtyAfter: revertedStock,
+                                valueAfter: revertedStock === 0 ? 0 : revertedValue,
+                                avgCostAfter: revertedAvgCost,
+                                referenceId: existing.id,
+                                reason: `EDIT: Removed from Purchase ${existing.id}`
+                            }
+                        });
+                    }
+                }
+
+                if (newItemId && currentNewStockAdded > 0) {
+                    const newInvItem = await tx.inventoryItem.findFirst({
+                        where: { id: newItemId, tenantId }
+                    });
+                    if (newInvItem) {
+                        const appliedStock = parseFloat((newInvItem.stock + currentNewStockAdded).toFixed(3));
+                        const appliedValue = parseFloat((newInvItem.totalValueOnHand + currentNewValue).toFixed(2));
+                        const appliedAvgCost = appliedStock > 0 ? parseFloat((appliedValue / appliedStock).toFixed(2)) : newInvItem.cost;
+
+                        await tx.inventoryItem.update({
+                            where: { id: newItemId },
+                            data: {
+                                stock: appliedStock,
+                                totalValueOnHand: appliedValue,
+                                cost: appliedAvgCost
+                            }
+                        });
+
+                        await tx.inventoryHistory.create({
+                            data: {
+                                tenantId,
+                                inventoryItemId: newItemId,
+                                type: 'PURCHASE',
+                                qtyDelta: currentNewStockAdded,
+                                valueDelta: currentNewValue,
+                                pricePerUnit: currentNewCpu || newInvItem.cost,
+                                qtyAfter: appliedStock,
+                                valueAfter: appliedValue,
+                                avgCostAfter: appliedAvgCost,
+                                referenceId: existing.id,
+                                reason: `EDIT: Added to Purchase ${existing.id}`
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        const updatedPurchase = await tx.purchase.update({
+            where: { id: req.params.id },
+            data: {
+                date: date ? new Date(date) : undefined,
+                supplier: supplier !== undefined ? supplier : undefined,
+                amount: parsedAmount,
+                receiptUrl: receiptUrl !== undefined ? receiptUrl : undefined,
+                notes: notes !== undefined ? notes : undefined,
+                itemId: newItemId,
+                unitSize: newUnitSize,
+                qty: newQty,
+                price: newPrice,
+                total: newTotal,
+                cpu: newCpu,
+                stockAdded: newStockAdded
+            },
+            include: { inventoryItem: true }
+        });
+
+        return updatedPurchase;
+    }, { maxWait: 10000, timeout: 30000 });
+
+    res.json(result);
 });
 
 /**

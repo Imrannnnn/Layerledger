@@ -118,16 +118,33 @@ const mapServerInvoiceToLocal = (inv) => ({
   notes: inv.notes || ""
 })
 
-const mapServerOrderToLocal = (o) => {
+export const mapServerOrderToLocal = (o) => {
   const base = o.metadata && typeof o.metadata === "object" ? o.metadata : {}
   const parsedOrderDate = o.orderDate ? o.orderDate.split("T")[0] : (o.createdAt ? o.createdAt.split("T")[0] : null)
+
+  const isQuoteOrder = o.status === "quote" || base.isProd === false || (!base.isProd && !base.fromQuote && !base.quoteId)
+
+  let resolvedStatus = o.status
+  if (isQuoteOrder) {
+    if (base.status === "confirmed" || base.confirmedAt) {
+      resolvedStatus = "confirmed"
+    } else if (base.status && base.status !== "quote") {
+      resolvedStatus = base.status
+    } else {
+      resolvedStatus = "pending"
+    }
+  }
+
+  const resolvedConfirmedAt = base.confirmedAt || (resolvedStatus === "confirmed" ? (base.confirmedAt || (o.updatedAt ? o.updatedAt.split("T")[0] : new Date().toISOString())) : null)
+
   return {
     ...base,
     id: o.id,
     notes: o.notes || "",
     salePrice: o.totalPrice,
     cost: o.totalCost,
-    status: o.status,
+    status: resolvedStatus,
+    confirmedAt: resolvedConfirmedAt,
     orderDate: parsedOrderDate || base.orderDate || null,
     dueDate: o.dueDate ? o.dueDate.split("T")[0] : null,
     deliveryDate: o.dueDate ? o.dueDate.split("T")[0] : base.deliveryDate || parsedOrderDate || null,
@@ -139,6 +156,7 @@ const mapServerOrderToLocal = (o) => {
     }))
   }
 }
+
 
 const load = (key, fallback) => {
   if (cache[key] !== undefined && cache[key] !== null) {
@@ -532,8 +550,9 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
     const mult = mults[key] || 1;
 
     tier.layers?.forEach(layer => {
-      if (!layer || !layer.flavour) return;
-      const recipe = findRecipe(layer.flavour, "layer") || findRecipe(layer.flavour);
+      if (!layer || (!layer.flavour && !layer.recipeId)) return;
+      const recipe = (layer.recipeId ? (recipes || []).find(r => r.id === layer.recipeId) : null) ||
+                     findRecipe(layer.flavour, "layer") || findRecipe(layer.flavour);
       if (!recipe || !recipe.ing) return;
       const layerMultiplier = Number(layer.qty) || 1;
       recipe.ing.forEach(ing => {
@@ -543,10 +562,11 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
     });
 
     tier.coverings?.forEach(cov => {
-      if (!cov || !cov.type || !cov.grams) return;
+      if (!cov || (!cov.type && !cov.recipeId) || !cov.grams) return;
       const grams = Number(cov.grams) || 0;
       if (grams <= 0) return;
-      const recipe = findRecipe(cov.type, "covering") || findRecipe(cov.type);
+      const recipe = (cov.recipeId ? (recipes || []).find(r => r.id === cov.recipeId) : null) ||
+                     findRecipe(cov.type, "covering") || findRecipe(cov.type);
       if (!recipe || !recipe.ing) return;
       const batchGrams = getBatchGrams(recipe);
       const ratio = grams / batchGrams;
@@ -556,11 +576,27 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
       });
     });
 
+    if ((!tier.coverings || tier.coverings.length === 0) && tier.covering && typeof tier.covering === "string") {
+      const covType = tier.covering;
+      const recipe = (tier.coveringRecipeId ? (recipes || []).find(r => r.id === tier.coveringRecipeId) : null) ||
+                     findRecipe(covType, "covering") || findRecipe(covType);
+      if (recipe && recipe.ing) {
+        const grams = Number(tier.coveringGrams) || 400;
+        const batchGrams = getBatchGrams(recipe);
+        const ratio = grams / batchGrams;
+        recipe.ing.forEach(ing => {
+          const needed = (Number(ing.qty) || 0) * ratio;
+          addUsage(ing.iid, needed);
+        });
+      }
+    }
+
     tier.fillings?.forEach(fil => {
-      if (!fil || !fil.type || !fil.grams) return;
+      if (!fil || (!fil.type && !fil.recipeId) || !fil.grams) return;
       const grams = Number(fil.grams) || 0;
       if (grams <= 0) return;
-      const recipe = findRecipe(fil.type, "covering") || findRecipe(fil.type);
+      const recipe = (fil.recipeId ? (recipes || []).find(r => r.id === fil.recipeId) : null) ||
+                     findRecipe(fil.type, "covering") || findRecipe(fil.type);
       if (!recipe || !recipe.ing) return;
       const batchGrams = getBatchGrams(recipe);
       const ratio = grams / batchGrams;
@@ -572,10 +608,11 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
   };
 
   const processPastryItem = (p) => {
-    if (!p || !p.flavour || !p.qty) return;
+    if (!p || (!p.flavour && !p.recipeId) || !p.qty) return;
     const qty = Number(p.qty) || 0;
     if (qty <= 0) return;
-    const recipe = findRecipe(p.flavour, "pastry") || findRecipe(p.flavour);
+    const recipe = (p.recipeId ? (recipes || []).find(r => r.id === p.recipeId) : null) ||
+                   findRecipe(p.flavour, "pastry") || findRecipe(p.flavour);
     if (recipe && recipe.ing) {
       const batchSize = Number(recipe.batchSize) || 12;
       const ratio = qty / batchSize;
@@ -586,7 +623,8 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
     }
 
     if (p.filling && Number(p.fillingGrams) > 0) {
-      const fillRecipe = findRecipe(p.filling, "covering") || findRecipe(p.filling);
+      const fillRecipe = (p.fillingRecipeId ? (recipes || []).find(r => r.id === p.fillingRecipeId) : null) ||
+                         findRecipe(p.filling, "covering") || findRecipe(p.filling);
       if (fillRecipe && fillRecipe.ing) {
         const batchGrams = getBatchGrams(fillRecipe);
         const ratio = Number(p.fillingGrams) / batchGrams;
@@ -694,6 +732,15 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
     }
   }
 
+  // 4. Fallback to pre-calculated or stored usages on order
+  if (usages.length === 0 && Array.isArray(o.usages) && o.usages.length > 0) {
+    o.usages.forEach(u => {
+      const iid = u.itemId || u.id || u.iid;
+      const q = Number(u.qty || u.quantity || u.amount) || 0;
+      if (iid && q > 0) addUsage(iid, q);
+    });
+  }
+
   return usages;
 };
 
@@ -755,12 +802,18 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
 
       if (sOrder) {
         const sDueDate = sOrder.dueDate ? new Date(sOrder.dueDate).toISOString() : null
+        const sMeta = sOrder.metadata && typeof sOrder.metadata === "object" ? sOrder.metadata : {}
+        const bMeta = body.metadata && typeof body.metadata === "object" ? body.metadata : {}
         const isDiff =
           sOrder.status !== body.status ||
           Math.abs(Number(sOrder.totalPrice || 0) - body.totalPrice) > 0.01 ||
           Math.abs(Number(sOrder.totalCost || 0) - body.totalCost) > 0.01 ||
           (sOrder.notes || "") !== body.notes ||
-          sDueDate !== body.dueDate
+          sDueDate !== body.dueDate ||
+          sMeta.status !== bMeta.status ||
+          sMeta.confirmedAt !== bMeta.confirmedAt ||
+          JSON.stringify(sMeta) !== JSON.stringify(bMeta)
+
 
         if (isDiff) {
           await fetchWithTimeout(`${apiUrl}/api/orders/${o.id}`, {
@@ -1089,7 +1142,8 @@ export const loadDashboardFromLogin = (dashboardData, tenant) => {
   if (dashboardData?.orders) {
     dashboardData.orders.forEach(o => {
       const localOrder = mapServerOrderToLocal(o)
-      if (o.status === "quote") {
+      const isQuote = (o.status === "quote" || o.metadata?.isProd === false || (!o.metadata?.isProd && !o.metadata?.fromQuote && !o.metadata?.quoteId))
+      if (isQuote) {
         localQuotes.push(localOrder)
       } else {
         localProds.push(localOrder)
@@ -1099,6 +1153,9 @@ export const loadDashboardFromLogin = (dashboardData, tenant) => {
     lastSyncedValues["ll_prods"] = JSON.stringify(localProds)
     cache["ll_quotes"] = localQuotes
     lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
+    }
   }
 
   let localExpenses = []
@@ -1256,7 +1313,8 @@ export const syncFromBackend = async () => {
         const localQuotes = []
         data.orders.forEach(o => {
           const localOrder = mapServerOrderToLocal(o)
-          if (o.status === "quote") {
+          const isQuote = (o.status === "quote" || o.metadata?.isProd === false || (!o.metadata?.isProd && !o.metadata?.fromQuote && !o.metadata?.quoteId))
+          if (isQuote) {
             localQuotes.push(localOrder)
           } else {
             localProds.push(localOrder)
@@ -1267,6 +1325,9 @@ export const syncFromBackend = async () => {
 
         cache["ll_quotes"] = localQuotes
         lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
+        }
       }
 
       if (data.expenses) {
@@ -1420,7 +1481,8 @@ export const syncFromBackend = async () => {
       const localQuotes = []
       serverOrders.forEach(o => {
         const localOrder = mapServerOrderToLocal(o)
-        if (o.status === "quote") {
+        const isQuote = (o.status === "quote" || o.metadata?.isProd === false || (!o.metadata?.isProd && !o.metadata?.fromQuote && !o.metadata?.quoteId))
+        if (isQuote) {
           localQuotes.push(localOrder)
         } else {
           localProds.push(localOrder)
@@ -1431,6 +1493,9 @@ export const syncFromBackend = async () => {
 
       cache["ll_quotes"] = localQuotes
       lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+        window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
+      }
     }
 
     if (expensesRes.ok) {
@@ -1934,6 +1999,7 @@ export const saveInventory = async (data) => {
 export const loadProductions = (def = []) => load("ll_prods", def)
 export const saveProductionsList = async (data) => {
   cache["ll_prods"] = data
+  lastSyncedValues["ll_prods"] = JSON.stringify(data)
   const headers = getAuthHeaders()
   if (!headers) return
   await syncOrdersList(headers, data, load("ll_quotes", []), load("ll_inv", []), load("ll_recipes", []))
@@ -1983,6 +2049,7 @@ export const saveCompany = async (data) => await save("ll_co", data)
 export const loadQuotes = (def = []) => load("ll_quotes", def)
 export const saveQuotes = async (data) => {
   cache["ll_quotes"] = data
+  lastSyncedValues["ll_quotes"] = JSON.stringify(data)
   const headers = getAuthHeaders()
   if (!headers) return
   await syncOrdersList(headers, load("ll_prods", []), data, load("ll_inv", []), load("ll_recipes", []))
@@ -2778,6 +2845,51 @@ export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = ""
     data: filtered.slice(0, 25),
     pagination: { page: 1, limit: 25, total: filtered.length, totalPages: Math.ceil(filtered.length / 25) || 1 },
     stats: { totalSpent: filtered.reduce((s, p) => s + (p.total || 0), 0), totalPurchases: filtered.length, availableMonths }
+  }
+}
+
+export const updatePurchaseOnServer = async (id, purchaseData) => {
+  if (!id) return
+  const all = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
+  const updated = all.map(p => p.id === id ? { ...p, ...purchaseData } : p)
+  saveLocal("ll_purchases", updated)
+  cache["ll_purchases"] = updated
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("layerledger:purchases-updated", { detail: { purchases: updated } }))
+  }
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (apiUrl && headers) {
+    try {
+      let parsedDate = new Date().toISOString()
+      try { if (purchaseData.date) parsedDate = new Date(normalizeDateToIso(purchaseData.date)).toISOString() } catch (e) {}
+
+      const body = {
+        id,
+        date: parsedDate,
+        supplier: purchaseData.supplier || "Market Run",
+        amount: Number(purchaseData.total != null ? purchaseData.total : (purchaseData.amount || 0)),
+        notes: purchaseData.notes || `${purchaseData.item || "Ingredient"} — Qty: ${purchaseData.qty || 1} (added: ${purchaseData.stockAdded || 0})`,
+        itemId: purchaseData.itemId || null,
+        unitSize: Number(purchaseData.unitSize || 0),
+        qty: Number(purchaseData.qty || 0),
+        price: Number(purchaseData.price || 0),
+        total: Number(purchaseData.total || 0),
+        cpu: Number(purchaseData.cpu || 0),
+        stockAdded: Number(purchaseData.stockAdded || 0)
+      }
+      const res = await fetchWithTimeout(`${apiUrl}/api/purchases/${id}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify(body)
+      })
+      if (res.ok) {
+        const json = await res.json()
+        return mapServerPurchaseToLocal(json)
+      }
+    } catch (e) {
+      console.warn("updatePurchaseOnServer error:", e)
+    }
   }
 }
 

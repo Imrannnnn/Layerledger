@@ -351,7 +351,21 @@ class PaymentService {
         const providerData = await this.provider.verifyTransaction(paymentReference);
 
         // Principle #10: Verify Amount
-        if (Number(providerData.amount) !== Number(payment.amount)) {
+        const reportedAmount = Number(providerData.amount);
+        const expectedAmount = Number(payment.amount);
+        const requestedAmount = providerData.requestedAmount !== undefined && providerData.requestedAmount !== null
+            ? Number(providerData.requestedAmount)
+            : null;
+        const fees = Number(providerData.fees || 0);
+        const netAmount = reportedAmount - fees;
+
+        // Support both direct amount match and fee-adjusted match (where gateway adds transaction fee to customer)
+        const isAmountMatch =
+            reportedAmount === expectedAmount ||
+            (requestedAmount !== null && requestedAmount === expectedAmount) ||
+            (fees > 0 && Math.abs(netAmount - expectedAmount) <= 10);
+
+        if (!isAmountMatch) {
             await this.repository.transitionPaymentState({
                 paymentReference,
                 nextState: PAYMENT_STATES.FAILED,
@@ -360,7 +374,9 @@ class PaymentService {
                 metadataUpdate: {
                     mismatchError: 'AMOUNT_MISMATCH',
                     expectedAmount: payment.amount,
-                    reportedAmount: providerData.amount
+                    reportedAmount: providerData.amount,
+                    requestedAmount: providerData.requestedAmount,
+                    fees: providerData.fees
                 },
                 actor: 'verification_engine'
             });
@@ -397,6 +413,7 @@ class PaymentService {
         // Check verification outcome
         if (providerData.status === PAYMENT_STATES.SUCCESS) {
             // Mark payment SUCCESS
+            const isRecovery = payment.status === PAYMENT_STATES.FAILED || payment.status === PAYMENT_STATES.ABANDONED;
             const updatedPayment = await this.repository.transitionPaymentState({
                 paymentReference,
                 nextState: PAYMENT_STATES.SUCCESS,
@@ -405,10 +422,12 @@ class PaymentService {
                 metadataUpdate: {
                     paidAt: providerData.paidAt,
                     channel: providerData.channel,
-                    gatewayResponse: providerData.gatewayResponse
+                    gatewayResponse: providerData.gatewayResponse,
+                    ...(isRecovery ? { recoveredFromState: payment.status } : {})
                 },
                 actor: options.actor || 'system',
-                source: options.source || 'verify_call'
+                source: options.source || 'verify_call',
+                force: isRecovery
             });
 
             // Principle #14 & #21 & #24: Atomic domain fulfillment & queue async jobs

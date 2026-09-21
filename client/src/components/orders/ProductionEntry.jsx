@@ -187,7 +187,7 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
     setSaving(true)
     const tierSummary=tiers.map(t=>`${t.size}" ${t.shape} ${t.covering} (${t.layers.map(l=>(l.qty > 1 ? l.qty + "×" : "") + (l.flavour||"—")).join("/")})`).join(" + ")
     const flavourSummary=tiers.flatMap(t=>t.layers.map(l=>l.flavour)).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(", ")
-    const prod={id:uid(),client,clientPhone,clientEmail,orderDate,deliveryDate:delivDate,cost:newTotalCost,deliveryCost:delivCost,salePrice:Math.round(effectiveSale),status:"pending",size:tiers[0]?.size+'"',covering:tiers[0]?.covering,flavors:flavourSummary,tiers,topper,decorations:decorIds.join(","),layers:tiers.reduce((s,t)=>s+t.layers.reduce((sum,l)=>sum+(l.qty||1),0),0),accessoryPct:settings.accessoryPct,profitPct:settings.profitPct,paymentType,discountPct:+discountPct,notes,tierSummary}
+    const prod={id:uid(),client,clientPhone,clientEmail,orderDate,deliveryDate:delivDate,cost:newTotalCost,deliveryCost:delivCost,salePrice:Math.round(effectiveSale),status:"confirmed",confirmedAt:new Date().toISOString(),isProd:true,fromQuote:false,size:tiers[0]?.size+'"',covering:tiers[0]?.covering,flavors:flavourSummary,tiers,topper,decorations:decorIds.join(","),layers:tiers.reduce((s,t)=>s+t.layers.reduce((sum,l)=>sum+(l.qty||1),0),0),accessoryPct:settings.accessoryPct,profitPct:settings.profitPct,paymentType,discountPct:+discountPct,notes,tierSummary}
     // Deduct inventory
     if(matchedRecipe){
       const layerCount=+layers||1

@@ -54,9 +54,14 @@ export function loadQuoteRevenue(){
 
 export function mergeRevenueSources(productions){
   const quoteRevenue=loadQuoteRevenue()
-  const quoteIds=new Set(quoteRevenue.map(q=>q.quoteId))
-  // Only include production records that are NOT from the quote flow
-  const legacyProds=productions.filter(p=>!p.fromQuote&&!p.quoteId&&!quoteIds.has(p.quoteId))
+  const quoteIds=new Set(quoteRevenue.map(q=>q.quoteId || q.id))
+  // Only include production records that are NOT from the quote flow and are confirmed
+  const legacyProds=(productions||[]).filter(p=>{
+    if (p.fromQuote || p.quoteId || quoteIds.has(p.id) || quoteIds.has(p.quoteId)) return false
+    if (p.status === "quote" || p.isProd === false) return false
+    const isConfirmed = p.status === "confirmed" || !!p.confirmedAt || (p.isProd && p.status !== "quote" && p.status !== "pending" && p.status !== "cancelled")
+    return isConfirmed
+  })
   return[...quoteRevenue,...legacyProds]
 }
 

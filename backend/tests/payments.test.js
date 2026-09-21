@@ -303,6 +303,77 @@ describe('LayerLedger Payment Gateway Engineering Principles (50 Principles Veri
                 .rejects.toThrow(/Amount mismatch/);
         });
 
+        test('Principle 10: Accepts verification when gateway amount includes customer-borne fee with requestedAmount or fees', async () => {
+            const paymentRecord = {
+                id: 'pay-fee-1',
+                paymentReference: 'LL-PAY-FEE-MATCH',
+                amount: 300000, // expected 3,000 NGN
+                currency: 'NGN',
+                status: PAYMENT_STATES.INITIALIZED,
+                tenantId: 'tenant-1',
+                resourceType: 'credit_pack',
+                resourceId: 'small',
+                metadata: { credits: 20 }
+            };
+
+            mockPrisma.payment.findUnique.mockResolvedValue(paymentRecord);
+            mockPrisma.payment.update.mockResolvedValue({
+                ...paymentRecord,
+                status: PAYMENT_STATES.SUCCESS
+            });
+            mockPrisma.tenant.update.mockResolvedValue({});
+            mockPrisma.tokenTransaction.create.mockResolvedValue({});
+
+            // Paystack reports 3,147.21 NGN (314,721 kobo) due to 1.5% + 100 fee passed to customer
+            mockProvider.verifyTransaction.mockResolvedValueOnce({
+                success: true,
+                amount: 314721,
+                requestedAmount: 300000,
+                fees: 14721,
+                currency: 'NGN',
+                status: PAYMENT_STATES.SUCCESS
+            });
+
+            const result = await paymentService.verifyPayment('LL-PAY-FEE-MATCH');
+            expect(result.success).toBe(true);
+            expect(result.status).toBe(PAYMENT_STATES.SUCCESS);
+        });
+
+        test('Principle 5 & 10: Allows recovery to SUCCESS from FAILED state upon valid verification', async () => {
+            const paymentRecord = {
+                id: 'pay-failed-rec',
+                paymentReference: 'LL-PAY-RECOVERY',
+                amount: 300000,
+                currency: 'NGN',
+                status: PAYMENT_STATES.FAILED,
+                tenantId: 'tenant-1',
+                resourceType: 'credit_pack',
+                resourceId: 'small',
+                metadata: { credits: 20 }
+            };
+
+            mockPrisma.payment.findUnique.mockResolvedValue(paymentRecord);
+            mockPrisma.payment.update.mockResolvedValue({
+                ...paymentRecord,
+                status: PAYMENT_STATES.SUCCESS
+            });
+            mockPrisma.tenant.update.mockResolvedValue({});
+            mockPrisma.tokenTransaction.create.mockResolvedValue({});
+
+            mockProvider.verifyTransaction.mockResolvedValueOnce({
+                success: true,
+                amount: 314721,
+                requestedAmount: 300000,
+                fees: 14721,
+                currency: 'NGN',
+                status: PAYMENT_STATES.SUCCESS
+            });
+
+            const result = await paymentService.verifyPayment('LL-PAY-RECOVERY');
+            expect(result.success).toBe(true);
+            expect(result.status).toBe(PAYMENT_STATES.SUCCESS);
+        });
+
         test('Principle 11: Rejects verification when currency does not match expected currency', async () => {
             const paymentRecord = {
                 id: 'pay-1',

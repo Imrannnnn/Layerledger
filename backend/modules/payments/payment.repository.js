@@ -151,7 +151,8 @@ class PaymentRepository {
         providerStatus,
         metadataUpdate = {},
         actor = 'system',
-        source = 'payment_service'
+        source = 'payment_service',
+        force = false
     }) {
         return this.prisma.$transaction(async (tx) => {
             const payment = await tx.payment.findUnique({
@@ -165,7 +166,7 @@ class PaymentRepository {
             }
 
             // Verify state transition validity (#5)
-            if (!isValidTransition(payment.status, nextState)) {
+            if (!force && !isValidTransition(payment.status, nextState)) {
                 const err = new Error(
                     `Illegal state transition from ${payment.status} to ${nextState} for payment ${paymentReference}`
                 );
