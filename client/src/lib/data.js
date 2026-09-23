@@ -1639,6 +1639,44 @@ export const clearAllDataOnServer = async () => {
   }
 }
 
+export const deleteTenantAccountOnServer = async () => {
+  const headers = getAuthHeaders()
+  if (!headers) throw new Error("Authentication headers missing. Please log in again.")
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) throw new Error("API URL not configured.")
+
+  // 1. Direct tenant account purge via backend transaction
+  const res = await fetch(`${apiUrl}/api/tenant/account`, {
+    method: "DELETE",
+    headers
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.message || "Failed to delete tenant account on server.")
+  }
+
+  // 2. Clear in-memory caches
+  Object.keys(cache).forEach(k => {
+    delete cache[k]
+  })
+  Object.keys(lastSyncedValues).forEach(k => {
+    delete lastSyncedValues[k]
+  })
+
+  // 3. Clear all browser storage and invoke logout
+  try {
+    localStorage.clear()
+    sessionStorage.clear()
+  } catch {
+    // Ignore storage access errors
+  }
+
+  logout()
+
+  return true
+}
+
 export const deleteAllInventoryOnServer = async () => {
   const headers = getAuthHeaders()
   if (!headers) return false
@@ -2862,7 +2900,7 @@ export const updatePurchaseOnServer = async (id, purchaseData) => {
   if (apiUrl && headers) {
     try {
       let parsedDate = new Date().toISOString()
-      try { if (purchaseData.date) parsedDate = new Date(normalizeDateToIso(purchaseData.date)).toISOString() } catch (e) {}
+      try { if (purchaseData.date) parsedDate = new Date(normalizeDateToIso(purchaseData.date)).toISOString() } catch (_e) { /* ignore invalid date */ }
 
       const body = {
         id,

@@ -7,6 +7,7 @@
 
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+const { clearUserCache } = require('../middleware/authMiddleware');
 
 /**
  * @desc    Get current tenant details and settings
@@ -367,10 +368,126 @@ const resetTenantPricing = asyncHandler(async (req, res) => {
     res.json(defaultPricing);
 });
 
+/**
+ * @desc    Permanently delete tenant account and ALL associated records from database
+ * @route   DELETE /api/tenant/account
+ * @access  Private (Owner only)
+ */
+const deleteTenantAccount = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+
+    if (!tenantId) {
+        res.status(400);
+        throw new Error('Tenant ID not found on user');
+    }
+
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId }
+    });
+
+    if (!tenant) {
+        res.status(404);
+        throw new Error('Tenant not found');
+    }
+
+    await prisma.$transaction(async (tx) => {
+        // 1. Delete payments & dependent payment records
+        const tenantPayments = await tx.payment.findMany({
+            where: { tenantId },
+            select: { id: true }
+        });
+        const paymentIds = tenantPayments.map(p => p.id);
+
+        if (paymentIds.length > 0) {
+            await tx.paymentAuditEvent.deleteMany({
+                where: { paymentId: { in: paymentIds } }
+            });
+            await tx.paymentRefund.deleteMany({
+                where: { paymentId: { in: paymentIds } }
+            });
+            await tx.paymentAttempt.deleteMany({
+                where: { paymentId: { in: paymentIds } }
+            });
+            await tx.payment.deleteMany({
+                where: { id: { in: paymentIds } }
+            });
+        }
+
+        // 2. Unlink purchases before deleting inventory items
+        await tx.purchase.updateMany({
+            where: { tenantId, itemId: { not: null } },
+            data: { itemId: null }
+        });
+
+        // 3. Delete purchases
+        await tx.purchase.deleteMany({ where: { tenantId } });
+
+        // 4. Delete inventory history
+        await tx.inventoryHistory.deleteMany({ where: { tenantId } });
+
+        // 5. Delete recipe ingredients
+        await tx.recipeIngredient.deleteMany({
+            where: { recipe: { tenantId } }
+        });
+
+        // 6. Delete invoices first (which reference orders)
+        await tx.invoice.deleteMany({ where: { tenantId } });
+
+        // 7. Delete order payments & order items
+        await tx.orderPayment.deleteMany({
+            where: { order: { tenantId } }
+        });
+        await tx.orderItem.deleteMany({
+            where: { order: { tenantId } }
+        });
+
+        // 8. Delete orders
+        await tx.order.deleteMany({ where: { tenantId } });
+
+        // 9. Delete recipes
+        await tx.recipe.deleteMany({ where: { tenantId } });
+
+        // 10. Delete opening stock
+        await tx.openingStock.deleteMany({ where: { tenantId } });
+
+        // 11. Delete packaging and decorations
+        await tx.packaging.deleteMany({ where: { tenantId } });
+        await tx.decoration.deleteMany({ where: { tenantId } });
+
+        // 12. Delete expenses, transactions, and token transactions
+        await tx.expense.deleteMany({ where: { tenantId } });
+        await tx.transaction.deleteMany({ where: { tenantId } });
+        await tx.tokenTransaction.deleteMany({ where: { tenantId } });
+
+        // 13. Delete inventory items
+        await tx.inventoryItem.deleteMany({ where: { tenantId } });
+
+        // 14. Delete clients
+        await tx.client.deleteMany({ where: { tenantId } });
+
+        // 15. Delete users belonging to this tenant
+        await tx.user.deleteMany({ where: { tenantId } });
+
+        // 16. Finally, permanently delete the Tenant record itself
+        await tx.tenant.delete({ where: { id: tenantId } });
+    }, { maxWait: 15000, timeout: 60000 });
+
+    // Invalidate user cache
+    if (req.user && req.user.id) {
+        clearUserCache(req.user.id);
+    }
+
+    res.json({
+        success: true,
+        message: 'Tenant account and all associated data permanently deleted from database'
+    });
+});
+
 module.exports = {
     getTenantDetails,
     updateTenantDetails,
     clearAllTenantData,
+    deleteTenantAccount,
     getTenantBootstrap,
     getTenantPricing,
     updateTenantPricing,

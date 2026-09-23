@@ -1,5 +1,6 @@
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+const subscriptionWatcher = require('../services/subscriptionWatcher');
 
 const DEFAULT_RECEIPT_SCANNER_CREDIT_COST = 2;
 const DEFAULT_BANK_STATEMENT_CREDIT_COST = 5;
@@ -171,6 +172,13 @@ const handleClaudeProxy = asyncHandler(async (req, res) => {
 
             if (newBalance !== null) {
                 res.setHeader('X-Token-Balance', String(newBalance));
+
+                // If balance drops to 4 credits (2 scans) or below, alert tenant owner
+                if (newBalance <= 4) {
+                    subscriptionWatcher.checkAndNotifyLowTokens(tenantId, newBalance).catch(err => {
+                        console.error('[ClaudeController] Failed to send low token notification:', err.message);
+                    });
+                }
             }
 
             return res.json({

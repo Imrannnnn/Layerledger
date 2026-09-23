@@ -9,6 +9,7 @@ const bcrypt = require('bcrypt');
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
 const { getEffectivePlan, PLAN_LIMITS } = require('./planController');
+const emailService = require('../services/emailService');
 
 /**
  * @desc    Get all users for the current tenant
@@ -58,11 +59,12 @@ const getUserById = asyncHandler(async (req, res) => {
 const createUser = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
     const { name, email, password, role, pin } = req.body;
+    const normalizedEmail = (email || '').trim().toLowerCase();
 
     // Check staff logins limit for the tenant's plan
     const tenant = await prisma.tenant.findUnique({
         where: { id: tenantId },
-        select: { settings: true }
+        select: { name: true, settings: true }
     });
     const effective = getEffectivePlan(tenant);
     const planLimits = PLAN_LIMITS[effective.plan] || PLAN_LIMITS.free;
@@ -82,8 +84,10 @@ const createUser = asyncHandler(async (req, res) => {
         }
     }
 
-    // Check if user already exists
-    const userExists = await prisma.user.findUnique({ where: { email } });
+    // Check if user already exists (case-insensitive)
+    const userExists = await prisma.user.findFirst({
+        where: { email: { equals: normalizedEmail, mode: 'insensitive' } }
+    });
     if (userExists) {
         res.status(400);
         throw new Error('User already exists');
@@ -97,7 +101,7 @@ const createUser = asyncHandler(async (req, res) => {
         data: {
             tenantId,
             name,
-            email,
+            email: normalizedEmail,
             passwordHash: hashedPassword,
             role: role || 'production',
             pin
@@ -105,8 +109,23 @@ const createUser = asyncHandler(async (req, res) => {
         select: { id: true, tenantId: true, name: true, email: true, role: true, pin: true, createdAt: true, updatedAt: true }
     });
 
+    // Asynchronously dispatch staff invite email with temporary password and credentials
+    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    emailService.sendStaffInviteEmail({
+        to: newUser.email,
+        name: newUser.name,
+        companyName: tenant?.name || 'Bakewealth Workspace',
+        role: newUser.role,
+        password,
+        pin,
+        loginUrl: appUrl
+    }).catch(err => {
+        console.error('[UserController] Staff invitation email failed to send:', err.message);
+    });
+
     res.status(201).json(newUser);
 });
+
 
 /**
  * @desc    Update a user
@@ -115,7 +134,7 @@ const createUser = asyncHandler(async (req, res) => {
  */
 const updateUser = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { name, role, pin } = req.body;
+    const { name, role, pin, email } = req.body;
 
     // Non-owners can only update themselves
     if (req.user.role !== 'owner' && req.user.id !== req.params.id) {
@@ -133,6 +152,23 @@ const updateUser = asyncHandler(async (req, res) => {
     const updateData = { name, pin };
     if (req.user.role === 'owner' && role) {
         updateData.role = role;
+    }
+
+    if (email !== undefined) {
+        const normalizedEmail = (email || '').trim().toLowerCase();
+        if (normalizedEmail) {
+            const existing = await prisma.user.findFirst({
+                where: {
+                    id: { not: req.params.id },
+                    email: { equals: normalizedEmail, mode: 'insensitive' }
+                }
+            });
+            if (existing) {
+                res.status(400);
+                throw new Error('Email is already in use by another user');
+            }
+            updateData.email = normalizedEmail;
+        }
     }
 
     const updatedUser = await prisma.user.updateMany({

@@ -23,13 +23,16 @@ const superadminLogin = asyncHandler(async (req, res) => {
     throw new Error("Super Admin credentials not configured");
   }
 
-  if (email === superEmail && password === superPass) {
+  const inputEmail = (email || '').trim().toLowerCase();
+  const targetEmail = (superEmail || '').trim().toLowerCase();
+
+  if (inputEmail === targetEmail && password === superPass) {
     const token = jwt.sign(
       { role: "superadmin" },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     )
-    res.json({ token, email })
+    res.json({ token, email: inputEmail })
   } else {
     res.status(401);
     throw new Error("Invalid Admin Credentials");

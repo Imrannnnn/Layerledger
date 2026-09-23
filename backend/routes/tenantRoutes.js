@@ -4,6 +4,7 @@ const {
     getTenantDetails,
     updateTenantDetails,
     clearAllTenantData,
+    deleteTenantAccount,
     getTenantBootstrap,
     getTenantPricing,
     updateTenantPricing,
@@ -23,8 +24,10 @@ router.post('/pricing/reset', protect, restrictTo('owner'), resetTenantPricing);
 
 router.route('/')
     .get(protect, getTenantDetails)
-    .put(protect, restrictTo('owner'), validate(updateTenantSchema), updateTenantDetails);
+    .put(protect, restrictTo('owner'), validate(updateTenantSchema), updateTenantDetails)
+    .delete(protect, restrictTo('owner'), deleteTenantAccount);
 
+router.delete('/account', protect, restrictTo('owner'), deleteTenantAccount);
 router.delete('/data', protect, restrictTo('owner'), clearAllTenantData);
 
 module.exports = router;

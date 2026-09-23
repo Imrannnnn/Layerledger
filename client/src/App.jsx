@@ -118,6 +118,23 @@ export class ErrorBoundary extends React.Component {
 
 export default function App() {
   const isSuperAdminRoute = window.location.pathname.startsWith("/superadmin") || window.location.search.includes("superadmin")
+  const [hasOnboardingParam, setHasOnboardingParam] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("onboarding") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  const [activationToken, setActivationToken] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("activate") || null;
+    } catch {
+      return null;
+    }
+  });
+  const [activating, setActivating] = useState(false);
+  const [activationError, setActivationError] = useState("");
 
   const [currentUser, setCurrentUser] = useState(() => {
     try {
@@ -265,6 +282,75 @@ export default function App() {
     }
   }, [])
 
+  // Handle email activation link (?activate=<token>)
+  useEffect(() => {
+    if (!activationToken) return
+    let isMounted = true
+
+    async function handleActivation() {
+      setActivating(true)
+      setActivationError("")
+      const apiUrl = import.meta.env.VITE_API_URL
+      try {
+        const res = await fetch(`${apiUrl}/api/auth/activate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: activationToken })
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.message || "Failed to activate account")
+
+        // Clean up URL parameter cleanly
+        try {
+          if (window.history.replaceState) {
+            const url = new URL(window.location.href)
+            url.searchParams.delete("activate")
+            url.searchParams.delete("token")
+            window.history.replaceState({}, document.title, url.pathname + (url.search || ""))
+          }
+        } catch {
+          // Safe fallback
+        }
+
+        // Store user and lead directly into interactive onboarding
+        sessionStorage.setItem("ll_current_user", JSON.stringify(data))
+        saveLocal("ll_onboarded", "0")
+        setOnboarded(false)
+
+        try {
+          await syncFromBackend()
+          setTenantInfo(loadTenantInfo())
+          setInventory(loadInventory(DEFAULT_INV))
+          setProductions(loadProductions([]))
+          setTransactions(loadTransactions([]))
+          setExpenses(loadExpenses([]))
+          const freshRecs = loadRecipes()
+          if (freshRecs) setRecipes(freshRecs)
+          setUsers(loadUsers())
+          setCompany(loadCompany())
+          setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) })
+        } catch (syncErr) {
+          console.error("Activation sync notice:", syncErr)
+        }
+
+        if (isMounted) {
+          setCurrentUser(data)
+          setActivationToken(null)
+        }
+      } catch (err) {
+        if (isMounted) {
+          setActivationError(err.message)
+          setActivationToken(null)
+        }
+      } finally {
+        if (isMounted) setActivating(false)
+      }
+    }
+
+    handleActivation()
+    return () => { isMounted = false }
+  }, [activationToken])
+
   const setViewWithSync = (v) => {
     goTo(v)
     if (v === "monthly" || v === "pandl" || v === "balance" || v === "expenses" || v === "records") {
@@ -365,6 +451,13 @@ export default function App() {
     )
   }
 
+  if (activating) {
+    return <>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');*{box-sizing:border-box}body{margin:0}:root{--gold:${gold};--sidebar:${sidebar};--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:${gold}}`}</style>
+      <FullPageLoader message="Activating your Bakewealth account and launching your onboarding session..." />
+    </>
+  }
+
   if (initialSyncing) {
     return <>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');*{box-sizing:border-box}body{margin:0}:root{--gold:${gold};--sidebar:${sidebar};--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:${gold}}`}</style>
@@ -378,11 +471,16 @@ export default function App() {
 .main-content{color:var(--text)}
 .main-content h1,.main-content h2,.main-content h3{color:var(--text)}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <Suspense fallback={<FullPageLoader message="Loading application..." />}>
-        <Login onLogin={async (u) => {
+        <Login initialError={activationError} onLogin={async (u) => {
           setInitialSyncing(true);
           sessionStorage.setItem("ll_current_user", JSON.stringify(u));
-          saveLocal("ll_onboarded", "1");
-          setOnboarded(true);
+          if (u?.isNewRegistration) {
+            saveLocal("ll_onboarded", "0");
+            setOnboarded(false);
+          } else {
+            saveLocal("ll_onboarded", "1");
+            setOnboarded(true);
+          }
 
           try {
             await syncFromBackend();
@@ -407,8 +505,29 @@ export default function App() {
     </>
   }
 
-  // Show onboarding only for first-time user registrations
-  if (currentUser && !onboarded && currentUser.isNewRegistration) {
+  // Show onboarding for first-time user registrations or when directly launched via welcome email link (?onboarding=1)
+  if (currentUser && (currentUser.isNewRegistration || !onboarded || hasOnboardingParam)) {
+    const handleExitOnboarding = async (targetView) => {
+      await saveLocal("ll_onboarded", "1");
+      setOnboarded(true);
+      if (currentUser?.isNewRegistration) {
+        const normalizedUser = { ...currentUser, isNewRegistration: false };
+        sessionStorage.setItem("ll_current_user", JSON.stringify(normalizedUser));
+        setCurrentUser(normalizedUser);
+      }
+      setHasOnboardingParam(false);
+      try {
+        if (window.history.replaceState) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("onboarding");
+          window.history.replaceState({}, document.title, url.pathname + (url.search || ""));
+        }
+      } catch {
+        // Safe URL history fallback
+      }
+      if (targetView) setViewWithSync(targetView);
+    };
+
     return <Suspense fallback={<Spinner />}><Onboarding
       gold={gold}
       company={company}
@@ -419,9 +538,9 @@ export default function App() {
       setRecipes={setRecipes}
       settings={settings}
       setSettings={setSettings}
-      onComplete={async () => { await saveLocal("ll_onboarded", "1"); setOnboarded(true) }}
-      onSkip={async () => { await saveLocal("ll_onboarded", "1"); setOnboarded(true) }}
-      setView={async v => { await saveLocal("ll_onboarded", "1"); setOnboarded(true); setViewWithSync(v) }}
+      onComplete={() => handleExitOnboarding()}
+      onSkip={() => handleExitOnboarding()}
+      setView={v => handleExitOnboarding(v)}
     /></Suspense>
   }
 

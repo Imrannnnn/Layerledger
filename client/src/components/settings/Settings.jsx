@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert, Modal, Pagination } from "../common/ui.jsx"
 import { fmt, uid, callClaude } from "../../lib/helpers.js"
 import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, PRICING_SIZES } from "../../constants.js"
-import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, logout, loadLocal, saveInventory, deleteOpeningStockOnServer, fetchPricingSettingsFromServer, savePricingSettingsOnServer, resetPricingSettingsOnServer } from "../../lib/data.js"
+import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, deleteTenantAccountOnServer, logout, loadLocal, saveInventory, deleteOpeningStockOnServer, fetchPricingSettingsFromServer, savePricingSettingsOnServer, resetPricingSettingsOnServer } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
 import { Check, AlertTriangle, Calculator, Lock, Unlock, Save, Trash2, Pencil, FileSpreadsheet, Lightbulb, Key, Download, Upload, Coins } from "lucide-react"
 import { OpeningStock } from "../inventory/OpeningStock.jsx"
@@ -334,6 +334,7 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
   ]
   if (user?.role === "owner") tabList.push({ v: "users", l: "Users & Access" })
   tabList.push({ v: "backup", l: "Database & Data" })
+  if (user?.role === "owner") tabList.push({ v: "danger", l: "Danger Zone" })
   const logoRef = useRef()
   const [newUser, setNewUser] = useState({ name: "", role: "production", pin: "" })
   const [userMsg, setUserMsg] = useState("")
@@ -416,6 +417,30 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
     } catch (e) {
       alert("Failed to clear data from database: " + e.message)
       setClearing(false)
+    }
+  }
+
+  // Dangerous Section: Account Deletion (Owner Only)
+  const [deleteConfirm, setDeleteConfirm] = useState("")
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState("")
+  const [accountDeleted, setAccountDeleted] = useState(false)
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true)
+    setDeleteError("")
+    try {
+      await deleteTenantAccountOnServer()
+      setDeleting(false)
+      setShowDeleteModal(false)
+      setAccountDeleted(true)
+      setTimeout(() => {
+        window.location.href = "/"
+      }, 1500)
+    } catch (e) {
+      setDeleteError(e.message || "Failed to delete account. Please try again.")
+      setDeleting(false)
     }
   }
 
@@ -569,6 +594,177 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
           </Btn>
         </div>
       </Card>
+
+      {user?.role === "owner" && (
+        <Card style={{ border: "2px solid #E53E3E", background: "#FFF5F5", marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, color: "#9B2C2C", display: "flex", alignItems: "center", gap: 6 }}>
+                <Trash2 size={16} /> Danger Zone: Delete Account
+              </div>
+              <div style={{ fontSize: 12.5, color: "#742A2A", marginTop: 4 }}>
+                Want to permanently delete this bakery account and purge all data from the database?
+              </div>
+            </div>
+            <Btn variant="danger" onClick={() => setTab("danger")}>
+              Open Dangerous Section
+            </Btn>
+          </div>
+        </Card>
+      )}
+    </div>}
+
+    {tab === "danger" && user?.role === "owner" && <div style={{ maxWidth: 600 }}>
+      {accountDeleted && (
+        <div style={{ padding: "14px 18px", background: "#E5F4EC", border: "1px solid #357A52", borderRadius: 10, color: "#2D7A50", fontWeight: 600, marginBottom: 16 }}>
+          Your account and all associated database records have been permanently deleted. Redirecting to login...
+        </div>
+      )}
+
+      {deleteError && (
+        <Alert msg={deleteError} color="red" onClose={() => setDeleteError("")} />
+      )}
+
+      {/* Warning Overview Banner */}
+      <Card style={{ border: "2px solid #E53E3E", background: "#FFF5F5", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <div style={{
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            background: "#FED7D7",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0
+          }}>
+            <AlertTriangle size={20} color="#C53030" />
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: "#9B2C2C", marginBottom: 4 }}>
+              Dangerous Section: Irreversible Actions
+            </div>
+            <div style={{ fontSize: 13, color: "#742A2A", lineHeight: 1.6 }}>
+              The actions in this section are highly destructive and <strong>cannot be undone</strong>. They permanently wipe records directly from your PostgreSQL cloud database. Only bakery owners have permission to perform these actions.
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Section 1: Clear Business Data */}
+      <Card style={{ border: "1px solid #FEB2B2", marginBottom: 16 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 6, color: "#9B2C2C", display: "flex", alignItems: "center", gap: 6 }}>
+          <AlertTriangle size={15} /> Reset Business Data (Keep Account)
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7, marginBottom: 14 }}>
+          Clears all operational records directly from the database (all inventory items, opening stock, orders, quotes, recipes, purchases, expenses, and clients). <strong>Your tenant account, owner profile, and employee logins will remain active.</strong>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <Inp
+              id="clear-data-confirm-input"
+              label={`Type "${company.name || 'BakeWealth'}" to confirm reset`}
+              value={clearConfirm}
+              onChange={setClearConfirm}
+              placeholder={company.name || 'BakeWealth'}
+            />
+          </div>
+          <Btn
+            variant="danger"
+            disabled={clearing || clearConfirm !== (company.name || 'BakeWealth')}
+            onClick={clearAllData}
+          >
+            {clearing ? "Clearing Database..." : "Clear Business Data"}
+          </Btn>
+        </div>
+      </Card>
+
+      {/* Section 2: Delete Entire Account Permanently */}
+      <Card style={{ border: "2px solid #9B2C2C", background: "#FFF5F5" }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, marginBottom: 6, color: "#742A2A", display: "flex", alignItems: "center", gap: 8 }}>
+          <Trash2 size={18} color="#9B2C2C" /> Delete Account Permanently (Purge Database)
+        </div>
+        <div style={{ fontSize: 13, color: "#742A2A", lineHeight: 1.7, marginBottom: 14 }}>
+          Permanently delete <strong>{company.name || 'this bakery'}</strong> from the database. This will completely erase:
+          <ul style={{ margin: "8px 0 10px 18px", padding: 0, fontSize: 12.5, color: "#9B2C2C", lineHeight: 1.6 }}>
+            <li>Your bakery company profile & subscription/token balances</li>
+            <li>All owner and employee user accounts & login credentials</li>
+            <li>All orders, order items, payments, and client profiles</li>
+            <li>All invoices, payment attempts, and transaction records</li>
+            <li>All recipes, recipe ingredients, and costing formulas</li>
+            <li>All inventory items, purchases, and opening stock history</li>
+            <li>All expenses, decorations, packaging, and company backups</li>
+          </ul>
+          <strong style={{ color: "#742A2A" }}>Everything will be permanently purged from the cloud database. There is no recovery or rollback possible.</strong>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <Inp
+              id="delete-account-confirm-input"
+              label={`Type "${company.name || 'BakeWealth'}" to permanently delete account`}
+              value={deleteConfirm}
+              onChange={setDeleteConfirm}
+              placeholder={company.name || 'BakeWealth'}
+            />
+          </div>
+          <Btn
+            id="trigger-delete-account-btn"
+            variant="danger"
+            disabled={deleting || deleteConfirm !== (company.name || 'BakeWealth')}
+            onClick={() => setShowDeleteModal(true)}
+            style={{ fontWeight: 600, padding: "8px 18px" }}
+          >
+            {deleting ? "Deleting Account..." : "Delete Account"}
+          </Btn>
+        </div>
+      </Card>
+
+      {/* Confirmation Modal */}
+      {showDeleteModal && (
+        <Modal title="Confirm Permanent Account Deletion" onClose={() => !deleting && setShowDeleteModal(false)}>
+          <div style={{ padding: "4px 0" }}>
+            <div style={{
+              background: "#FED7D7",
+              border: "1px solid #E53E3E",
+              borderRadius: 8,
+              padding: "12px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              color: "#9B2C2C",
+              marginBottom: 16
+            }}>
+              <AlertTriangle size={24} style={{ flexShrink: 0 }} />
+              <div style={{ fontSize: 13, lineHeight: 1.5, fontWeight: 500 }}>
+                This is the final confirmation. Once confirmed, all records for <strong>{company.name || 'your bakery'}</strong> will be wiped from the PostgreSQL database immediately.
+              </div>
+            </div>
+
+            <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginBottom: 16 }}>
+              Are you completely sure you want to proceed? You and your staff will be logged out instantly and all access will be terminated forever.
+            </p>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+              <Btn
+                variant="ghost"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </Btn>
+              <Btn
+                id="confirm-permanent-delete-btn"
+                variant="danger"
+                onClick={handleDeleteAccount}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting Everything..." : "Yes, Permanently Delete Everything"}
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>}
   </div>
 }

@@ -3,7 +3,7 @@ global.IS_REACT_ACT_ENVIRONMENT = true
 import React from "react"
 import { createRoot } from "react-dom/client"
 import { act } from "react"
-import { OpeningStock } from "./OpeningStock.jsx"
+import { OpeningStock, sessionSyncedMonths } from "./OpeningStock.jsx"
 import * as dataLib from "../../lib/data.js"
 
 // Mock dependencies
@@ -86,9 +86,14 @@ describe("OpeningStock Component Tests", () => {
   let root = null
 
   beforeEach(() => {
+    sessionSyncedMonths.clear()
     container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
+    dataLib.loadOpeningStock.mockReturnValue([
+      { id: "item-1", name: "Premium Flour", unit: "kg", cost: 1500, openingQty: 50, locked: false },
+      { id: "item-2", name: "Granulated Sugar", unit: "kg", cost: 2000, openingQty: 30, locked: false }
+    ])
     dataLib.fetchOpeningStockFromServer.mockResolvedValue([
       { id: "item-1", name: "Premium Flour", unit: "kg", cost: 1500, openingQty: 50, locked: false },
       { id: "item-2", name: "Granulated Sugar", unit: "kg", cost: 2000, openingQty: 30, locked: false }
@@ -283,6 +288,47 @@ describe("OpeningStock Component Tests", () => {
 
     const currentMonthStr = new Date().toISOString().slice(0, 7)
     expect(dataLib.lockOpeningStockMonthOnServer).toHaveBeenCalledWith(currentMonthStr, true)
+  })
+
+  test("does not show loading spinner again on remount when data is already loaded in session", async () => {
+    const inventory = []
+
+    // First mount: fetches and caches
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={inventory}
+          setInventory={jest.fn()}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+    expect(container.textContent).toContain("Premium Flour")
+    expect(dataLib.fetchOpeningStockFromServer).toHaveBeenCalledTimes(1)
+
+    // Simulate leaving to another section (unmount)
+    await act(async () => {
+      root.unmount()
+    })
+    expect(container.textContent).toBe("")
+
+    // Simulate returning to opening stock (remount)
+    dataLib.fetchOpeningStockFromServer.mockClear()
+    root = createRoot(container)
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={inventory}
+          setInventory={jest.fn()}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+
+    // Expect items to render immediately without loading spinner and without extra server fetch
+    expect(container.textContent).toContain("Premium Flour")
+    expect(container.textContent).not.toContain("Loading opening stock from database...")
+    expect(dataLib.fetchOpeningStockFromServer).not.toHaveBeenCalled()
   })
 })
 

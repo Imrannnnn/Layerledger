@@ -19,6 +19,7 @@ export function DummyPaymentGatewayModal({
   onPaymentSuccess
 }) {
   const paystackPublicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ""
+  const isLiveMode = Boolean(paystackPublicKey && paystackPublicKey.startsWith("pk_live_"))
   const [channel, setChannel] = useState("paystack")
   const [cardNumber, setCardNumber] = useState("4084 •••• •••• 4081")
   const [cardExpiry, setCardExpiry] = useState("09/28")
@@ -60,7 +61,7 @@ export function DummyPaymentGatewayModal({
     setProcessing(true)
     setErrorMessage("")
 
-    if (channel === "paystack" && import.meta.env?.VITE_API_URL) {
+    if ((isLiveMode || channel === "paystack") && import.meta.env?.VITE_API_URL) {
       try {
         let resType = resourceType
         let resId = resourceId
@@ -160,7 +161,13 @@ export function DummyPaymentGatewayModal({
       }
     }
 
-    // Offline / Demo Simulator fallback
+    if (isLiveMode) {
+      setProcessing(false)
+      setErrorMessage("Live mode is enabled. All transactions must be initialized through the Paystack gateway.")
+      return
+    }
+
+    // Offline / Demo Simulator fallback (only active in sandbox/test environments)
     const ref = "PAY-BW-" + Math.floor(10000000 + Math.random() * 90000000)
     setReference(ref)
 
@@ -211,8 +218,18 @@ export function DummyPaymentGatewayModal({
           }}
         >
           <div>
-            <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>
-              Payment Checkout (Paystack Sandbox)
+            <div style={{
+              fontSize: 11,
+              color: isLiveMode ? "#16A34A" : "var(--muted)",
+              textTransform: "uppercase",
+              letterSpacing: 0.8,
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: 5
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: isLiveMode ? "#16A34A" : "#F59E0B", display: "inline-block" }}></span>
+              Payment Checkout (Paystack {isLiveMode ? "Live" : "Sandbox"})
             </div>
             <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, marginTop: 2 }}>
               {customerEmail}
@@ -278,60 +295,36 @@ export function DummyPaymentGatewayModal({
               </div>
             )}
 
-            {/* Payment Channel Tabs */}
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1fr", gap: 5, marginBottom: 16 }}>
-              {[
-                { id: "paystack", label: "Paystack", icon: <ShieldCheck size={14} /> },
-                { id: "card", label: "Card (Demo)", icon: <CreditCard size={14} /> },
-                { id: "transfer", label: "Transfer", icon: <Building2 size={14} /> },
-                { id: "ussd", label: "USSD", icon: <Smartphone size={14} /> }
-              ].map(c => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => {
-                    setChannel(c.id)
-                    setErrorMessage("")
-                  }}
-                  style={{
-                    padding: "8px 4px",
-                    borderRadius: 8,
-                    border: channel === c.id ? "2px solid var(--gold)" : "1px solid var(--border)",
-                    background: channel === c.id ? "rgba(200,145,42,0.08)" : "#FAF7F0",
-                    color: channel === c.id ? "var(--gold)" : "var(--text)",
-                    fontWeight: 600,
-                    fontSize: 11.5,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 4
-                  }}
-                >
-                  {c.icon}
-                  <span>{c.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Channel Content */}
-            {channel === "paystack" && (
-              <div style={{ background: "#F0F9FF", border: "1px solid #BAE6FD", padding: 14, borderRadius: 8, marginBottom: 18, textAlign: "center" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#0369A1", marginBottom: 6 }}>
-                  Official Paystack Sandbox Integration
-                </div>
-                <div style={{ fontSize: 12, color: "#0C4A6E", marginBottom: 10, lineHeight: 1.4 }}>
-                  Real transaction registered on your Paystack Dashboard (<strong>dashboard.paystack.com</strong>) with instant server verification.
-                </div>
-                {paystackPublicKey ? (
-                  <div style={{ fontSize: 11, fontFamily: "monospace", color: "#0284C7", background: "rgba(2, 132, 199, 0.08)", padding: "4px 8px", borderRadius: 4, display: "inline-block", marginBottom: 8 }}>
-                    Key: {paystackPublicKey.slice(0, 16)}...{paystackPublicKey.slice(-6)}
+            {isLiveMode ? (
+              /* Official Live Paystack Panel */
+              <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", padding: 16, borderRadius: 10, marginBottom: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#166534", display: "flex", alignItems: "center", gap: 6 }}>
+                    <ShieldCheck size={18} color="#16A34A" />
+                    Official Paystack Live Integration
                   </div>
-                ) : null}
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "#166534", background: "#DCFCE7", padding: "2px 8px", borderRadius: 12, border: "1px solid #86EFAC" }}>
+                    LIVE
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "#15803D", marginBottom: 12, lineHeight: 1.45 }}>
+                  Real transaction processed directly on your Paystack account (<strong>dashboard.paystack.com</strong>) with instant automated server verification.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 10 }}>
+                  <div style={{ background: "#fff", border: "1px solid #DCFCE7", borderRadius: 6, padding: "8px 6px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "#166534" }}>
+                    💳 Cards (Verve/Visa/MC)
+                  </div>
+                  <div style={{ background: "#fff", border: "1px solid #DCFCE7", borderRadius: 6, padding: "8px 6px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "#166534" }}>
+                    🏛️ Bank Transfer
+                  </div>
+                  <div style={{ background: "#fff", border: "1px solid #DCFCE7", borderRadius: 6, padding: "8px 6px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "#166534" }}>
+                    📱 USSD Codes
+                  </div>
+                </div>
 
                 {hostedUrl && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #BAE6FD" }}>
-                    <div style={{ fontSize: 11.5, color: "#0369A1", marginBottom: 8 }}>
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #BBF7D0" }}>
+                    <div style={{ fontSize: 11.5, color: "#166534", marginBottom: 8, textAlign: "center" }}>
                       Payment session active. Reference: <strong style={{ fontFamily: "monospace" }}>{reference}</strong>
                     </div>
                     <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
@@ -343,9 +336,9 @@ export function DummyPaymentGatewayModal({
                           display: "inline-flex",
                           alignItems: "center",
                           gap: 4,
-                          padding: "6px 12px",
+                          padding: "7px 14px",
                           borderRadius: 6,
-                          background: "#0284C7",
+                          background: "#16A34A",
                           color: "#fff",
                           fontSize: 11.5,
                           fontWeight: 600,
@@ -363,11 +356,11 @@ export function DummyPaymentGatewayModal({
                           display: "inline-flex",
                           alignItems: "center",
                           gap: 4,
-                          padding: "6px 12px",
+                          padding: "7px 14px",
                           borderRadius: 6,
-                          border: "1px solid #0284C7",
+                          border: "1px solid #16A34A",
                           background: "#fff",
-                          color: "#0284C7",
+                          color: "#16A34A",
                           fontSize: 11.5,
                           fontWeight: 600,
                           cursor: "pointer"
@@ -380,109 +373,214 @@ export function DummyPaymentGatewayModal({
                   </div>
                 )}
               </div>
-            )}
-
-            {channel === "card" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
-                <div style={{ fontSize: 11, color: "var(--muted)", fontStyle: "italic", background: "rgba(0,0,0,0.03)", padding: "6px 10px", borderRadius: 6 }}>
-                  Offline Demo Card Simulator — simulates payment locally without contacting Paystack API.
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>
-                    CARD NUMBER
-                  </label>
-                  <input
-                    type="text"
-                    value={cardNumber}
-                    onChange={e => setCardNumber(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "9px 12px",
-                      borderRadius: 6,
-                      border: "1px solid var(--border)",
-                      fontSize: 13,
-                      boxSizing: "border-box",
-                      fontFamily: "monospace"
-                    }}
-                  />
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>
-                      CARD EXPIRY
-                    </label>
-                    <input
-                      type="text"
-                      value={cardExpiry}
-                      onChange={e => setCardExpiry(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "9px 12px",
-                        borderRadius: 6,
-                        border: "1px solid var(--border)",
-                        fontSize: 13,
-                        boxSizing: "border-box",
-                        fontFamily: "monospace"
+            ) : (
+              /* Sandbox / Dev Channel Selection */
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1fr", gap: 5, marginBottom: 16 }}>
+                  {[
+                    { id: "paystack", label: "Paystack", icon: <ShieldCheck size={14} /> },
+                    { id: "card", label: "Card (Demo)", icon: <CreditCard size={14} /> },
+                    { id: "transfer", label: "Transfer", icon: <Building2 size={14} /> },
+                    { id: "ussd", label: "USSD", icon: <Smartphone size={14} /> }
+                  ].map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setChannel(c.id)
+                        setErrorMessage("")
                       }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>
-                      CVV
-                    </label>
-                    <input
-                      type="password"
-                      maxLength={3}
-                      value={cardCvv}
-                      onChange={e => setCardCvv(e.target.value)}
                       style={{
-                        width: "100%",
-                        padding: "9px 12px",
-                        borderRadius: 6,
-                        border: "1px solid var(--border)",
-                        fontSize: 13,
-                        boxSizing: "border-box",
-                        fontFamily: "monospace"
+                        padding: "8px 4px",
+                        borderRadius: 8,
+                        border: channel === c.id ? "2px solid var(--gold)" : "1px solid var(--border)",
+                        background: channel === c.id ? "rgba(200,145,42,0.08)" : "#FAF7F0",
+                        color: channel === c.id ? "var(--gold)" : "var(--text)",
+                        fontWeight: 600,
+                        fontSize: 11.5,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 4
                       }}
-                    />
+                    >
+                      {c.icon}
+                      <span>{c.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {channel === "paystack" && (
+                  <div style={{ background: "#F0F9FF", border: "1px solid #BAE6FD", padding: 14, borderRadius: 8, marginBottom: 18, textAlign: "center" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#0369A1", marginBottom: 6 }}>
+                      Official Paystack Sandbox Integration
+                    </div>
+                    <div style={{ fontSize: 12, color: "#0C4A6E", marginBottom: 10, lineHeight: 1.4 }}>
+                      Real transaction registered on your Paystack Dashboard (<strong>dashboard.paystack.com</strong>) with instant server verification.
+                    </div>
+                    {paystackPublicKey ? (
+                      <div style={{ fontSize: 11, fontFamily: "monospace", color: "#0284C7", background: "rgba(2, 132, 199, 0.08)", padding: "4px 8px", borderRadius: 4, display: "inline-block", marginBottom: 8 }}>
+                        Key: {paystackPublicKey.slice(0, 16)}...{paystackPublicKey.slice(-6)}
+                      </div>
+                    ) : null}
+
+                    {hostedUrl && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #BAE6FD" }}>
+                        <div style={{ fontSize: 11.5, color: "#0369A1", marginBottom: 8 }}>
+                          Payment session active. Reference: <strong style={{ fontFamily: "monospace" }}>{reference}</strong>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                          <a
+                            href={hostedUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              padding: "6px 12px",
+                              borderRadius: 6,
+                              background: "#0284C7",
+                              color: "#fff",
+                              fontSize: 11.5,
+                              fontWeight: 600,
+                              textDecoration: "none"
+                            }}
+                          >
+                            <ExternalLink size={12} />
+                            <span>Open Checkout Page</span>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleManualVerify()}
+                            disabled={verifying}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              padding: "6px 12px",
+                              borderRadius: 6,
+                              border: "1px solid #0284C7",
+                              background: "#fff",
+                              color: "#0284C7",
+                              fontSize: 11.5,
+                              fontWeight: 600,
+                              cursor: "pointer"
+                            }}
+                          >
+                            <RefreshCw size={12} className={verifying ? "animate-spin" : ""} />
+                            <span>{verifying ? "Verifying..." : "Check Status"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              </div>
-            )}
+                )}
 
-            {channel === "transfer" && (
-              <div style={{ background: "#F5F0E4", padding: 14, borderRadius: 8, marginBottom: 18 }}>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-                  Transfer <strong>₦{Number(amount).toLocaleString()}</strong> to the dedicated test account below:
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: "var(--muted)" }}>Bank:</span>
-                  <strong style={{ fontSize: 12.5 }}>Wema Bank</strong>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: "var(--muted)" }}>Account Number:</span>
-                  <strong style={{ fontSize: 13, color: "var(--gold)", fontFamily: "monospace" }}>0123984729</strong>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 12, color: "var(--muted)" }}>Account Name:</span>
-                  <strong style={{ fontSize: 12.5 }}>LayerLedger / Paystack Sandbox</strong>
-                </div>
-              </div>
-            )}
+                {channel === "card" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+                    <div style={{ fontSize: 11, color: "var(--muted)", fontStyle: "italic", background: "rgba(0,0,0,0.03)", padding: "6px 10px", borderRadius: 6 }}>
+                      Offline Demo Card Simulator — simulates payment locally without contacting Paystack API.
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>
+                        CARD NUMBER
+                      </label>
+                      <input
+                        type="text"
+                        value={cardNumber}
+                        onChange={e => setCardNumber(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "9px 12px",
+                          borderRadius: 6,
+                          border: "1px solid var(--border)",
+                          fontSize: 13,
+                          boxSizing: "border-box",
+                          fontFamily: "monospace"
+                        }}
+                      />
+                    </div>
 
-            {channel === "ussd" && (
-              <div style={{ background: "#F5F0E4", padding: 14, borderRadius: 8, marginBottom: 18, textAlign: "center" }}>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-                  Dial the code below on your phone to complete payment:
-                </div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--gold)", fontFamily: "monospace", marginBottom: 6 }}>
-                  *737*000*4500#
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                  Supported banks: GTBank, Zenith, Access, UBA, FirstBank
-                </div>
-              </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>
+                          CARD EXPIRY
+                        </label>
+                        <input
+                          type="text"
+                          value={cardExpiry}
+                          onChange={e => setCardExpiry(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "9px 12px",
+                            borderRadius: 6,
+                            border: "1px solid var(--border)",
+                            fontSize: 13,
+                            boxSizing: "border-box",
+                            fontFamily: "monospace"
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>
+                          CVV
+                        </label>
+                        <input
+                          type="password"
+                          maxLength={3}
+                          value={cardCvv}
+                          onChange={e => setCardCvv(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "9px 12px",
+                            borderRadius: 6,
+                            border: "1px solid var(--border)",
+                            fontSize: 13,
+                            boxSizing: "border-box",
+                            fontFamily: "monospace"
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {channel === "transfer" && (
+                  <div style={{ background: "#F5F0E4", padding: 14, borderRadius: 8, marginBottom: 18 }}>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
+                      Transfer <strong>₦{Number(amount).toLocaleString()}</strong> to the dedicated test account below:
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, color: "var(--muted)" }}>Bank:</span>
+                      <strong style={{ fontSize: 12.5 }}>Wema Bank</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, color: "var(--muted)" }}>Account Number:</span>
+                      <strong style={{ fontSize: 13, color: "var(--gold)", fontFamily: "monospace" }}>0123984729</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 12, color: "var(--muted)" }}>Account Name:</span>
+                      <strong style={{ fontSize: 12.5 }}>LayerLedger / Paystack Sandbox</strong>
+                    </div>
+                  </div>
+                )}
+
+                {channel === "ussd" && (
+                  <div style={{ background: "#F5F0E4", padding: 14, borderRadius: 8, marginBottom: 18, textAlign: "center" }}>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
+                      Dial the code below on your phone to complete payment:
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "var(--gold)", fontFamily: "monospace", marginBottom: 6 }}>
+                      *737*000*4500#
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                      Supported banks: GTBank, Zenith, Access, UBA, FirstBank
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Pay Button */}
@@ -491,7 +589,7 @@ export function DummyPaymentGatewayModal({
               onClick={handlePay}
               disabled={processing}
               style={{
-                background: channel === "paystack" ? "#0BA4DB" : "var(--gold)",
+                background: (isLiveMode || channel === "paystack") ? "#0BA4DB" : "var(--gold)",
                 color: "#fff",
                 display: "flex",
                 alignItems: "center",
@@ -512,7 +610,7 @@ export function DummyPaymentGatewayModal({
                 <>
                   <Lock size={14} />
                   <span>
-                    {channel === "paystack"
+                    {(isLiveMode || channel === "paystack")
                       ? `Pay ₦${Number(amount).toLocaleString()} with Paystack`
                       : `Pay ₦${Number(amount).toLocaleString()} (Demo Simulator)`}
                   </span>
@@ -532,8 +630,11 @@ export function DummyPaymentGatewayModal({
                 color: "var(--muted)"
               }}
             >
-              <ShieldCheck size={13} color="#27AE60" />
-              <span>Secured by <strong>Paystack</strong>{paystackPublicKey ? ` · Key: ${paystackPublicKey.slice(0, 14)}...` : ""}</span>
+              <ShieldCheck size={13} color={isLiveMode ? "#16A34A" : "#27AE60"} />
+              <span>
+                Secured by <strong>Paystack</strong>
+                {isLiveMode ? " · Live Transactions" : (paystackPublicKey ? ` · Key: ${paystackPublicKey.slice(0, 14)}...` : " · Test Mode")}
+              </span>
             </div>
           </>
         )}
@@ -541,3 +642,6 @@ export function DummyPaymentGatewayModal({
     </Modal>
   )
 }
+
+export const PaymentGatewayModal = DummyPaymentGatewayModal
+

@@ -246,6 +246,9 @@ const purchasePlan = asyncHandler(async (req, res) => {
             ...existingSettings,
             plan: targetPlan,
             planExpiresAt: newExpires.toISOString(),
+            lastLowTokenAlertSent: false,
+            lastLowTokenAlertBalance: null,
+            lastExpiryWarningDate: null,
             lastPlanPurchase: {
                 plan: targetPlan,
                 months: parsedMonths,

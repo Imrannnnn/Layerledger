@@ -19,13 +19,21 @@ import {
 import { PackageCheck, AlertTriangle, Lock, Unlock, Plus, Upload, Trash2, Search, Edit3, Check, Calculator, RefreshCw, Download } from "lucide-react"
 import { exportOpeningStockPDF } from "../../lib/pdfReportGenerator.js"
 
+// Module-level session tracking: months that have already been loaded/verified from backend in the current browser session
+export const sessionSyncedMonths = new Set()
+
 export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const currentMonthStr = new Date().toISOString().slice(0, 7)
   const curMonthName = new Date().toLocaleDateString("en-NG", { month: "long", year: "numeric" })
 
-  const [items, setItems] = useState([])
-  const [saved, setSaved] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const initialCached = loadOpeningStock(currentMonthStr)
+  const hasCachedData = Array.isArray(initialCached) && initialCached.length > 0
+  const isAlreadySynced = sessionSyncedMonths.has(currentMonthStr)
+
+  const [items, setItems] = useState(() => (hasCachedData ? initialCached : []))
+  const [saved, setSaved] = useState(() => Array.isArray(initialCached) && initialCached.some(it => it.locked))
+  const [loading, setLoading] = useState(() => !isAlreadySynced && !hasCachedData)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
   const [showSavedMsg, setShowSavedMsg] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
@@ -51,34 +59,49 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const [deletingAll, setDeletingAll] = useState(false)
 
   // Fetch opening stock from PostgreSQL / Neon backend
-  const syncAndRefresh = useCallback(async () => {
-    setLoading(true)
+  const syncAndRefresh = useCallback(async (force = false) => {
+    // If already loaded in this session and not forced, keep loaded data instantly without loading again
+    if (!force && sessionSyncedMonths.has(currentMonthStr)) {
+      return
+    }
+
+    const currentCached = loadOpeningStock(currentMonthStr)
+    const hasCache = Array.isArray(currentCached) && currentCached.length > 0
+
+    if (!hasCache) {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
     setError(null)
+
     try {
       // 1. Run safe one-time migration if any legacy localStorage data exists
       await migrateLocalStorageOpeningStockToDatabase()
-      // 2. Sync backend bootstrap data
-      await syncFromBackend()
-      // 3. Fetch opening stock directly from backend
+      // 2. Fetch opening stock directly from backend
       const serverItems = await fetchOpeningStockFromServer(currentMonthStr)
       if (serverItems) {
         setItems(serverItems)
         setSaved(serverItems.some(it => it.locked))
-      } else {
+      } else if (!hasCache) {
         const cached = loadOpeningStock(currentMonthStr)
         setItems(cached)
         setSaved(cached.some(it => it.locked))
       }
+      sessionSyncedMonths.add(currentMonthStr)
     } catch (err) {
       console.warn("Opening stock sync notice:", err)
-      setError("Failed to load opening stock from database.")
+      if (!hasCache) {
+        setError("Failed to load opening stock from database.")
+      }
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [currentMonthStr])
 
   useEffect(() => {
-    syncAndRefresh()
+    syncAndRefresh(false)
   }, [syncAndRefresh])
 
   useEffect(() => {
@@ -604,6 +627,17 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
 
           {/* Action buttons */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <Btn
+              small
+              variant="outline"
+              onClick={() => syncAndRefresh(true)}
+              disabled={refreshing || loading}
+              title="Refresh opening stock from database"
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <RefreshCw size={13} style={refreshing ? { animation: "spin 1s linear infinite" } : {}} />
+              <span>{refreshing ? "Syncing..." : "Refresh"}</span>
+            </Btn>
             <Btn
               small
               variant="outline"

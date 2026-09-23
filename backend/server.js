@@ -97,7 +97,9 @@ app.use((err, req, res, _next) => {
     const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
     console.error("Unhandled error:", err);
     res.status(statusCode).json({
-        message: err.message || 'Internal Server Error'
+        message: err.message || 'Internal Server Error',
+        notActivated: err.notActivated || undefined,
+        email: err.email || undefined
     });
 });
 
@@ -124,9 +126,9 @@ async function startServer() {
             const dbName = parsed.pathname ? parsed.pathname.replace('/', '') : '';
             dbLabel = isLocal
                 ? `🟢 LOCAL PostgreSQL Database (${parsed.hostname}:${parsed.port || 5432}/${dbName}) [ZERO Neon Bandwidth]`
-                : `☁️ REMOTE NEON CLOUD Database (${parsed.hostname}/${dbName})`;
+                : `REMOTE SUPERBASE CLOUD Database (${parsed.hostname}/${dbName})`;
         } catch {
-            dbLabel = dbUrl.includes('localhost') ? '🟢 LOCAL PostgreSQL' : '☁️ REMOTE NEON CLOUD';
+            dbLabel = dbUrl.includes('localhost') ? '🟢 LOCAL PostgreSQL' : 'REMOTE SUPERBASE CLOUD';
         }
 
         console.log(`================================================================`);
@@ -135,6 +137,47 @@ async function startServer() {
 
         app.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
+
+            // Initialize Brevo API check and Background Workers
+            const paymentJobRunner = require('./jobs/paymentJobs');
+            const subscriptionWatcher = require('./services/subscriptionWatcher');
+            const emailService = require('./services/emailService');
+
+            if (emailService.isConfigured()) {
+                emailService.verifyApi().then(res => {
+                    if (res.connected) {
+                        console.log(`✉️  Brevo API: Connected & Ready for Bakewealth emails (${res.email || 'Verified'})`);
+                    } else {
+                        console.warn('⚠️  Brevo API Notice:', res.message);
+                    }
+                }).catch(e => console.warn('⚠️  Brevo API check error:', e.message));
+            } else {
+                console.log('✉️  Brevo API: In mock/dev mode (BREVO_API_KEY not set in .env)');
+            }
+
+
+            // Periodic payment background worker (receipt delivery, ledger sync)
+            setInterval(async () => {
+                try {
+                    await paymentJobRunner.processPendingJobs();
+                } catch (err) {
+                    console.error('[Worker] Payment jobs worker error:', err.message);
+                }
+            }, 15000);
+
+            // Periodic subscription expiry check (alerts owners 3 days prior)
+            setInterval(async () => {
+                try {
+                    await subscriptionWatcher.checkExpiringSubscriptions(3);
+                } catch (err) {
+                    console.error('[Worker] Subscription watcher error:', err.message);
+                }
+            }, 6 * 60 * 60 * 1000);
+
+            // Initial non-blocking check 30 seconds after boot
+            setTimeout(() => {
+                subscriptionWatcher.checkExpiringSubscriptions(3).catch(() => {});
+            }, 30000);
         });
     } catch (error) {
         console.error("Database Connection Failed");
@@ -143,7 +186,5 @@ async function startServer() {
 }
 
 startServer();
-
-
-
+// LayerLedger Server initialized with Paystack Live Gateway support
 

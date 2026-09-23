@@ -6,6 +6,7 @@
  */
 
 const paymentRepository = require('../modules/payments/payment.repository');
+const emailService = require('../services/emailService');
 
 class PaymentJobRunner {
     constructor(repository = paymentRepository) {
@@ -18,7 +19,21 @@ class PaymentJobRunner {
 
     async handlePaymentReceipt(payload) {
         // Idempotent email / notification sender
-        console.log(`[Job Worker] Generating payment receipt for ${payload.customerEmail} (${payload.paymentReference}: ${payload.amount} ${payload.currency})`);
+        console.log(`[Job Worker] Dispatching payment receipt for ${payload.customerEmail} (${payload.paymentReference}: ${payload.amount} ${payload.currency})`);
+        
+        await emailService.sendPaymentReceiptEmail({
+            to: payload.customerEmail,
+            name: payload.customerName || 'Customer',
+            companyName: payload.companyName || 'Bakewealth',
+            paymentReference: payload.paymentReference,
+            amount: payload.amount,
+            currency: payload.currency || 'NGN',
+            resourceType: payload.resourceType,
+            resourceDetails: payload.resourceDetails,
+            paidAt: payload.paidAt || new Date(),
+            accountUrl: process.env.APP_URL || 'http://localhost:5173'
+        });
+
         return true;
     }
 

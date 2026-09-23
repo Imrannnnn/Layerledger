@@ -560,12 +560,25 @@ class PaymentService {
         }
 
         // Principle #25: Queue asynchronous background tasks (receipts, notification, ledger sync)
+        let itemLabel = resourceType;
+        if (resourceType === 'subscription_plan') {
+            itemLabel = `${(resourceId || 'Standard').toUpperCase()} Prepaid Plan`;
+        } else if (resourceType === 'credit_pack') {
+            itemLabel = `AI Scan Credit Pack (${resourceId || 'Credits'})`;
+        } else if (resourceType === 'order_deposit') {
+            itemLabel = `Order Deposit (${resourceId || metadata?.orderId || 'Order'})`;
+        }
+
         await this.repository.createJob('PAYMENT_RECEIPT', {
             paymentId: payment.id,
             paymentReference: payment.paymentReference,
             customerEmail: payment.customerEmail,
+            customerName: payment.customerName,
             amount: toMajorUnits(payment.amount, payment.currency),
-            currency: payment.currency
+            currency: payment.currency,
+            resourceType: payment.resourceType,
+            resourceDetails: itemLabel,
+            paidAt: payment.updatedAt || new Date().toISOString()
         });
 
         let tenantInfo = null;

@@ -19,6 +19,7 @@ jest.mock("../../lib/data.js", () => ({
   syncToBackend: jest.fn(),
   syncFromBackend: jest.fn(),
   clearAllDataOnServer: jest.fn(),
+  deleteTenantAccountOnServer: jest.fn(),
   logout: jest.fn(),
   saveInventory: jest.fn(),
   deleteOpeningStockOnServer: jest.fn(),

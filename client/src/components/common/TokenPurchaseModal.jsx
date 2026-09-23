@@ -270,7 +270,7 @@ export function TokenPurchaseModal({
         {/* Security & Support note */}
         <div style={{ fontSize: 10.5, color: "var(--muted)", textAlign: "center", marginTop: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
           <ShieldCheck size={12} color="#27AE60" />
-          <span>Instant credit top-up via Paystack test simulator. Credits never expire.</span>
+          <span>Instant credit top-up secured by Paystack. Credits never expire.</span>
         </div>
       </div>
 

@@ -60,11 +60,12 @@ export function SuperAdminDashboard() {
     e.preventDefault()
     setLoading(true)
     setError("")
+    const normalizedEmail = (email || "").trim().toLowerCase();
     try {
       const res = await fetch(`${apiUrl}/api/superadmin/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email: normalizedEmail, password })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || "Login failed")
@@ -169,7 +170,7 @@ export function SuperAdminDashboard() {
           </div>
 
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <Inp label="Admin Email" type="email" value={email} onChange={setEmail} placeholder="admin@bakewealth.com" />
+            <Inp label="Admin Email" type="email" value={email} onChange={setEmail} onBlur={() => setEmail(prev => (prev || "").trim().toLowerCase())} placeholder="admin@bakewealth.com" />
             <Inp label="Secure Password" type="password" value={password} onChange={setPassword} placeholder="••••••••" />
             
             {error && <div style={{ fontSize: 12.5, color: "#B03A2E", background: "#FDEBE9", padding: "8px 12px", borderRadius: 8, display: "flex", alignItems: "center", gap: 6 }}><AlertTriangle size={13} /> {error}</div>}

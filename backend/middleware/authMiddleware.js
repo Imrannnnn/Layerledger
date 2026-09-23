@@ -84,4 +84,15 @@ const restrictTo = (...roles) => {
     };
 };
 
-module.exports = { protect, restrictTo };
+/**
+ * Clear cached user data (e.g. on account deletion or role update)
+ */
+const clearUserCache = (userId) => {
+    if (userId) {
+        userCache.delete(userId);
+    } else {
+        userCache.clear();
+    }
+};
+
+module.exports = { protect, restrictTo, clearUserCache };
