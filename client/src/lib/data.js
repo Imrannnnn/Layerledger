@@ -59,6 +59,21 @@ const isDateMatchingMonth = (dateStr, monthStr) => {
   return normalizeDateToIso(dateStr).startsWith(monthStr.trim())
 }
 
+export const notifyPlanLimitReached = (errData = {}) => {
+  if (typeof window === "undefined") return
+  const detail = {
+    limitType: errData.limitType || "ordersPerMonth",
+    message: errData.message || "Your plan limit has been reached.",
+    limit: errData.limit,
+    currentCount: errData.currentCount,
+    plan: errData.plan || "free",
+    upgradePlan: errData.upgradePlan || "standard",
+    upgradePrice: errData.upgradePrice || 5000
+  }
+  window.dispatchEvent(new CustomEvent("layerledger:plan-limit-reached", { detail }))
+  window.dispatchEvent(new CustomEvent("bakewealth:plan-limit-reached", { detail }))
+}
+
 // Mapping functions to transform server DB structures to application data models
 const mapServerInventoryToLocal = (item) => ({
   id: item.id,
@@ -167,6 +182,23 @@ const load = (key, fallback) => {
       return cache[key]
     }
   }
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const stored = window.localStorage.getItem(key)
+      if (stored !== null && stored !== undefined) {
+        try {
+          const parsed = JSON.parse(stored)
+          cache[key] = parsed
+          return parsed
+        } catch {
+          cache[key] = stored
+          return stored
+        }
+      }
+    } catch {
+      // localStorage read fallback
+    }
+  }
   return fallback
 }
 
@@ -181,6 +213,17 @@ export const loadLocal = (key, fallback) => {
 const save = async (key, val) => {
   try {
     cache[key] = val
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        if (val === null || val === undefined) {
+          window.localStorage.removeItem(key)
+        } else {
+          window.localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val))
+        }
+      } catch {
+        // localStorage quota/disabled fallback
+      }
+    }
 
     const headers = getAuthHeaders()
     if (!headers) return
@@ -752,13 +795,29 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
     if (!res.ok) return
     const serverOrders = await res.json()
 
+    const safeProds = Array.isArray(localProds) ? localProds : []
+    const safeQuotes = Array.isArray(localQuotes) ? localQuotes : []
+
     const combinedLocal = [
-      ...localProds.map(p => ({ ...p, isProd: true })),
-      ...localQuotes.map(q => ({ ...q, isProd: false }))
+      ...safeProds.map(p => ({ ...p, isProd: true })),
+      ...safeQuotes.map(q => ({ ...q, isProd: false }))
     ]
 
-    // Delete removed orders in parallel
-    const ordersToDelete = serverOrders.filter(sOrder => !combinedLocal.find(o => o.id === sOrder.id))
+    // Only delete orders if local state has loaded items to prevent accidental mass deletion
+    const quotesLoaded = safeQuotes.length > 0 || !!cache["_quotes_synced"]
+    const prodsLoaded = safeProds.length > 0 || !!cache["_prods_synced"]
+
+    const ordersToDelete = serverOrders.filter(sOrder => {
+      const isQuote = sOrder.status === "quote" || sOrder.metadata?.isProd === false
+      if (isQuote) {
+        // Only delete quotes if quotes list is loaded and this quote was explicitly removed
+        return quotesLoaded && !combinedLocal.some(o => o.id === sOrder.id)
+      } else {
+        // Only delete productions if prods list is loaded and this prod was explicitly removed
+        return prodsLoaded && !combinedLocal.some(o => o.id === sOrder.id)
+      }
+    })
+
     if (ordersToDelete.length > 0) {
       await Promise.allSettled(
         ordersToDelete.map(sOrder =>
@@ -769,15 +828,16 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
 
     // Create/Update only if changed
     for (const o of combinedLocal) {
+      if (!o || !o.id) continue
       const sOrder = serverOrders.find(so => so.id === o.id)
       
       const items = (o.tiers || []).map(t => ({
-        name: t.covering || "Cake tier",
+        name: (t.covering && t.covering.trim()) || "Cake tier",
         size: t.size ? String(t.size) : "6",
         shape: t.shape || "round",
-        layers: t.layers?.length || 1,
-        price: o.salePrice ? Number(o.salePrice / (o.tiers?.length || 1)) : 0,
-        cost: o.cost ? Number(o.cost / (o.tiers?.length || 1)) : 0
+        layers: Number(t.layers?.length) || 1,
+        price: isNaN(Number(o.salePrice)) ? 0 : Math.max(0, Number(o.salePrice / (o.tiers?.length || 1))),
+        cost: isNaN(Number(o.cost)) ? 0 : Math.max(0, Number(o.cost / (o.tiers?.length || 1)))
       }))
 
       const usages = calculateOrderUsages(o, localInv, localRecipes)
@@ -785,15 +845,21 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
       let parsedDue = null
       try {
         const d = o.deliveryDate || o.dueDate
-        if (d) parsedDue = new Date(d).toISOString()
+        if (d) {
+          const parsed = new Date(d)
+          if (!isNaN(parsed.getTime())) parsedDue = parsed.toISOString()
+        }
       } catch (e) { /* ignore */ }
+
+      const rawSalePrice = Number(o.salePrice)
+      const rawCost = Number(o.cost)
 
       const body = {
         id: o.id,
         status: o.isProd ? (o.status || "pending") : "quote",
         dueDate: parsedDue,
-        totalPrice: Number(o.salePrice || 0),
-        totalCost: Number(o.cost || 0),
+        totalPrice: isNaN(rawSalePrice) ? 0 : Math.max(0, rawSalePrice),
+        totalCost: isNaN(rawCost) ? 0 : Math.max(0, rawCost),
         notes: o.notes || "",
         items,
         usages,
@@ -814,20 +880,39 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
           sMeta.confirmedAt !== bMeta.confirmedAt ||
           JSON.stringify(sMeta) !== JSON.stringify(bMeta)
 
-
         if (isDiff) {
-          await fetchWithTimeout(`${apiUrl}/api/orders/${o.id}`, {
+          const putRes = await fetchWithTimeout(`${apiUrl}/api/orders/${o.id}`, {
             method: "PUT",
             headers,
             body: JSON.stringify(body)
-          }).catch(() => {})
+          }).catch(err => {
+            console.warn("syncOrdersList PUT network error:", err)
+            return null
+          })
+          if (putRes && !putRes.ok) {
+            const errData = await putRes.json().catch(() => ({}))
+            console.error(`syncOrdersList failed to update order ${o.id}:`, putRes.status, errData.message || putRes.statusText)
+            if (putRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
+              notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
+            }
+          }
         }
       } else {
-        await fetchWithTimeout(`${apiUrl}/api/orders`, {
+        const postRes = await fetchWithTimeout(`${apiUrl}/api/orders`, {
           method: "POST",
           headers,
           body: JSON.stringify(body)
-        }).catch(() => {})
+        }).catch(err => {
+          console.warn("syncOrdersList POST network error:", err)
+          return null
+        })
+        if (postRes && !postRes.ok) {
+          const errData = await postRes.json().catch(() => ({}))
+          console.error(`syncOrdersList failed to create order/quote ${o.id}:`, postRes.status, errData.message || postRes.statusText)
+          if (postRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
+            notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
+          }
+        }
       }
     }
   } catch (err) {
@@ -1225,6 +1310,27 @@ export const fetchPageDataOnDemand = async (pageId) => {
         const data = await res.json()
         cache["ll_recipes"] = data.map(mapServerRecipeToLocal)
       }
+    } else if (pageId === "quotes" && !cache["ll_quotes"]) {
+      const res = await fetch(`${apiUrl}/api/orders?status=quote`, { headers })
+      if (res.ok) {
+        const data = await res.json()
+        const list = Array.isArray(data) ? data : (data.data || [])
+        const localQuotes = list.map(mapServerOrderToLocal)
+        const curLocalQuotes = load("ll_quotes", [])
+        const unSyncedQuotes = Array.isArray(curLocalQuotes)
+          ? curLocalQuotes.filter(lq => lq && lq.id && !localQuotes.some(sq => sq.id === lq.id))
+          : []
+        const mergedQuotes = [...unSyncedQuotes, ...localQuotes]
+        cache["ll_quotes"] = mergedQuotes
+        lastSyncedValues["ll_quotes"] = JSON.stringify(mergedQuotes)
+        cache["_quotes_synced"] = true
+        if (typeof window !== "undefined" && window.localStorage) {
+          try { window.localStorage.setItem("ll_quotes", JSON.stringify(mergedQuotes)) } catch (e) {}
+        }
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
+        }
+      }
     }
   } catch (err) {
     console.error("On-demand fetch error for " + pageId, err)
@@ -1320,13 +1426,34 @@ export const syncFromBackend = async () => {
             localProds.push(localOrder)
           }
         })
+
+        // Merge with existing local quotes if any exist in local cache/storage that haven't synced yet
+        const curLocalQuotes = load("ll_quotes", [])
+        const unSyncedQuotes = Array.isArray(curLocalQuotes)
+          ? curLocalQuotes.filter(lq => lq && lq.id && !localQuotes.some(sq => sq.id === lq.id))
+          : []
+        const mergedQuotes = [...unSyncedQuotes, ...localQuotes]
+
         cache["ll_prods"] = localProds
         lastSyncedValues["ll_prods"] = JSON.stringify(localProds)
+        cache["ll_quotes"] = mergedQuotes
+        lastSyncedValues["ll_quotes"] = JSON.stringify(mergedQuotes)
+        cache["_quotes_synced"] = true
+        cache["_prods_synced"] = true
 
-        cache["ll_quotes"] = localQuotes
-        lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
+        if (typeof window !== "undefined" && window.localStorage) {
+          try {
+            window.localStorage.setItem("ll_prods", JSON.stringify(localProds))
+            window.localStorage.setItem("ll_quotes", JSON.stringify(mergedQuotes))
+          } catch (e) {}
+        }
         if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
           window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
+        }
+
+        // Push any unsynced quotes up to backend in background
+        if (unSyncedQuotes.length > 0) {
+          syncOrdersList(headers, localProds, mergedQuotes, load("ll_inv", []), load("ll_recipes", [])).catch(() => {})
         }
       }
 
@@ -1398,6 +1525,9 @@ export const syncFromBackend = async () => {
 
       if (isAlreadyOnboarded) {
         cache["ll_onboarded"] = "1"
+        if (typeof window !== "undefined" && window.localStorage) {
+          try { window.localStorage.setItem("ll_onboarded", "1") } catch (e) {}
+        }
       }
 
       return true
@@ -1488,13 +1618,33 @@ export const syncFromBackend = async () => {
           localProds.push(localOrder)
         }
       })
+
+      // Merge with existing local quotes if any exist in local cache/storage that haven't synced yet
+      const curLocalQuotes = load("ll_quotes", [])
+      const unSyncedQuotes = Array.isArray(curLocalQuotes)
+        ? curLocalQuotes.filter(lq => lq && lq.id && !localQuotes.some(sq => sq.id === lq.id))
+        : []
+      const mergedQuotes = [...unSyncedQuotes, ...localQuotes]
+
       cache["ll_prods"] = localProds
       lastSyncedValues["ll_prods"] = JSON.stringify(localProds)
+      cache["ll_quotes"] = mergedQuotes
+      lastSyncedValues["ll_quotes"] = JSON.stringify(mergedQuotes)
+      cache["_quotes_synced"] = true
+      cache["_prods_synced"] = true
 
-      cache["ll_quotes"] = localQuotes
-      lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
+      if (typeof window !== "undefined" && window.localStorage) {
+        try {
+          window.localStorage.setItem("ll_prods", JSON.stringify(localProds))
+          window.localStorage.setItem("ll_quotes", JSON.stringify(mergedQuotes))
+        } catch (e) {}
+      }
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
         window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
+      }
+
+      if (unSyncedQuotes.length > 0) {
+        syncOrdersList(headers, localProds, mergedQuotes, load("ll_inv", []), load("ll_recipes", [])).catch(() => {})
       }
     }
 
@@ -1546,6 +1696,9 @@ export const syncFromBackend = async () => {
 
     if (isAlreadyOnboarded) {
       cache["ll_onboarded"] = "1"
+      if (typeof window !== "undefined" && window.localStorage) {
+        try { window.localStorage.setItem("ll_onboarded", "1") } catch (e) {}
+      }
     }
 
     return true
@@ -1954,6 +2107,9 @@ export const createInventoryItemOnServer = async (item) => {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
+    if (res.status === 403 || err.code === "PLAN_LIMIT_REACHED" || (err.message && err.message.includes("limit reached"))) {
+      notifyPlanLimitReached({ limitType: "inventoryItems", ...err })
+    }
     throw new Error(err.message || `Database error creating inventory item (${res.status})`)
   }
 
@@ -2038,6 +2194,9 @@ export const loadProductions = (def = []) => load("ll_prods", def)
 export const saveProductionsList = async (data) => {
   cache["ll_prods"] = data
   lastSyncedValues["ll_prods"] = JSON.stringify(data)
+  if (typeof window !== "undefined" && window.localStorage) {
+    try { window.localStorage.setItem("ll_prods", JSON.stringify(data)) } catch (e) {}
+  }
   const headers = getAuthHeaders()
   if (!headers) return
   await syncOrdersList(headers, data, load("ll_quotes", []), load("ll_inv", []), load("ll_recipes", []))
@@ -2088,6 +2247,9 @@ export const loadQuotes = (def = []) => load("ll_quotes", def)
 export const saveQuotes = async (data) => {
   cache["ll_quotes"] = data
   lastSyncedValues["ll_quotes"] = JSON.stringify(data)
+  if (typeof window !== "undefined" && window.localStorage) {
+    try { window.localStorage.setItem("ll_quotes", JSON.stringify(data)) } catch (e) {}
+  }
   const headers = getAuthHeaders()
   if (!headers) return
   await syncOrdersList(headers, load("ll_prods", []), data, load("ll_inv", []), load("ll_recipes", []))
@@ -2131,6 +2293,9 @@ export const createRecipeOnServer = async (rec) => {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
+    if (res.status === 403 || err.code === "PLAN_LIMIT_REACHED" || (err.message && err.message.includes("limit reached"))) {
+      notifyPlanLimitReached({ limitType: "recipes", ...err })
+    }
     throw new Error(err.message || `Database error creating recipe (${res.status})`)
   }
 
@@ -2345,6 +2510,11 @@ export const createClientOnServer = async (clientData) => {
       })
       if (res.ok) {
         return await res.json()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        if (res.status === 403 || err.code === "PLAN_LIMIT_REACHED" || (err.message && err.message.includes("limit reached"))) {
+          notifyPlanLimitReached({ limitType: "clients", ...err })
+        }
       }
     } catch (e) {
       console.warn("createClientOnServer error:", e)

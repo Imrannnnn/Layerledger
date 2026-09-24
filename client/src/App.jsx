@@ -63,6 +63,7 @@ import {
   Coins
 } from "lucide-react"
 import { TokenPurchaseModal } from "./components/common/TokenPurchaseModal.jsx"
+import { PlanLimitModal } from "./components/common/PlanLimitModal.jsx"
 
 // Helper to automatically retry dynamic imports on network/chunk load failures (common during new deployments)
 const lazyRetry = (importFn) => {
@@ -144,10 +145,33 @@ export default function App() {
       return null;
     }
   })
-  const [view, setView] = useState("dashboard")
-  const [viewHistory, setViewHistory] = useState(["dashboard"])
-  const goTo = (v) => { setViewHistory(h => { if (h[h.length - 1] === v) return h; return [...h.slice(-9), v] }); setView(v) }
-  const goBack = () => { setViewHistory(h => { if (h.length <= 1) return h; const prev = h[h.length - 2]; setView(prev); return h.slice(0, -1) }); }
+  const [view, setView] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("ll_active_view")
+      if (saved && saved !== "login") return saved
+    } catch {}
+    return "dashboard"
+  })
+  const [viewHistory, setViewHistory] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("ll_active_view")
+      if (saved && saved !== "login") return ["dashboard", saved]
+    } catch {}
+    return ["dashboard"]
+  })
+  const goTo = (v) => {
+    try { sessionStorage.setItem("ll_active_view", v) } catch {}
+    setViewHistory(h => { if (h[h.length - 1] === v) return h; return [...h.slice(-9), v] }); setView(v)
+  }
+  const goBack = () => {
+    setViewHistory(h => {
+      if (h.length <= 1) return h;
+      const prev = h[h.length - 2];
+      try { sessionStorage.setItem("ll_active_view", prev) } catch {}
+      setView(prev);
+      return h.slice(0, -1)
+    });
+  }
   const [onboarded, setOnboarded] = useState(() => !!loadLocal("ll_onboarded", false))
   const [inventory, setInventory] = useState(DEFAULT_INV)
   const [recipes, setRecipes] = useState(() => { const saved = loadRecipes(); return saved && saved.length > 0 ? saved : DEFAULT_RECIPES })
@@ -168,6 +192,8 @@ export default function App() {
   const [tenantInfo, setTenantInfo] = useState(loadTenantInfo())
   const [tokenModalOpen, setTokenModalOpen] = useState(false)
   const [tokenModalData, setTokenModalData] = useState({ isInsufficient: false, requiredTokens: 2, requiredCredits: 2, currentBalance: 0 })
+  const [planLimitModalOpen, setPlanLimitModalOpen] = useState(false)
+  const [planLimitData, setPlanLimitData] = useState({})
   const [settingsTab, setSettingsTab] = useState("company")
 
   useEffect(() => {
@@ -192,12 +218,20 @@ export default function App() {
       }
     }
 
+    const onPlanLimit = (e) => {
+      const detail = e.detail || {}
+      setPlanLimitData(detail)
+      setPlanLimitModalOpen(true)
+    }
+
     window.addEventListener("bakewealth:insufficient-tokens", onInsufficient)
     window.addEventListener("layerledger:insufficient-tokens", onInsufficient)
     window.addEventListener("layerledger:insufficient-credits", onInsufficient)
     window.addEventListener("bakewealth:token-updated", onTokenUpdated)
     window.addEventListener("layerledger:token-updated", onTokenUpdated)
     window.addEventListener("layerledger:credit-updated", onTokenUpdated)
+    window.addEventListener("layerledger:plan-limit-reached", onPlanLimit)
+    window.addEventListener("bakewealth:plan-limit-reached", onPlanLimit)
     return () => {
       window.removeEventListener("bakewealth:insufficient-tokens", onInsufficient)
       window.removeEventListener("layerledger:insufficient-tokens", onInsufficient)
@@ -205,6 +239,8 @@ export default function App() {
       window.removeEventListener("bakewealth:token-updated", onTokenUpdated)
       window.removeEventListener("layerledger:token-updated", onTokenUpdated)
       window.removeEventListener("layerledger:credit-updated", onTokenUpdated)
+      window.removeEventListener("layerledger:plan-limit-reached", onPlanLimit)
+      window.removeEventListener("bakewealth:plan-limit-reached", onPlanLimit)
     }
   }, [tenantInfo])
 
@@ -290,7 +326,7 @@ export default function App() {
     async function handleActivation() {
       setActivating(true)
       setActivationError("")
-      const apiUrl = import.meta.env.VITE_API_URL
+      const apiUrl = import.meta.env.VITE_API_URL || ""
       try {
         const res = await fetch(`${apiUrl}/api/auth/activate`, {
           method: "POST",
@@ -360,6 +396,7 @@ export default function App() {
 
     const needsFetch = (v === "clients" && !loadLocal("ll_clients", null)) ||
                        (v === "invoices" && !loadLocal("ll_quote_invoices", null)) ||
+                       (v === "quotes" && !loadLocal("ll_quotes", null)) ||
                        ((v === "purchases" || v === "monthly") && !loadLocal("ll_purchases", null)) ||
                        (v === "bank" && !loadLocal("ll_txns", null)) ||
                        (v === "masterlist" && !loadLocal("ll_recipes", null));
@@ -395,6 +432,7 @@ export default function App() {
       console.warn("Logout cleanup warning:", e)
     } finally {
       logout()
+      try { sessionStorage.removeItem("ll_active_view") } catch {}
       setCurrentUser(null)
       setSidebarOpen(false)
       setView("dashboard")
@@ -503,6 +541,16 @@ export default function App() {
         }} />
       </Suspense>
     </>
+  }
+
+  // If an existing registered user is currently syncing on startup, don't flash onboarding
+  if (currentUser && !currentUser.isNewRegistration && !hasOnboardingParam && !onboarded && syncing) {
+    return (
+      <>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');*{box-sizing:border-box}body{margin:0}:root{--gold:${gold};--sidebar:${sidebar};--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:${gold}}`}</style>
+        <FullPageLoader message="Loading your bakery workspace..." />
+      </>
+    )
   }
 
   // Show onboarding for first-time user registrations or when directly launched via welcome email link (?onboarding=1)
@@ -854,6 +902,20 @@ export default function App() {
       requiredTokens={tokenModalData.requiredTokens || 2}
       requiredCredits={tokenModalData.requiredCredits || 2}
       company={company}
+      onOpenSettings={() => {
+        setSettingsTab("tokens")
+        setViewWithSync("settings")
+      }}
+    />
+
+    <PlanLimitModal
+      isOpen={planLimitModalOpen}
+      onClose={() => setPlanLimitModalOpen(false)}
+      limitData={planLimitData}
+      onUpgradePlan={() => {
+        setSettingsTab("tokens")
+        setViewWithSync("settings")
+      }}
       onOpenSettings={() => {
         setSettingsTab("tokens")
         setViewWithSync("settings")

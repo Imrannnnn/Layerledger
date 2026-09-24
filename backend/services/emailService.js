@@ -14,6 +14,8 @@
  * ----------------------------------------------------------------------
  */
 
+const { resolveAppUrl, sanitizePublicUrl } = require('../utils/urlHelper');
+
 class EmailService {
   constructor() {
     this.apiBaseUrl = 'https://api.brevo.com/v3';
@@ -52,10 +54,17 @@ class EmailService {
   }
 
   /**
-   * Resolve base App URL
+   * Resolve base App URL (dynamically honoring request origin, environment, or live domain)
    */
-  getAppUrl() {
-    return process.env.APP_URL || 'http://localhost:5173';
+  getAppUrl(req = null) {
+    return resolveAppUrl(req);
+  }
+
+  /**
+   * Sanitize a URL to prevent sending localhost links to live users
+   */
+  sanitizeUrl(url, req = null) {
+    return sanitizePublicUrl(url, req);
   }
 
   /**
@@ -343,7 +352,7 @@ class EmailService {
    */
   async sendActivationEmail({ to, name, companyName, activationUrl }) {
     const appUrl = this.getAppUrl();
-    const finalActivationUrl = activationUrl || `${appUrl}/?activate=1`;
+    const finalActivationUrl = this.sanitizeUrl(activationUrl || `${appUrl}/?activate=1`);
     const displayName = name || 'Baker';
     const businessName = companyName || 'your bakery';
 
@@ -393,7 +402,7 @@ The Bakewealth Team`;
    */
   async sendWelcomeEmail({ to, name, companyName, onboardingUrl }) {
     const appUrl = this.getAppUrl();
-    const finalOnboardingUrl = onboardingUrl || `${appUrl}/?onboarding=1`;
+    const finalOnboardingUrl = this.sanitizeUrl(onboardingUrl || `${appUrl}/?onboarding=1`);
     const displayName = name || 'Baker';
     const businessName = companyName || 'your bakery';
 
@@ -445,7 +454,7 @@ The Bakewealth Team`;
    */
   async sendStaffInviteEmail({ to, name, companyName, role, password, pin, loginUrl }) {
     const appUrl = this.getAppUrl();
-    const finalLoginUrl = loginUrl || appUrl;
+    const finalLoginUrl = this.sanitizeUrl(loginUrl || appUrl);
     const displayName = name || 'Team Member';
     const businessName = companyName || 'Bakewealth Workspace';
     const roleLabel = (role || 'Staff').replace(/_/g, ' ').toUpperCase();
@@ -516,7 +525,7 @@ Bakewealth`;
    */
   async sendSubscriptionExpiringEmail({ to, name, companyName, planName, daysRemaining, expiresAt, renewalUrl }) {
     const appUrl = this.getAppUrl();
-    const finalRenewalUrl = renewalUrl || `${appUrl}/settings?tab=subscription`;
+    const finalRenewalUrl = this.sanitizeUrl(renewalUrl || `${appUrl}/settings?tab=subscription`);
     const displayName = name || 'Bakery Owner';
     const formattedPlan = (planName || 'Standard').toUpperCase();
     const formattedDate = expiresAt ? new Date(expiresAt).toLocaleDateString('en-US', {
@@ -577,7 +586,7 @@ Bakewealth`;
    */
   async sendTokenLowEmail({ to, name, companyName, tokenBalance, scansRemaining, topUpUrl }) {
     const appUrl = this.getAppUrl();
-    const finalTopUpUrl = topUpUrl || `${appUrl}/tokens`;
+    const finalTopUpUrl = this.sanitizeUrl(topUpUrl || `${appUrl}/tokens`);
     const displayName = name || 'Bakery Owner';
 
     const subject = `Alert: Your Bakewealth Scan Credits are Running Low`;
@@ -630,7 +639,7 @@ Bakewealth`;
    */
   async sendPaymentReceiptEmail({ to, name, companyName, paymentReference, amount, currency = 'NGN', resourceType, resourceDetails, paidAt, accountUrl }) {
     const appUrl = this.getAppUrl();
-    const finalAccountUrl = accountUrl || appUrl;
+    const finalAccountUrl = this.sanitizeUrl(accountUrl || appUrl);
     const displayName = name || 'Customer';
     const formattedAmount = Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const formattedDate = paidAt ? new Date(paidAt).toLocaleDateString('en-US', {

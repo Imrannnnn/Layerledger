@@ -77,7 +77,15 @@ const createItem = asyncHandler(async (req, res) => {
         const currentCount = await prisma.inventoryItem.count({ where: { tenantId } });
         if (currentCount >= planLimits.inventoryItems) {
             res.status(403);
-            throw new Error(`Inventory item limit reached (${planLimits.inventoryItems} items for ${planLimits.name} plan). Upgrade to ${effective.plan === 'free' ? 'Standard (250 items)' : 'Premium (unlimited items)'}.`);
+            const err = new Error(`Inventory item limit reached (${planLimits.inventoryItems} items for ${planLimits.name} plan). Upgrade to ${effective.plan === 'free' ? 'Standard (250 items)' : 'Premium (unlimited items)'}.`);
+            err.code = 'PLAN_LIMIT_REACHED';
+            err.limitType = 'inventoryItems';
+            err.currentCount = currentCount;
+            err.limit = planLimits.inventoryItems;
+            err.plan = effective.plan;
+            err.upgradePlan = effective.plan === 'free' ? 'standard' : 'premium';
+            err.upgradePrice = effective.plan === 'free' ? 5000 : 10000;
+            throw err;
         }
     }
 

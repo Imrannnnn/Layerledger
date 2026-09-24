@@ -10,6 +10,7 @@ const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
 const { getEffectivePlan, PLAN_LIMITS } = require('./planController');
 const emailService = require('../services/emailService');
+const { resolveAppUrl } = require('../utils/urlHelper');
 
 /**
  * @desc    Get all users for the current tenant
@@ -75,13 +76,21 @@ const createUser = asyncHandler(async (req, res) => {
 
     if (currentStaffCount >= planLimits.staffLogins) {
         res.status(403);
+        let msg = `Premium plan allows up to ${planLimits.staffLogins} staff logins.`;
         if (effective.plan === 'free') {
-            throw new Error('Free plan is for owner login only. Upgrade to Standard for 2 staff logins or Premium for 4 staff logins.');
+            msg = 'Free plan is for owner login only. Upgrade to Standard for 2 staff logins or Premium for 4 staff logins.';
         } else if (effective.plan === 'standard') {
-            throw new Error('Standard plan allows up to 2 staff logins. Upgrade to Premium for 4 staff logins.');
-        } else {
-            throw new Error(`Premium plan allows up to ${planLimits.staffLogins} staff logins.`);
+            msg = 'Standard plan allows up to 2 staff logins. Upgrade to Premium for 4 staff logins.';
         }
+        const err = new Error(msg);
+        err.code = 'PLAN_LIMIT_REACHED';
+        err.limitType = 'staffLogins';
+        err.currentCount = currentStaffCount;
+        err.limit = planLimits.staffLogins;
+        err.plan = effective.plan;
+        err.upgradePlan = effective.plan === 'free' ? 'standard' : 'premium';
+        err.upgradePrice = effective.plan === 'free' ? 5000 : 10000;
+        throw err;
     }
 
     // Check if user already exists (case-insensitive)
@@ -110,7 +119,7 @@ const createUser = asyncHandler(async (req, res) => {
     });
 
     // Asynchronously dispatch staff invite email with temporary password and credentials
-    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    const appUrl = resolveAppUrl(req);
     emailService.sendStaffInviteEmail({
         to: newUser.email,
         name: newUser.name,

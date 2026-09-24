@@ -72,7 +72,15 @@ const createRecipe = asyncHandler(async (req, res) => {
         const currentCount = await prisma.recipe.count({ where: { tenantId } });
         if (currentCount >= planLimits.recipes) {
             res.status(403);
-            throw new Error(`Recipe limit reached (${planLimits.recipes} recipes for ${planLimits.name} plan). Upgrade to ${effective.plan === 'free' ? 'Standard (60 recipes)' : 'Premium (unlimited recipes)'}.`);
+            const err = new Error(`Recipe limit reached (${planLimits.recipes} recipes for ${planLimits.name} plan). Upgrade to ${effective.plan === 'free' ? 'Standard (60 recipes)' : 'Premium (unlimited recipes)'}.`);
+            err.code = 'PLAN_LIMIT_REACHED';
+            err.limitType = 'recipes';
+            err.currentCount = currentCount;
+            err.limit = planLimits.recipes;
+            err.plan = effective.plan;
+            err.upgradePlan = effective.plan === 'free' ? 'standard' : 'premium';
+            err.upgradePrice = effective.plan === 'free' ? 5000 : 10000;
+            throw err;
         }
     }
 

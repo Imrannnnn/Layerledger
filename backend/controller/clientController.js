@@ -131,7 +131,15 @@ const createClient = asyncHandler(async (req, res) => {
         const currentCount = await prisma.client.count({ where: { tenantId } });
         if (currentCount >= planLimits.clients) {
             res.status(403);
-            throw new Error(`Client limit reached (${planLimits.clients} clients for ${planLimits.name} plan). Upgrade to ${effective.plan === 'free' ? 'Standard (150 clients)' : 'Premium (unlimited clients)'}.`);
+            const err = new Error(`Client limit reached (${planLimits.clients} clients for ${planLimits.name} plan). Upgrade to ${effective.plan === 'free' ? 'Standard (150 clients)' : 'Premium (unlimited clients)'}.`);
+            err.code = 'PLAN_LIMIT_REACHED';
+            err.limitType = 'clients';
+            err.currentCount = currentCount;
+            err.limit = planLimits.clients;
+            err.plan = effective.plan;
+            err.upgradePlan = effective.plan === 'free' ? 'standard' : 'premium';
+            err.upgradePrice = effective.plan === 'free' ? 5000 : 10000;
+            throw err;
         }
     }
 

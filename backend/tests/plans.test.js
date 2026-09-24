@@ -7,7 +7,8 @@ const mockPrisma = {
         create: jest.fn().mockResolvedValue({ id: 'tx-1' })
     },
     order: {
-        count: jest.fn().mockResolvedValue(0)
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({ id: 'ord-1', items: [], payments: [] })
     },
     recipe: {
         count: jest.fn().mockResolvedValue(0)
@@ -271,7 +272,8 @@ describe('BakeWealth Plans & Credit Packs Unit Tests', () => {
         }));
     });
 
-    test('createOrder enforces 8 orders/month limit on Free plan', async () => {
+    test('createOrder enforces 8 orders/month limit on Free plan for confirmed orders', async () => {
+        req.body = { status: 'confirmed' };
         prisma.tenant.findUnique.mockResolvedValue({
             settings: { plan: 'free' }
         });
@@ -282,6 +284,19 @@ describe('BakeWealth Plans & Credit Packs Unit Tests', () => {
         expect(res.status).toHaveBeenCalledWith(403);
         expect(next).toHaveBeenCalledWith(expect.any(Error));
         expect(next.mock.calls[0][0].message).toMatch(/Free plan order limit reached/);
+    });
+
+    test('createOrder does NOT block quotes (status: quote) even when 8 orders/month limit is reached', async () => {
+        req.body = { status: 'quote', clientName: 'Walk-in' };
+        prisma.tenant.findUnique.mockResolvedValue({
+            settings: { plan: 'free' }
+        });
+        prisma.order.count.mockResolvedValue(8); // at limit
+
+        await createOrder(req, res, next);
+
+        expect(res.status).not.toHaveBeenCalledWith(403);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ id: 'ord-1' }));
     });
 
     test('createRecipe enforces 10 recipes limit on Free plan', async () => {

@@ -11,6 +11,7 @@ const jwt = require("jsonwebtoken");
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
 const emailService = require('../services/emailService');
+const { resolveAppUrl } = require('../utils/urlHelper');
 
 /**
  * @desc    Register a new user (and potentially a new tenant) with activation link
@@ -88,7 +89,7 @@ const registerUser = asyncHandler(async (req, res) => {
     const user = result;
 
     // Asynchronously dispatch Bakewealth activation email with token link
-    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    const appUrl = resolveAppUrl(req);
     const activationUrl = `${appUrl}/?activate=${activationToken}`;
     emailService.sendActivationEmail({
         to: user.email,
@@ -287,7 +288,7 @@ const resendActivation = asyncHandler(async (req, res) => {
         }
     });
 
-    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    const appUrl = resolveAppUrl(req);
     const activationUrl = `${appUrl}/?activate=${activationToken}`;
     emailService.sendActivationEmail({
         to: user.email,

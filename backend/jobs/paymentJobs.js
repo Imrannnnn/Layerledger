@@ -31,7 +31,7 @@ class PaymentJobRunner {
             resourceType: payload.resourceType,
             resourceDetails: payload.resourceDetails,
             paidAt: payload.paidAt || new Date(),
-            accountUrl: process.env.APP_URL || 'http://localhost:5173'
+            accountUrl: emailService.getAppUrl()
         });
 
         return true;

@@ -147,6 +147,7 @@ const getCurrentPlanAndUsage = asyncHandler(async (req, res) => {
         prisma.order.count({
             where: {
                 tenantId,
+                status: { not: 'quote' },
                 createdAt: { gte: startOfMonth }
             }
         }),

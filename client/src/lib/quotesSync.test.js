@@ -84,4 +84,26 @@ describe("mapServerOrderToLocal - Quote & Production status resolution", () => {
     const local = mapServerOrderToLocal(serverOrder)
     expect(local.status).toBe("in progress")
   })
+
+  test("saveQuotes persists quotes to localStorage and loadLocal retrieves them", async () => {
+    const { saveQuotes, loadQuotes, loadLocal } = await import("./data.js")
+    const testQuotes = [{ id: "q-101", clientName: "Florence", salePrice: 65000, status: "pending" }]
+    await saveQuotes(testQuotes)
+
+    // Verify in localStorage
+    const fromStorage = JSON.parse(window.localStorage.getItem("ll_quotes"))
+    expect(fromStorage).toHaveLength(1)
+    expect(fromStorage[0].clientName).toBe("Florence")
+
+    // Verify loadQuotes
+    expect(loadQuotes()).toEqual(testQuotes)
+    // Verify loadLocal
+    expect(loadLocal("ll_quotes", [])).toEqual(testQuotes)
+  })
+
+  test("loadLocal falls back to localStorage when cache item is absent", async () => {
+    const { loadLocal } = await import("./data.js")
+    window.localStorage.setItem("ll_onboarded", "1")
+    expect(Boolean(loadLocal("ll_onboarded", false))).toBe(true)
+  })
 })

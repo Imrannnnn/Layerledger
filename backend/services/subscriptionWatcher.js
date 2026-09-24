@@ -60,7 +60,7 @@ class SubscriptionWatcher {
                         planName: effective.rawPlan,
                         daysRemaining,
                         expiresAt: effective.planExpiresAt,
-                        renewalUrl: `${process.env.APP_URL || 'http://localhost:5173'}/settings?tab=subscription`
+                        renewalUrl: `${emailService.getAppUrl()}/settings?tab=subscription`
                     });
 
                     // Update settings to remember warning was sent
@@ -124,7 +124,7 @@ class SubscriptionWatcher {
                 companyName: tenant.name,
                 tokenBalance: currentBalance,
                 scansRemaining,
-                topUpUrl: `${process.env.APP_URL || 'http://localhost:5173'}/tokens`
+                topUpUrl: `${emailService.getAppUrl()}/tokens`
             });
 
             await prisma.tenant.update({

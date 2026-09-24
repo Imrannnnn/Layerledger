@@ -98,6 +98,13 @@ app.use((err, req, res, _next) => {
     console.error("Unhandled error:", err);
     res.status(statusCode).json({
         message: err.message || 'Internal Server Error',
+        code: err.code || undefined,
+        limitType: err.limitType || undefined,
+        currentCount: err.currentCount !== undefined ? err.currentCount : undefined,
+        limit: err.limit !== undefined ? err.limit : undefined,
+        plan: err.plan || undefined,
+        upgradePlan: err.upgradePlan || undefined,
+        upgradePrice: err.upgradePrice || undefined,
         notActivated: err.notActivated || undefined,
         email: err.email || undefined
     });

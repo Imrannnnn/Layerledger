@@ -208,8 +208,62 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
     setView("records")
   }
 
+  const tenantInfo = loadLocal("ll_tenant_info", null) || {}
+  const plan = (tenantInfo.plan || "free").toLowerCase()
+  const now = new Date()
+  const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  const monthlyOrdersCount = useMemo(() => {
+    return (productions || []).filter(p => {
+      if (!p || p.status === "quote" || p.isQuote) return false
+      const d = p.orderDate || p.createdAt || p.date
+      return d && String(d).startsWith(currentMonthPrefix)
+    }).length
+  }, [productions, currentMonthPrefix])
+
   return <div>
     <SHead title="New Production Entry" sub="Upload cake photo → AI reads it → fills in details automatically."/>
+
+    {plan === "free" && monthlyOrdersCount >= 8 && (
+      <div style={{
+        background: "#FFF4E5",
+        border: "1px solid #FFE2B8",
+        borderRadius: 10,
+        padding: "12px 16px",
+        marginBottom: 16,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+        gap: 10
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#8A4E00" }}>
+          <AlertTriangle size={18} color="#D97706" style={{ flexShrink: 0 }} />
+          <span>
+            <strong>Monthly Order Quota Reached:</strong> You have recorded {monthlyOrdersCount} of 8 orders on the Free plan this month.
+          </span>
+        </div>
+        <Btn
+          small
+          onClick={() => {
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("layerledger:plan-limit-reached", {
+                detail: {
+                  limitType: "ordersPerMonth",
+                  limit: 8,
+                  currentCount: monthlyOrdersCount,
+                  plan: "free",
+                  upgradePlan: "standard",
+                  message: `You have reached your Free plan limit of 8 orders for this month (${monthlyOrdersCount}/8 used). Upgrade to Standard for unlimited orders.`
+                }
+              }))
+            }
+          }}
+        >
+          Upgrade to Standard
+        </Btn>
+      </div>
+    )}
+
     <Steps steps={["Cake Details","Cost Breakdown","Confirm"]} cur={step}/>
 
     {step===1&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
