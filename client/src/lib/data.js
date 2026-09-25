@@ -222,7 +222,9 @@ export const checkPlanLimit = (limitType) => {
       if (new Date(tenant.settings.planExpiresAt).getTime() < Date.now()) {
         plan = "free"
       }
-    } catch (e) {}
+    } catch {
+      /* ignore invalid date parse */
+    }
   }
 
   if (plan === "pro" || plan === "studio") plan = "premium"
@@ -1436,7 +1438,7 @@ export const fetchPageDataOnDemand = async (pageId) => {
         lastSyncedValues["ll_quotes"] = JSON.stringify(mergedQuotes)
         cache["_quotes_synced"] = true
         if (typeof window !== "undefined" && window.localStorage) {
-          try { window.localStorage.setItem("ll_quotes", JSON.stringify(mergedQuotes)) } catch (e) {}
+          try { window.localStorage.setItem("ll_quotes", JSON.stringify(mergedQuotes)) } catch { /* ignore storage error */ }
         }
         if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
           window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
@@ -1556,7 +1558,9 @@ export const syncFromBackend = async () => {
           try {
             window.localStorage.setItem("ll_prods", JSON.stringify(localProds))
             window.localStorage.setItem("ll_quotes", JSON.stringify(mergedQuotes))
-          } catch (e) {}
+          } catch {
+            /* ignore storage error */
+          }
         }
         if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
           window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
@@ -1637,7 +1641,7 @@ export const syncFromBackend = async () => {
       if (isAlreadyOnboarded) {
         cache["ll_onboarded"] = "1"
         if (typeof window !== "undefined" && window.localStorage) {
-          try { window.localStorage.setItem("ll_onboarded", "1") } catch (e) {}
+          try { window.localStorage.setItem("ll_onboarded", "1") } catch { /* ignore storage error */ }
         }
       }
 
@@ -1748,7 +1752,9 @@ export const syncFromBackend = async () => {
         try {
           window.localStorage.setItem("ll_prods", JSON.stringify(localProds))
           window.localStorage.setItem("ll_quotes", JSON.stringify(mergedQuotes))
-        } catch (e) {}
+        } catch {
+          /* ignore storage error */
+        }
       }
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
         window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
@@ -1808,7 +1814,7 @@ export const syncFromBackend = async () => {
     if (isAlreadyOnboarded) {
       cache["ll_onboarded"] = "1"
       if (typeof window !== "undefined" && window.localStorage) {
-        try { window.localStorage.setItem("ll_onboarded", "1") } catch (e) {}
+        try { window.localStorage.setItem("ll_onboarded", "1") } catch { /* ignore storage error */ }
       }
     }
 
@@ -2318,7 +2324,7 @@ export const saveProductionsList = async (data) => {
   cache["ll_prods"] = data
   lastSyncedValues["ll_prods"] = JSON.stringify(data)
   if (typeof window !== "undefined" && window.localStorage) {
-    try { window.localStorage.setItem("ll_prods", JSON.stringify(data)) } catch (e) {}
+    try { window.localStorage.setItem("ll_prods", JSON.stringify(data)) } catch { /* ignore storage error */ }
   }
   const headers = getAuthHeaders()
   if (!headers) return
@@ -2391,7 +2397,7 @@ export const saveQuotes = async (data) => {
   cache["ll_quotes"] = data
   lastSyncedValues["ll_quotes"] = JSON.stringify(data)
   if (typeof window !== "undefined" && window.localStorage) {
-    try { window.localStorage.setItem("ll_quotes", JSON.stringify(data)) } catch (e) {}
+    try { window.localStorage.setItem("ll_quotes", JSON.stringify(data)) } catch { /* ignore storage error */ }
   }
   const headers = getAuthHeaders()
   if (!headers) return
