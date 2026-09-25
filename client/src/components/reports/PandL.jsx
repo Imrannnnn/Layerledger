@@ -87,7 +87,7 @@ export function PandL({ productions, expenses, company }) {
     .slabel{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#888;margin-bottom:4px}
     .sval{font-size:18px;font-weight:700;color:${gold}}
     @media print{button{display:none}}</style></head><body>
-    ${company?.logo ? `<img src="${company.logo}" style="height:44px;margin-bottom:12px;display:block"/>` : ""}
+    ${(company?.logo || "/Bakewealthlogo.jpeg") ? `<img src="${company?.logo || "/Bakewealthlogo.jpeg"}" style="height:44px;margin-bottom:12px;display:block;object-fit:contain"/>` : ""}
     <h1>${company?.name || "Bakery"} — Profit & Loss Statement</h1>
     <h2>${monthLabel}</h2>
     <div class="summary">

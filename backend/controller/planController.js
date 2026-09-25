@@ -147,7 +147,6 @@ const getCurrentPlanAndUsage = asyncHandler(async (req, res) => {
         prisma.order.count({
             where: {
                 tenantId,
-                status: { not: 'quote' },
                 createdAt: { gte: startOfMonth }
             }
         }),
@@ -177,12 +176,16 @@ const getCurrentPlanAndUsage = asyncHandler(async (req, res) => {
             ordersThisMonth: ordersCountThisMonth,
             ordersLimit: planConfig.ordersPerMonth,
             recipes: recipesCount,
+            recipesCount: recipesCount,
             recipesLimit: planConfig.recipes,
             inventoryItems: inventoryCount,
+            inventoryCount: inventoryCount,
             inventoryLimit: planConfig.inventoryItems,
             clients: clientsCount,
+            clientsCount: clientsCount,
             clientsLimit: planConfig.clients,
             staffLogins: staffCount,
+            staffCount: staffCount,
             staffLimit: planConfig.staffLogins
         },
         freeScansGranted: Boolean(tenant.settings?.freeScansGranted)

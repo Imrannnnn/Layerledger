@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, Alert, Modal, Pagination } from "../common/ui.jsx"
 import { fmt, uid, callClaude } from "../../lib/helpers.js"
 import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, PRICING_SIZES } from "../../constants.js"
-import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, deleteTenantAccountOnServer, logout, loadLocal, saveInventory, deleteOpeningStockOnServer, fetchPricingSettingsFromServer, savePricingSettingsOnServer, resetPricingSettingsOnServer } from "../../lib/data.js"
+import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, deleteTenantAccountOnServer, logout, loadLocal, saveInventory, deleteOpeningStockOnServer, fetchPricingSettingsFromServer, savePricingSettingsOnServer, resetPricingSettingsOnServer, checkPlanLimit, notifyPlanLimitReached } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
 import { Check, AlertTriangle, Calculator, Lock, Unlock, Save, Trash2, Pencil, FileSpreadsheet, Lightbulb, Key, Download, Upload, Coins } from "lucide-react"
 import { OpeningStock } from "../inventory/OpeningStock.jsx"
@@ -354,11 +354,28 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
 
   const handleLogo = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => co("logo", ev.target.result); r.readAsDataURL(f) }
 
-  const addUser = () => {
+  const addUser = async () => {
     if (!newUser.name || !newUser.pin) return setUserMsg("Name and PIN required")
     if (newUser.pin.length < 4) return setUserMsg("PIN must be at least 4 digits")
+
+    const limitCheck = typeof checkPlanLimit === "function" ? checkPlanLimit("staffLogins") : { exceeded: false }
+    if (limitCheck.exceeded) {
+      if (typeof notifyPlanLimitReached === "function") {
+        notifyPlanLimitReached(limitCheck)
+      }
+      setUserMsg(limitCheck.message)
+      return
+    }
+
     const updated = [...users, { ...newUser, id: uid(), active: true }]
-    setUsers(updated); saveUsers(updated); setNewUser({ name: "", role: "production", pin: "" }); setUserMsg("User added")
+    try {
+      await saveUsers(updated)
+      setUsers(updated)
+      setNewUser({ name: "", role: "production", pin: "" })
+      setUserMsg("User added")
+    } catch (err) {
+      setUserMsg(err.message || "Failed to add user")
+    }
   }
   const toggleUser = (id) => { const u = users.map(x => x.id === id ? { ...x, active: !x.active } : x); setUsers(u); saveUsers(u) }
   const deleteUser = (id) => { if (id === "owner") return; const u = users.filter(x => x.id !== id); setUsers(u); saveUsers(u) }
@@ -453,7 +470,14 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 14 }}>Company Profile</div>
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 14 }}>
           <div onClick={() => logoRef.current?.click()} style={{ width: 80, height: 80, borderRadius: 10, border: "2px dashed var(--border)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", background: "#FAF7F0", flexShrink: 0, overflow: "hidden" }}>
-            {company.logo ? <img src={company.logo} alt="logo" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ textAlign: "center", fontSize: 11, color: "var(--muted)" }}>Upload<br />Logo</div>}
+            {company.logo ? (
+              <img src={company.logo} alt="logo" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            ) : (
+              <div style={{ textAlign: "center", width: "100%", height: "100%", position: "relative" }}>
+                <img src="/Bakewealthlogo.jpeg" alt="Default logo" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.65 }} />
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(253,250,244,0.7)", fontSize: 10.5, color: "var(--muted)", fontWeight: 600 }}>Change<br />Logo</div>
+              </div>
+            )}
           </div>
           <input ref={logoRef} type="file" accept="image/*" onChange={handleLogo} style={{ display: "none" }} />
           <div style={{ flex: 1 }}>
@@ -539,6 +563,15 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
         <strong>Access Levels:</strong> Owner = full access. Production = can log cakes & scan receipts only (no prices visible, no delete). Customer Service = can view orders & create invoices only.
       </div>
       {userMsg && <Alert msg={userMsg} color="green" onClose={() => setUserMsg("")} />}
+      {typeof checkPlanLimit === "function" && checkPlanLimit("staffLogins")?.exceeded && (
+        <div style={{ marginBottom: 14, padding: "10px 14px", background: "#FFF4E5", borderRadius: 8, fontSize: 13, color: "#8A4E00", border: "1px solid #FFE2B8", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <AlertTriangle size={16} color="#D97706" style={{ flexShrink: 0 }} />
+            <span>Staff logins require a Standard plan (up to 2 staff) or Premium plan (up to 4 staff). Upgrade to invite your team.</span>
+          </div>
+          <Btn small onClick={() => typeof notifyPlanLimitReached === "function" && notifyPlanLimitReached(checkPlanLimit("staffLogins"))}>Upgrade</Btn>
+        </div>
+      )}
       <Card style={{ marginBottom: 14, background: "#FFF9EE", borderColor: "var(--gold)" }}>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Add New User</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>

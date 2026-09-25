@@ -9,8 +9,8 @@ import React, { useState } from "react"
 import { Mail, CheckCircle2, ArrowRight } from "lucide-react"
 import { Btn, Inp, Card, Alert } from "../common/ui.jsx"
 
-export function Login({ onLogin, initialError = "" }) {
-  const [tab, setTab] = useState("login") // "login" | "register" | "activation_sent"
+export function Login({ onLogin, initialError = "", initialTab = "login", onBackToHome }) {
+  const [tab, setTab] = useState(initialTab || "login") // "login" | "register" | "activation_sent"
   const [tenantType, setTenantType] = useState("individual") // "individual" | "organization"
   
   // Fields
@@ -137,9 +137,43 @@ export function Login({ onLogin, initialError = "" }) {
         }
       `}</style>
       
-      <Card style={{ width: "100%", maxWidth: 410, padding: 32, textAlign: "left" }}>
+      <Card style={{ width: "100%", maxWidth: 410, padding: 32, textAlign: "left", position: "relative" }}>
+        {onBackToHome && (
+          <button
+            type="button"
+            onClick={onBackToHome}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--muted)",
+              fontSize: 13,
+              cursor: "pointer",
+              padding: "4px 0",
+              marginBottom: 16,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontWeight: 500
+            }}
+          >
+            ← Back to Home
+          </button>
+        )}
         <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 32, color: "var(--gold)", fontWeight: 700, marginBottom: 4 }}>BakeWealth</div>
+          <img
+            src="/Bakewealthlogo.jpeg"
+            alt="BakeWealth Logo"
+            style={{
+              maxWidth: 160,
+              height: "auto",
+              maxHeight: 70,
+              borderRadius: 8,
+              marginBottom: 12,
+              objectFit: "contain",
+              display: "inline-block"
+            }}
+          />
+          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 30, color: "var(--gold)", fontWeight: 700, marginBottom: 4 }}>BakeWealth</div>
           <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 2.5 }}>Bakery Bookkeeping</div>
         </div>
 

@@ -131,7 +131,7 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
       +"@media print{.no-print{display:none}}"
       +tmplStyles+"</style></head><body>"
       +"<div class='header'>"
-      +(company.logo?"<img src='"+company.logo+"' style='height:55px;display:block;margin-bottom:6px'/>":"")
+      +((company.logo || "/Bakewealthlogo.jpeg") ? "<img src='" + (company.logo || "/Bakewealthlogo.jpeg") + "' style='height:55px;display:block;margin-bottom:6px;object-fit:contain'/>" : "")
       +"<div><div class='cn'>"+(company.name||"Bakery")+"</div>"
       +(company.tagline?"<div style='font-size:12px;color:#888;margin-top:2px'>"+company.tagline+"</div>":"")
       +(company.phone?"<div style='font-size:12px;color:#888;margin-top:4px'>"+company.phone+"</div>":"")

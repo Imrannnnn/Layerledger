@@ -297,6 +297,11 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
       <div style={{ width: "100%", maxWidth: 540, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 16, padding: "30px 28px", boxShadow: "0 8px 30px rgba(41,22,8,0.06)" }}>
         
+        {/* BakeWealth Brand Logo */}
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <img src="/Bakewealthlogo.jpeg" alt="BakeWealth" style={{ height: 42, maxWidth: 140, objectFit: "contain", borderRadius: 6 }} />
+        </div>
+
         {/* Progress bar */}
         {step < 5 && (
           <div style={{ marginBottom: 24 }}>
@@ -323,7 +328,10 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                 {company.logo ? (
                   <img src={company.logo} alt="logo" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                 ) : (
-                  <div style={{ textAlign: "center", fontSize: 10.5, color: "var(--muted)", fontWeight: 500 }}>Upload<br />Logo</div>
+                  <div style={{ textAlign: "center", width: "100%", height: "100%", position: "relative" }}>
+                    <img src="/Bakewealthlogo.jpeg" alt="Default logo" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.65 }} />
+                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(253,250,244,0.7)", fontSize: 10, color: "var(--muted)", fontWeight: 600 }}>Upload<br />Logo</div>
+                  </div>
                 )}
               </div>
               <input ref={logoRef} type="file" accept="image/*" onChange={handleLogo} style={{ display: "none" }} />

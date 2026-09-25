@@ -162,8 +162,18 @@ export function SuperAdminDashboard() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#F4EEE4", padding: 20 }}>
         <Card style={{ width: "100%", maxWidth: 400, padding: 32, boxShadow: "0 8px 30px rgba(41,22,8,0.08)" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
-              <Crown size={42} color="var(--gold)" />
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+              <img
+                src="/Bakewealthlogo.jpeg"
+                alt="BakeWealth Logo"
+                style={{
+                  maxWidth: 150,
+                  height: "auto",
+                  maxHeight: 65,
+                  borderRadius: 8,
+                  objectFit: "contain"
+                }}
+              />
             </div>
             <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, fontWeight: 700, color: "var(--text)", margin: 0 }}>BakeWealth</h1>
             <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4 }}>Platform Super Admin Dashboard</p>
@@ -186,9 +196,12 @@ export function SuperAdminDashboard() {
   return (
     <div style={{ background: "#F4EEE4", minHeight: "100vh", padding: "24px 30px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div>
-          <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700, color: "var(--text)", margin: 0 }}>Super Admin Workspace</h1>
-          <p style={{ fontSize: 13, color: "var(--muted)" }}>Platform Owner: Iye Ibe Achem</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <img src="/Bakewealthlogo.jpeg" alt="BakeWealth" style={{ height: 44, maxWidth: 120, objectFit: "contain", borderRadius: 6 }} />
+          <div>
+            <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700, color: "var(--text)", margin: 0 }}>Super Admin Workspace</h1>
+            <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>Platform Owner: Iye Ibe Achem</p>
+          </div>
         </div>
         <Btn variant="outline" onClick={handleLogout} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           Logout <LogOut size={13} />

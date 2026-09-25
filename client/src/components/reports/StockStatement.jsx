@@ -106,7 +106,7 @@ export function StockStatement({inventory, productions = [], expenses = [], comp
     .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}.scard{border:1px solid #E0D3BB;border-radius:8px;padding:12px}
     .slabel{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:4px}.sval{font-size:18px;font-weight:bold;color:${company.primaryColor||"var(--gold)"}}
     @media print{button{display:none}}</style></head><body>
-    ${company.logo?`<img src="${company.logo}" style="height:50px;margin-bottom:10px;display:block"/>`:""}
+    ${(company?.logo || "/Bakewealthlogo.jpeg")?`<img src="${company?.logo || "/Bakewealthlogo.jpeg"}" style="height:50px;margin-bottom:10px;display:block;object-fit:contain"/>`:""}
     <h1>${company.name||"Bakery"} — Monthly Stock Statement</h1><h2>${monthLabel}</h2>
     <div class="summary">
       <div class="scard"><div class="slabel">Total purchased</div><div class="sval">₦${Math.round(totalPurchased).toLocaleString()}</div></div>

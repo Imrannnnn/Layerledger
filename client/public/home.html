@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BakeWealth — Your baking business, beautifully organized</title>
+<meta name="description" content="Keep orders, ingredients, recipes and costing together in one workspace. Built for home bakers, cake artists and growing baking businesses.">
+<link rel="icon" type="image/jpeg" href="/Bakewealthlogo.jpeg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+--bg:#FCF8F2; --bg-alt:#FAF0E9; --bg-deep:#F6E9DE;
+--ink:#3B2317; --ink-soft:#6E5546; --ink-faint:#8E7565;
+--brand:#4A2B1B; --brand-hover:#5D3926;
+--gold:#B98B32; --gold-soft:#D9B978;
+--line:#EADFD0; --card:#FFFFFF;
+--radius:18px; --radius-sm:12px; --maxw:1200px;
+box-sizing:border-box;
+padding-top:env(safe-area-inset-top,0px);
+padding-bottom:env(safe-area-inset-bottom,0px);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:calc(86px + env(safe-area-inset-top,0px))}
+body{margin:0;background:var(--bg);color:var(--ink);
+font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+font-size:17px;line-height:1.65;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:"Bricolage Grotesque",Inter,system-ui,sans-serif;
+font-weight:800;letter-spacing:-.02em;line-height:1.08;margin:0}
+p{margin:0}
+img{max-width:100%}
+a{color:inherit}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+.eyebrow{font-size:12.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+color:var(--gold);display:flex;align-items:center;gap:8px;justify-content:center}
+.eyebrow.left{justify-content:flex-start}
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:999px;
+padding:14px 26px;font-weight:600;font-size:16px;text-decoration:none;
+border:1.5px solid transparent;cursor:pointer;transition:.18s;font-family:inherit}
+.btn-primary{background:var(--brand);color:#FFF6EA}
+.btn-primary:hover{background:var(--brand-hover)}
+.btn-ghost{background:#fff;color:var(--ink);border-color:var(--line)}
+.btn-ghost:hover{border-color:var(--gold-soft)}
+.btn-gold{background:var(--gold);color:#3B2317}
+.btn-gold:hover{background:#A87B27}
+.btn-block{width:100%;justify-content:center}
+/* NAV */
+.nav{position:sticky;top:0;z-index:50;background:rgba(252,248,242,.92);
+backdrop-filter:blur(10px);border-bottom:1px solid transparent;
+padding-top:env(safe-area-inset-top,0px)}
+.nav.scrolled{border-bottom-color:var(--line);box-shadow:0 4px 20px -8px rgba(59,35,23,.08)}
+.nav-in{display:flex;align-items:center;gap:28px;height:86px}
+.brand-logo-wrap{display:inline-flex;align-items:center;gap:12px;text-decoration:none;
+color:var(--ink);font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:24px;letter-spacing:-.03em}
+.brand-logo-img{height:44px;width:auto;max-width:130px;border-radius:8px;object-fit:contain;
+border:1px solid var(--line);background:#fff;box-shadow:0 2px 6px rgba(59,35,23,.05)}
+.nav-links{display:flex;gap:26px;margin-left:24px;flex:1}
+.nav-links a{text-decoration:none;color:var(--ink-soft);font-size:16px;font-weight:500}
+.nav-links a:hover{color:var(--ink)}
+.nav-cta{display:flex;gap:12px;align-items:center}
+/* HERO */
+.hero{padding:64px 0 88px}
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+.hero h1{font-size:clamp(46px,5.6vw,80px);margin:22px 0 24px}
+.hero p.lead{font-size:19px;color:var(--ink-soft);max-width:520px}
+.hero-btns{display:flex;gap:14px;flex-wrap:wrap;margin-top:34px}
+.hero-note{font-size:14.5px;color:var(--ink-faint);margin-top:22px}
+/* DASHBOARD MOCK */
+.mock{background:var(--card);border:1px solid var(--line);border-radius:22px;
+padding:26px;box-shadow:0 24px 60px -30px rgba(59,35,23,.28);position:relative}
+.mock-top{display:flex;align-items:center;justify-content:space-between;
+padding-bottom:16px;border-bottom:1px solid var(--line)}
+.mock-brand{font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px}
+.mock-brand span{color:var(--ink-faint);font-weight:500}
+.chip{background:var(--bg-deep);border-radius:999px;padding:5px 13px;
+font-size:12px;font-weight:600;color:var(--ink-soft)}
+.mock h3{font-size:22px;margin:20px 0 16px}
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.stat{background:var(--bg-alt);border-radius:var(--radius-sm);padding:14px}
+.stat .k{font-size:11.5px;color:var(--ink-faint);font-weight:500}
+.stat .v{font-family:"Bricolage Grotesque",sans-serif;font-size:23px;font-weight:800;margin:3px 0}
+.stat .s{font-size:11.5px;color:var(--ink-faint)}
+.mock-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.panel{border:1px solid var(--line);border-radius:var(--radius-sm);padding:15px}
+.panel h4{font-size:14.5px;margin-bottom:12px}
+.bar-row{display:flex;align-items:center;gap:9px;margin-bottom:11px;font-size:12.5px}
+.bar-dot{width:24px;height:24px;border-radius:7px;background:var(--bg-deep);flex:none}
+.bar-name{flex:1;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:5px;background:var(--bg-deep);border-radius:99px;margin-top:5px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--gold-soft)}
+.pct{font-weight:700;font-size:12.5px}
+.todo{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink-soft);margin-bottom:11px}
+.todo i{width:22px;height:22px;border-radius:7px;background:var(--bg-deep);flex:none;
+display:grid;place-items:center;font-style:normal;font-size:11px;color:var(--gold)}
+.float{position:absolute;left:-14px;bottom:52px;background:var(--card);
+border:1px solid var(--line);border-radius:var(--radius-sm);padding:15px 17px;
+max-width:250px;box-shadow:0 18px 44px -22px rgba(59,35,23,.3)}
+.float b{font-size:13.5px;display:block;margin-bottom:5px}
+.float p{font-size:12.5px;color:var(--ink-soft);line-height:1.5}
+/* SECTIONS */
+section{padding:92px 0}
+.alt{background:var(--bg-alt)}
+.sec-head{text-align:center;max-width:720px;margin:0 auto 52px}
+.sec-head h2{font-size:clamp(34px,4vw,52px);margin:16px 0 18px}
+.sec-head p{color:var(--ink-soft);font-size:18px}
+/* FEATURE CARDS */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+padding:28px;transition:.2s}
+.card:hover{border-color:var(--gold-soft);transform:translateY(-2px)}
+.card .ico{width:46px;height:46px;border-radius:13px;background:var(--bg-deep);
+display:grid;place-items:center;margin-bottom:18px;font-size:20px}
+.card h3{font-size:20px;margin-bottom:10px}
+.card p{color:var(--ink-soft);font-size:15.5px;line-height:1.6}
+.alt .card{background:var(--bg)}
+/* TOOLKIT */
+.toolkit-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:48px;align-items:start}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
+.tab{border-radius:999px;padding:10px 20px;font-size:14.5px;font-weight:600;
+border:1px solid var(--line);background:var(--card);cursor:pointer;
+color:var(--ink-soft);font-family:inherit;transition:.15s}
+.tab.on{background:var(--brand);color:#FFF6EA;border-color:var(--brand)}
+.tool{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:30px}
+.tool h3{font-size:22px;margin-bottom:8px}
+.tool .hint{color:var(--ink-soft);font-size:14.5px;margin-bottom:22px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.f label{display:block;font-size:13.5px;font-weight:600;margin-bottom:7px;color:var(--ink-soft)}
+.f select,.f input{width:100%;border:1px solid var(--line);border-radius:11px;
+padding:13px 14px;font-size:15.5px;font-family:inherit;background:var(--bg);
+color:var(--ink);appearance:none}
+.f select:focus,.f input:focus{outline:none;border-color:var(--gold-soft)}
+.result{background:var(--bg-deep);border-radius:14px;padding:20px;margin-top:22px}
+.result .big{font-family:"Bricolage Grotesque",sans-serif;font-size:30px;font-weight:800}
+.result .sm{font-size:13.5px;color:var(--ink-soft);margin-top:5px}
+.fineprint{font-size:12.5px;color:var(--ink-faint);margin-top:16px}
+.hidden{display:none}
+/* STEPS */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
+.step{border-left:2px solid var(--line);padding:6px 30px 6px 26px}
+.step .n{font-size:12.5px;font-weight:700;letter-spacing:.14em;color:var(--gold);
+text-transform:uppercase;margin-bottom:10px}
+.step h3{font-size:20px;margin-bottom:10px}
+.step p{color:var(--ink-soft);font-size:15.5px}
+/* PRICING */
+.dur{display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+.dur button{border-radius:11px;padding:11px 20px;font-size:14.5px;font-weight:600;
+border:1.5px solid var(--line);background:var(--card);cursor:pointer;
+color:var(--ink-soft);font-family:inherit;transition:.15s;display:flex;align-items:center;gap:8px}
+.dur button.on{border-color:var(--gold);color:var(--ink);background:#fff;box-shadow:0 4px 12px rgba(185,139,50,.12)}
+.save{background:#E8F3EC;color:#1E6B45;border-radius:6px;padding:2px 7px;
+font-size:11px;font-weight:700}
+.dur-note{text-align:center;font-size:13.5px;color:var(--ink-faint);margin-bottom:40px}
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;align-items:start}
+.plan{background:var(--card);border:1.5px solid var(--line);border-radius:var(--radius);
+padding:30px;position:relative;display:flex;flex-direction:column;height:100%}
+.plan.featured{border-color:var(--gold);box-shadow:0 20px 50px -28px rgba(185,139,50,.5)}
+.ribbon{position:absolute;top:-13px;left:50%;transform:translateX(-50%);
+background:var(--gold);color:#3B2317;font-size:11.5px;font-weight:700;
+letter-spacing:.09em;padding:5px 15px;border-radius:999px;white-space:nowrap}
+.plan h3{font-size:25px;margin-bottom:7px}
+.plan .tagline{color:var(--ink-soft);font-size:14.5px;min-height:44px}
+.price-box{background:var(--bg-alt);border-radius:14px;padding:19px;margin:20px 0}
+.price{font-family:"Bricolage Grotesque",sans-serif;font-size:38px;font-weight:800;
+color:var(--gold);line-height:1}
+.price .per{font-size:15px;color:var(--ink-soft);font-weight:600;font-family:Inter,sans-serif}
+.price-sub{font-size:13px;color:var(--ink-soft);margin-top:7px}
+.was{font-size:13.5px;color:var(--ink-faint);text-decoration:line-through;margin-top:4px}
+.plan ul{list-style:none;padding:0;margin:0 0 24px;flex:1}
+.plan li{display:flex;gap:10px;font-size:14.5px;padding:7px 0;color:var(--ink-soft);
+align-items:flex-start}
+.plan li b{color:var(--ink)}
+.tick{color:#1E6B45;flex:none;font-weight:700}
+.packs{margin-top:44px;background:var(--card);border:1px solid var(--line);
+border-radius:var(--radius);padding:30px}
+.packs h3{font-size:22px;margin-bottom:8px}
+.packs>p{color:var(--ink-soft);font-size:15px;margin-bottom:22px}
+.pack-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.pack{border:1px solid var(--line);border-radius:14px;padding:20px;text-align:center}
+.pack .nm{font-weight:700;font-size:16px}
+.pack .cr{font-family:"Bricolage Grotesque",sans-serif;font-size:26px;font-weight:800;
+color:var(--gold);margin:8px 0 2px}
+.pack .sc{font-size:13px;color:var(--ink-soft);margin-bottom:14px}
+.arith{background:var(--bg-alt);border-radius:12px;padding:17px;margin-top:22px;
+font-size:14.5px;color:var(--ink-soft);display:flex;gap:12px}
+.arith b{color:var(--ink)}
+/* CTA + FOOTER */
+.cta-wrap{background:var(--bg-deep);border-radius:26px;padding:64px 40px;text-align:center}
+.cta-wrap h2{font-size:clamp(32px,4vw,48px);margin:16px auto 18px;max-width:760px}
+.cta-wrap p{color:var(--ink-soft);font-size:18px;max-width:600px;margin:0 auto 32px}
+footer{background:var(--brand);color:#E4D4C2;padding:56px 0 40px;margin-top:0}
+.foot-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:40px}
+footer .logo{color:#FFF6EA;display:block;margin-bottom:12px}
+footer p{font-size:14.5px;line-height:1.6;max-width:320px}
+footer h4{font-size:13px;letter-spacing:.14em;text-transform:uppercase;
+color:var(--gold-soft);margin-bottom:14px;font-weight:700}
+footer a{display:block;color:#E4D4C2;text-decoration:none;font-size:14.5px;
+padding:5px 0;font-family:Inter,sans-serif;font-weight:400}
+footer a:hover{color:#FFF6EA}
+.foot-base{border-top:1px solid rgba(255,246,234,.16);margin-top:40px;padding-top:24px;
+display:flex;justify-content:space-between;font-size:13.5px;gap:16px;flex-wrap:wrap}
+@media(max-width:940px){
+.hero-grid,.toolkit-grid{grid-template-columns:1fr;gap:40px}
+.cards,.plans,.pack-grid{grid-template-columns:1fr}
+.steps{grid-template-columns:1fr;gap:26px}
+.step{border-left:2px solid var(--line);padding-left:22px}
+.nav-links{display:none}
+.foot-grid{grid-template-columns:1fr;gap:28px}
+.float{position:static;max-width:none;margin-top:16px}
+section{padding:66px 0}
+.hero{padding:40px 0 60px}
+.mock-cols{grid-template-columns:1fr}
+}
+@media(max-width:560px){
+.fields{grid-template-columns:1fr}
+.stat-row{grid-template-columns:1fr}
+.hero-btns .btn{width:100%;justify-content:center}
+.cta-wrap{padding:44px 22px}
+}
+</style>
+</head>
+<body>
+<nav class="nav" id="nav"><div class="wrap nav-in">
+<a href="#" class="brand-logo-wrap">
+  <img src="/Bakewealthlogo.jpeg" alt="BakeWealth" class="brand-logo-img">
+  <span>BakeWealth</span>
+</a>
+<div class="nav-links">
+<a href="#features">What you can do</a>
+<a href="#toolkit">Baker's toolkit</a>
+<a href="#pricing">Pricing</a>
+<a href="#how">How it works</a>
+</div>
+<div class="nav-cta">
+<a class="btn btn-ghost" href="/?login=1">Log in</a>
+<a class="btn btn-primary" href="/?register=1">Get started ↗</a>
+</div>
+</div></nav>
+<header class="hero"><div class="wrap hero-grid">
+<div>
+<div class="eyebrow left">✦ A little more ease behind every bake</div>
+<h1>Your baking business, beautifully organized.</h1>
+<p class="lead">From the first customer message to the final flourish, keep your orders,
+ingredients, recipes and business details together, with smart AI support along the way.</p>
+<div class="hero-btns">
+<a class="btn btn-primary" href="#pricing">See the plans →</a>
+<a class="btn btn-ghost" href="#toolkit">Try the baker's toolkit</a>
+</div>
+<p class="hero-note">Made for home bakers, cake artists and growing baking businesses.</p>
+</div>
+<div class="mock">
+<div class="mock-top">
+<div class="mock-brand">
+  <img src="/Bakewealthlogo.jpeg" alt="BakeWealth" style="height:24px;width:auto;border-radius:4px;border:1px solid var(--line)">
+  <span>BakeWealth <span>/ My workspace</span></span>
+</div>
+<div class="chip">Your business</div>
+</div>
+<h3>A sweet little overview</h3>
+<div class="stat-row">
+<div class="stat"><div class="k">Orders to make</div><div class="v">12</div><div class="s">This week</div></div>
+<div class="stat"><div class="k">Ingredients</div><div class="v">All set</div><div class="s">Stock at a glance</div></div>
+<div class="stat"><div class="k">Recipes</div><div class="v">24</div><div class="s">Costed &amp; saved</div></div>
+</div>
+<div class="mock-cols">
+<div class="panel"><h4>Recipe cost snapshot</h4>
+<div class="bar-row"><div class="bar-dot"></div><div><div class="bar-name">Vanilla celebration cake</div><div class="bar"><i style="width:68%"></i></div></div><div class="pct">68%</div></div>
+<div class="bar-row"><div class="bar-dot"></div><div><div class="bar-name">Chocolate fudge tier</div><div class="bar"><i style="width:43%"></i></div></div><div class="pct">43%</div></div>
+<div class="bar-row"><div class="bar-dot"></div><div><div class="bar-name">Red velvet, 8 inch</div><div class="bar"><i style="width:57%"></i></div></div><div class="pct">57%</div></div>
+</div>
+<div class="panel"><h4>Today's little list</h4>
+<div class="todo"><i>♡</i> Confirm order details</div>
+<div class="todo"><i>◈</i> Check ingredient stock</div>
+<div class="todo"><i>✓</i> Plan tomorrow's bake</div>
+</div>
+</div>
+<div class="float"><b>✦ Your AI baking-sidekick</b>
+<p>Quick help with the business details, so you can keep your hands and mind on your craft.</p></div>
+</div>
+</div></header>
+<section id="features" class="alt"><div class="wrap">
+<div class="sec-head">
+<div class="eyebrow">Your business, in rhythm</div>
+<h2>More space for the joy of baking.</h2>
+<p>Keep the behind-the-scenes details in order, so you can give your creativity
+and your customers the attention they deserve.</p>
+</div>
+<div class="cards">
+<div class="card"><div class="ico">▤</div><h3>Orders, without the scramble</h3>
+<p>Keep requests, order details, deadlines and progress together, from inquiry to collection.</p></div>
+<div class="card"><div class="ico">◫</div><h3>Ingredients at a glance</h3>
+<p>Track stock, follow ingredient use and spot what needs replenishing before your next big bake.</p></div>
+<div class="card"><div class="ico">◑</div><h3>Recipe costing made clearer</h3>
+<p>Understand what each recipe costs and make more informed decisions about your pricing.</p></div>
+<div class="card"><div class="ico">♡</div><h3>Customers you remember</h3>
+<p>Keep customer details and order history close, for thoughtful service and smoother repeat orders.</p></div>
+<div class="card"><div class="ico">✦</div><h3>AI in your corner</h3>
+<p>Scan receipts and statements, and get smart assistance with everyday workflows, while you stay in control.</p></div>
+<div class="card"><div class="ico">◈</div><h3>A clearer view of business</h3>
+<p>Bring your activity, invoices and reports together to understand what is happening and plan what comes next.</p></div>
+</div>
+</div></section>
+<section id="toolkit"><div class="wrap toolkit-grid">
+<div>
+<div class="eyebrow left">✦ A little something for your next bake</div>
+<h2 style="font-size:clamp(34px,4vw,50px);margin:18px 0 16px">The Baker's Toolkit</h2>
+<p style="color:var(--ink-soft);font-size:17px">Quick, handy calculators for everyday
+baking questions. No account needed. Choose a tool and get a useful estimate.</p>
+<p style="margin-top:22px"><span class="chip">✦ Free tools for your baking day</span></p>
+</div>
+<div>
+<div class="tabs">
+<button class="tab on" data-tool="conv">Weight ↔ volume</button>
+<button class="tab" data-tool="scale">Recipe scaler</button>
+<button class="tab" data-tool="pan">Pan size</button>
+</div>
+<div class="tool" id="t-conv">
+<h3>Ingredient conversion</h3>
+<p class="hint">Convert common baking ingredients between grams and millilitres or cups.</p>
+<div class="fields">
+<div class="f"><label>Ingredient</label><select id="cIng"></select></div>
+<div class="f"><label>Amount</label><input id="cAmt" type="number" value="100" min="0" step="any"></div>
+<div class="f"><label>Convert from</label><select id="cFrom">
+<option value="g">Grams (g)</option><option value="ml">Millilitres (ml)</option><option value="cup">Cups</option></select></div>
+<div class="f"><label>Convert to</label><select id="cTo">
+<option value="ml">Millilitres (ml)</option><option value="g">Grams (g)</option><option value="cup">Cups</option></select></div>
+</div>
+<div class="result"><div class="big" id="cOut">188.68 ml</div>
+<div class="sm" id="cNote">Approximate conversion for all-purpose flour.</div></div>
+<p class="fineprint">Approximate kitchen conversions. Actual weights vary by ingredient, packing and measuring method.</p>
+</div>
+<div class="tool hidden" id="t-scale">
+<h3>Recipe scaler</h3>
+<p class="hint">Your recipe was written for one pan. Work out what it becomes in another.</p>
+<div class="fields">
+<div class="f"><label>Recipe written for</label><select id="sFromSize"></select></div>
+<div class="f"><label>Shape</label><select id="sFromShape">
+<option>Round</option><option>Square</option></select></div>
+<div class="f"><label>You want to bake</label><select id="sToSize"></select></div>
+<div class="f"><label>Shape</label><select id="sToShape">
+<option>Round</option><option>Square</option></select></div>
+</div>
+<div class="result"><div class="big" id="sOut">× 1.78</div>
+<div class="sm" id="sNote">Multiply every ingredient by this number.</div></div>
+<p class="fineprint">Assumes the same layer height in both pans. Scaling is by pan area.</p>
+</div>
+<div class="tool hidden" id="t-pan">
+<h3>Pan size equivalents</h3>
+<p class="hint">Which pans hold roughly the same amount of batter?</p>
+<div class="fields">
+<div class="f"><label>Pan size</label><select id="pSize"></select></div>
+<div class="f"><label>Shape</label><select id="pShape">
+<option>Round</option><option>Square</option></select></div>
+</div>
+<div class="result"><div class="big" id="pOut">— </div>
+<div class="sm" id="pNote">Closest equivalent in the other shape.</div></div>
+<p class="fineprint">Based on surface area. Keep the batter depth the same and adjust baking time.</p>
+</div>
+</div>
+</div></section>
+<section id="how" class="alt"><div class="wrap">
+<div class="sec-head">
+<div class="eyebrow">Simple by design</div>
+<h2>Made to fit the way bakers work.</h2>
+<p>Less juggling between tools. More clarity from one step to the next.</p>
+</div>
+<div class="steps">
+<div class="step"><div class="n">01 / Organize</div><h3>Bring the details together</h3>
+<p>Keep orders, customer information, ingredients and recipes in one workspace.</p></div>
+<div class="step"><div class="n">02 / Understand</div><h3>Make informed choices</h3>
+<p>Use costing, stock visibility and business reports to plan with more confidence.</p></div>
+<div class="step"><div class="n">03 / Grow</div><h3>Get support as you go</h3>
+<p>Use AI assistance and connected workflows to make everyday business tasks easier.</p></div>
+</div>
+</div></section>
+<section id="pricing"><div class="wrap">
+<div class="sec-head">
+<div class="eyebrow">Ready when you are</div>
+<h2>Prepaid plans. No auto-renewal, no surprises.</h2>
+<p>Pay for what you need, when you need it. Multi-month purchases carry a discount,
+and plans stack, so you can add time whenever it suits you.</p>
+</div>
+<div class="dur" id="dur">
+<button class="on" data-m="1" data-d="0">1 Month</button>
+<button data-m="3" data-d="0.05">3 Months <span class="save">5% off</span></button>
+<button data-m="6" data-d="0.10">6 Months <span class="save">10% off</span></button>
+<button data-m="12" data-d="0.15">12 Months <span class="save">15% off</span></button>
+</div>
+<p class="dur-note">Stackable anytime. Buy more months whenever you like and they add to what you have.</p>
+<div class="plans">
+<div class="plan">
+<h3>Free</h3>
+<p class="tagline">Explore BakeWealth without commitments. Upgrade anytime.</p>
+<div class="price-box"><div class="price">₦0</div>
+<div class="price-sub">No card needed</div></div>
+<ul>
+<li><span class="tick">✓</span><span>Orders: <b>limited</b></span></li>
+<li><span class="tick">✓</span><span>Recipes: <b>limited</b></span></li>
+<li><span class="tick">✓</span><span>Inventory: <b>limited</b></span></li>
+<li><span class="tick">✓</span><span>Client records: <b>limited</b></span></li>
+<li><span class="tick">✓</span><span>Invoices with BakeWealth mark</span></li>
+<li><span class="tick">✓</span><span>See how it fits your business before you spend anything</span></li>
+</ul>
+<a class="btn btn-ghost btn-block" href="/?register=1&plan=free">Start free</a>
+</div>
+<div class="plan">
+<h3>Standard</h3>
+<p class="tagline">Essential tools for growing home and boutique bakers.</p>
+<div class="price-box">
+<div class="price">₦<span id="pStd">5,000</span><span class="per" id="pStdPer"> / month</span></div>
+<div class="was hidden" id="wStd"></div>
+<div class="price-sub" id="sStd">Includes 40 scan credits, about 20 receipt scans</div>
+</div>
+<ul>
+<li><span class="tick">✓</span><span>Orders: <b>Unlimited</b></span></li>
+<li><span class="tick">✓</span><span>Recipes: <b>60</b></span></li>
+<li><span class="tick">✓</span><span>Inventory items: <b>250</b></span></li>
+<li><span class="tick">✓</span><span>Client records: <b>150</b></span></li>
+<li><span class="tick">✓</span><span>Staff logins: <b>2</b> plus owner</span></li>
+<li><span class="tick">✓</span><span>Scans: <b>20 a month</b>, 40 credits</span></li>
+<li><span class="tick">✓</span><span>Invoices carry the BakeWealth mark</span></li>
+<li><span class="tick">✓</span><span>Full accounting reports, without exception</span></li>
+</ul>
+<a class="btn btn-primary btn-block" id="buyStd" href="/?register=1&plan=standard">Choose Standard</a>
+</div>
+<div class="plan featured">
+<div class="ribbon">RECOMMENDED FOR SCALE</div>
+<h3>Premium</h3>
+<p class="tagline">Unlimited scale and unbranded invoices for established bakeries.</p>
+<div class="price-box">
+<div class="price">₦<span id="pPrm">10,000</span><span class="per" id="pPrmPer"> / month</span></div>
+<div class="was hidden" id="wPrm"></div>
+<div class="price-sub" id="sPrm">Includes 160 scan credits, about 80 receipt scans</div>
+</div>
+<ul>
+<li><span class="tick">✓</span><span>Orders: <b>Unlimited</b></span></li>
+<li><span class="tick">✓</span><span>Recipes: <b>Unlimited</b></span></li>
+<li><span class="tick">✓</span><span>Inventory items: <b>Unlimited</b></span></li>
+<li><span class="tick">✓</span><span>Client records: <b>Unlimited</b></span></li>
+<li><span class="tick">✓</span><span>Staff logins: <b>4</b> plus owner</span></li>
+<li><span class="tick">✓</span><span>Scans: <b>80 a month</b>, 160 credits</span></li>
+<li><span class="tick">✓</span><span>Invoices: <b>your own logo only</b></span></li>
+<li><span class="tick">✓</span><span>Full accounting reports, without exception</span></li>
+</ul>
+<a class="btn btn-gold btn-block" id="buyPrm" href="/?register=1&plan=premium">Choose Premium</a>
+</div>
+</div>
+<div class="packs">
+<h3>Scan and import credit packs</h3>
+<p>Run out of scans before the month is up? Top up without changing your plan.
+A receipt costs 2 credits. A bank statement costs 5.</p>
+<div class="pack-grid">
+<div class="pack"><div class="nm">Small</div><div class="cr">30 credits</div>
+<div class="sc">About 15 receipts</div>
+<a class="btn btn-ghost btn-block" href="/?register=1">Buy credits</a></div>
+<div class="pack"><div class="nm">Medium</div><div class="cr">90 credits</div>
+<div class="sc">About 45 receipts</div>
+<a class="btn btn-ghost btn-block" href="/?register=1">Buy credits</a></div>
+<div class="pack"><div class="nm">Large</div><div class="cr">200 credits</div>
+<div class="sc">About 100 receipts</div>
+<a class="btn btn-ghost btn-block" href="/?register=1">Buy credits</a></div>
+</div>
+<div class="arith"><span>⚡</span><div><b>Worth knowing.</b> A Standard baker who runs out of scans
+and buys a Medium pack ends up above the Premium price, for fewer scans and tighter limits.
+If you scan often, Premium is usually the cheaper answer.</div></div>
+</div>
+<p class="dur-note" style="margin-top:26px">Current plan names, pricing and availability are always shown in the BakeWealth app.</p>
+</div></section>
+<section class="alt"><div class="wrap"><div class="cta-wrap">
+<div class="eyebrow">For the craft you love, and the business you are building</div>
+<h2>Make beautiful things. Let the business feel beautiful, too.</h2>
+<p>Bring your baking business into focus with BakeWealth: a thoughtful workspace
+for the work behind every order.</p>
+<a class="btn btn-primary" href="/?register=1">Explore BakeWealth ↗</a>
+</div></div></section>
+<footer><div class="wrap">
+<div class="foot-grid">
+<div>
+<a href="#" class="brand-logo-wrap" style="color:#FFF6EA;margin-bottom:12px">
+  <img src="/Bakewealthlogo.jpeg" alt="BakeWealth" style="height:38px;width:auto;border-radius:6px;background:#fff;padding:2px">
+  <span>BakeWealth</span>
+</a>
+<p>A thoughtful workspace for bakers. Orders, ingredients, recipes and costing,
+together in one place, with AI support along the way.</p>
+</div>
+<div><h4>Product</h4>
+<a href="#features">What you can do</a>
+<a href="#toolkit">Baker's toolkit</a>
+<a href="#pricing">Pricing</a>
+<a href="/?login=1">Log in</a>
+</div>
+<div><h4>Company</h4>
+<a href="https://instagram.com/iyeibe" target="_blank" rel="noopener noreferrer">Instagram</a>
+<a href="https://tiktok.com/@ibeachem" target="_blank" rel="noopener noreferrer">TikTok</a>
+<a href="mailto:hello@bakewealthinternational.com">Contact</a>
+</div>
+</div>
+<div class="foot-base">
+<span>© 2026 BakeWealth. Built by Iye Ibe Achem.</span>
+<span>Terms · Privacy · Refund policy</span>
+</div>
+</div></footer>
+<script>
+/* ============================================================
+PAYSTACK PAYMENT LINKS
+Create one link per plan in your Paystack dashboard, then
+paste it here. Until you do, buttons go to the app.
+============================================================ */
+var PAY = {
+standard: { 1:"", 3:"", 6:"", 12:"" },
+premium: { 1:"", 3:"", 6:"", 12:"" }
+};
+var APP = "/?register=1";
+/* ---- nav shadow ---- */
+addEventListener('scroll',function(){
+document.getElementById('nav').classList.toggle('scrolled', scrollY > 10);
+});
+/* ---- pricing ---- */
+var STD=5000, PRM=10000;
+function fmt(n){ return n.toLocaleString('en-NG'); }
+function setPlan(months, disc){
+var stdTotal = Math.round(STD*months*(1-disc));
+var prmTotal = Math.round(PRM*months*(1-disc));
+var lbl = months===1 ? ' / month' : ' for '+months+' months';
+document.getElementById('pStd').textContent = fmt(stdTotal);
+document.getElementById('pPrm').textContent = fmt(prmTotal);
+document.getElementById('pStdPer').textContent = lbl;
+document.getElementById('pPrmPer').textContent = lbl;
+var wS=document.getElementById('wStd'), wP=document.getElementById('wPrm');
+if(disc>0){
+wS.textContent='was ₦'+fmt(STD*months); wS.classList.remove('hidden');
+wP.textContent='was ₦'+fmt(PRM*months); wP.classList.remove('hidden');
+} else { wS.classList.add('hidden'); wP.classList.add('hidden'); }
+document.getElementById('sStd').textContent =
+'Includes '+fmt(40*months)+' scan credits, about '+fmt(20*months)+' receipt scans';
+document.getElementById('sPrm').textContent =
+'Includes '+fmt(160*months)+' scan credits, about '+fmt(80*months)+' receipt scans';
+document.getElementById('buyStd').href = PAY.standard[months] || (APP + '&plan=standard');
+document.getElementById('buyPrm').href = PAY.premium[months] || (APP + '&plan=premium');
+}
+document.getElementById('dur').addEventListener('click',function(e){
+var b=e.target.closest('button'); if(!b) return;
+[].forEach.call(this.children,function(x){x.classList.remove('on')});
+b.classList.add('on');
+setPlan(parseInt(b.dataset.m,10), parseFloat(b.dataset.d));
+});
+setPlan(1,0);
+/* ---- toolkit tabs ---- */
+document.querySelectorAll('.tab').forEach(function(t){
+t.addEventListener('click',function(){
+document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});
+t.classList.add('on');
+['conv','scale','pan'].forEach(function(id){
+document.getElementById('t-'+id).classList.toggle('hidden', id!==t.dataset.tool);
+});
+});
+});
+/* ---- conversion ---- */
+var DENS={ "All-purpose flour":0.53,"Bread flour":0.55,"Granulated sugar":0.85,
+"Icing sugar":0.56,"Brown sugar, packed":0.72,"Cocoa powder":0.41,
+"Butter":0.911,"Vegetable oil":0.92,"Whole milk":1.03,"Water":1.00,
+"Honey":1.42,"Golden syrup":1.43,"Cornstarch":0.54,"Milk powder":0.45,
+"Desiccated coconut":0.30,"Salt, fine":1.20,"Baking powder":0.90 };
+var CUP=236.588;
+var ing=document.getElementById('cIng');
+Object.keys(DENS).forEach(function(k){
+var o=document.createElement('option'); o.textContent=k; ing.appendChild(o);
+});
+function conv(){
+var d=DENS[ing.value]||1, a=parseFloat(document.getElementById('cAmt').value)||0;
+var f=document.getElementById('cFrom').value, t=document.getElementById('cTo').value;
+var g = f==='g'? a : f==='ml'? a*d : a*CUP*d;
+var out = t==='g'? g : t==='ml'? g/d : g/d/CUP;
+var unit = t==='g'?'g': t==='ml'?'ml':'cups';
+document.getElementById('cOut').textContent =
+(Math.round(out*100)/100).toLocaleString('en-NG')+' '+unit;
+document.getElementById('cNote').textContent =
+'Approximate conversion for '+ing.value.toLowerCase()+'.';
+}
+['cIng','cAmt','cFrom','cTo'].forEach(function(id){
+document.getElementById(id).addEventListener('input',conv);
+document.getElementById(id).addEventListener('change',conv);
+});
+conv();
+/* ---- scaler + pan ---- */
+var SIZES=[4,5,6,7,8,9,10,11,12,13,14,16];
+function fill(id,def){
+var s=document.getElementById(id);
+SIZES.forEach(function(n){
+var o=document.createElement('option'); o.value=n; o.textContent=n+'"';
+if(n===def) o.selected=true; s.appendChild(o);
+});
+}
+fill('sFromSize',6); fill('sToSize',8); fill('pSize',8);
+function area(n,shape){ return shape==='Round' ? Math.PI*Math.pow(n/2,2) : n*n; }
+function scale(){
+var a=area(+sFromSize.value, sFromShape.value);
+var b=area(+sToSize.value, sToShape.value);
+var r=b/a;
+document.getElementById('sOut').textContent='× '+(Math.round(r*100)/100);
+document.getElementById('sNote').textContent=
+'Multiply every ingredient by this number to go from a '+sFromSize.value+'" '+
+sFromShape.value.toLowerCase()+' to a '+sToSize.value+'" '+sToShape.value.toLowerCase()+'.';
+}
+['sFromSize','sFromShape','sToSize','sToShape'].forEach(function(id){
+document.getElementById(id).addEventListener('change',scale);
+});
+scale();
+function pan(){
+var shape=pShape.value, n=+pSize.value, a=area(n,shape);
+var other = shape==='Round' ? 'Square' : 'Round';
+var best=null, diff=1e9;
+SIZES.forEach(function(s){
+var d=Math.abs(area(s,other)-a);
+if(d<diff){diff=d;best=s;}
+});
+var pct=Math.round((area(best,other)/a-1)*100);
+document.getElementById('pOut').textContent=best+'" '+other.toLowerCase();
+document.getElementById('pNote').textContent=
+'A '+n+'" '+shape.toLowerCase()+' holds about the same as a '+best+'" '+other.toLowerCase()+
+(pct===0?'.':', which is '+(pct>0?pct+'% more':Math.abs(pct)+'% less')+' batter.');
+}
+['pSize','pShape'].forEach(function(id){
+document.getElementById(id).addEventListener('change',pan);
+});
+pan();
+</script>
+</body>
+</html>

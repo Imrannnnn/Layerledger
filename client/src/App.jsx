@@ -59,8 +59,8 @@ import {
   PackageCheck,
   Menu,
   LogOut,
-  Check,
-  Coins
+  Coins,
+  Home as HomeIcon
 } from "lucide-react"
 import { TokenPurchaseModal } from "./components/common/TokenPurchaseModal.jsx"
 import { PlanLimitModal } from "./components/common/PlanLimitModal.jsx"
@@ -77,6 +77,7 @@ const lazyRetry = (importFn) => {
 }
 
 // ─── Screen components (one import per screen) ──────────────────────────────
+const HomePage = lazyRetry(() => import("./components/home/HomePage.jsx").then(m => ({ default: m.HomePage })))
 const Login = lazyRetry(() => import("./components/auth/Login.jsx").then(m => ({ default: m.Login })))
 const Dashboard = lazyRetry(() => import("./components/dashboard/Dashboard.jsx").then(m => ({ default: m.Dashboard })))
 const MasterList = lazyRetry(() => import("./components/inventory/MasterList.jsx").then(m => ({ default: m.MasterList })))
@@ -137,6 +138,17 @@ export default function App() {
   const [activating, setActivating] = useState(false);
   const [activationError, setActivationError] = useState("");
 
+  const [authMode, setAuthMode] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("login") === "1" || params.get("auth") === "1" || window.location.pathname === "/login") return "login";
+      if (params.get("register") === "1" || window.location.pathname === "/register") return "register";
+    } catch {
+      return null;
+    }
+    return null;
+  });
+
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = sessionStorage.getItem("ll_current_user");
@@ -183,9 +195,6 @@ export default function App() {
   const [users, setUsers] = useState(loadUsers())
   const [prefillProd, setPrefillProd] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMessage, setSyncMessage] = useState("Loading latest records...")
-  const [showSynced, setShowSynced] = useState(false)
   const [initialSyncing, setInitialSyncing] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
@@ -266,11 +275,8 @@ export default function App() {
       setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) })
       setOnboarded(!!loadLocal("ll_onboarded", false))
 
-      // Always pull fresh database records on startup in background
-      setSyncing(true)
-      setSyncMessage("Connecting to database & checking latest records...")
-      try {
-        await syncFromBackend()
+      // Silently pull fresh database records on startup in background without blocking UI
+      syncFromBackend().then(() => {
         if (!isMounted) return
         setTenantInfo(loadTenantInfo())
         setInventory(loadInventory(DEFAULT_INV))
@@ -283,14 +289,9 @@ export default function App() {
         setCompany(loadCompany())
         setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) })
         setOnboarded(!!loadLocal("ll_onboarded", false))
-
-        setShowSynced(true)
-        setTimeout(() => setShowSynced(false), 2500)
-      } catch (err) {
-        console.error("Startup sync notice:", err)
-      } finally {
-        if (isMounted) setSyncing(false)
-      }
+      }).catch(err => {
+        console.warn("Silent background startup sync notice:", err)
+      })
     }
     init()
     return () => { isMounted = false }
@@ -349,7 +350,8 @@ export default function App() {
         }
 
         // Store user and lead directly into interactive onboarding
-        sessionStorage.setItem("ll_current_user", JSON.stringify(data))
+        const activatedUser = { ...data, isNewRegistration: true }
+        sessionStorage.setItem("ll_current_user", JSON.stringify(activatedUser))
         saveLocal("ll_onboarded", "0")
         setOnboarded(false)
 
@@ -370,7 +372,7 @@ export default function App() {
         }
 
         if (isMounted) {
-          setCurrentUser(data)
+          setCurrentUser(activatedUser)
           setActivationToken(null)
         }
       } catch (err) {
@@ -394,19 +396,7 @@ export default function App() {
       setProductions(loadProductions([]))
     }
 
-    const needsFetch = (v === "clients" && !loadLocal("ll_clients", null)) ||
-                       (v === "invoices" && !loadLocal("ll_quote_invoices", null)) ||
-                       (v === "quotes" && !loadLocal("ll_quotes", null)) ||
-                       ((v === "purchases" || v === "monthly") && !loadLocal("ll_purchases", null)) ||
-                       (v === "bank" && !loadLocal("ll_txns", null)) ||
-                       (v === "masterlist" && !loadLocal("ll_recipes", null));
-
-    if (needsFetch) {
-      setSyncing(true)
-      setSyncMessage("Loading " + (nav.find(n => n.id === v)?.label || "data") + "...")
-    }
-
-    // Fetch data on-demand specifically for the requested screen
+    // Fetch data on-demand specifically for the requested screen quietly in background
     fetchPageDataOnDemand(v).then(() => {
       if (v === "bank") setTransactions(loadTransactions([]))
       if (v === "expenses" || v === "monthly" || v === "pandl" || v === "balance") setExpenses(loadExpenses([]))
@@ -414,12 +404,8 @@ export default function App() {
         const recs = loadRecipes()
         if (recs) setRecipes(recs)
       }
-    }).finally(() => {
-      if (needsFetch) {
-        setSyncing(false)
-        setShowSynced(true)
-        setTimeout(() => setShowSynced(false), 2500)
-      }
+    }).catch(err => {
+      console.warn("Page data fetch notice:", err)
     })
   }
 
@@ -434,6 +420,7 @@ export default function App() {
       logout()
       try { sessionStorage.removeItem("ll_active_view") } catch {}
       setCurrentUser(null)
+      setAuthMode(null)
       setSidebarOpen(false)
       setView("dashboard")
       setViewHistory(["dashboard"])
@@ -452,6 +439,7 @@ export default function App() {
   const role = currentUser?.role || "owner"
   const nav = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["owner", "production", "customer_service"] },
+    { id: "home", label: "BakeWealth Home", icon: HomeIcon, roles: ["owner", "production", "customer_service"] },
     { id: "_ops", label: "Operations", icon: null, roles: ["owner", "production", "customer_service"], divider: true },
     { id: "masterlist", label: "Master List", icon: Layers, roles: ["owner", "production"] },
     { id: "calculator", label: "Order Calculator", icon: Calculator, roles: ["owner", "production"] },
@@ -504,57 +492,81 @@ export default function App() {
   }
 
   if (!currentUser) {
-    return <>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');*{box-sizing:border-box}body{margin:0}:root{--gold:${gold};--sidebar:${sidebar};--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:${gold}}
+    if (authMode) {
+      return <>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');*{box-sizing:border-box}body{margin:0}:root{--gold:${gold};--sidebar:${sidebar};--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:${gold}}
 .main-content{color:var(--text)}
 .main-content h1,.main-content h2,.main-content h3{color:var(--text)}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <Suspense fallback={<FullPageLoader message="Loading application..." />}>
-        <Login initialError={activationError} onLogin={async (u) => {
-          setInitialSyncing(true);
-          sessionStorage.setItem("ll_current_user", JSON.stringify(u));
-          if (u?.isNewRegistration) {
-            saveLocal("ll_onboarded", "0");
-            setOnboarded(false);
-          } else {
-            saveLocal("ll_onboarded", "1");
-            setOnboarded(true);
-          }
+        <Suspense fallback={<FullPageLoader message="Loading application..." />}>
+          <Login
+            initialTab={authMode}
+            initialError={activationError}
+            onBackToHome={() => setAuthMode(null)}
+            onLogin={async (u) => {
+              setInitialSyncing(true);
+              sessionStorage.setItem("ll_current_user", JSON.stringify(u));
+              if (u?.isNewRegistration) {
+                saveLocal("ll_onboarded", "0");
+                setOnboarded(false);
+              } else {
+                saveLocal("ll_onboarded", "1");
+                setOnboarded(true);
+              }
 
-          try {
-            await syncFromBackend();
-            setTenantInfo(loadTenantInfo());
-            setInventory(loadInventory(DEFAULT_INV));
-            setProductions(loadProductions([]));
-            setTransactions(loadTransactions([]));
-            setExpenses(loadExpenses([]));
-            const freshRecs = loadRecipes();
-            if (freshRecs) setRecipes(freshRecs);
-            setUsers(loadUsers());
-            setCompany(loadCompany());
-            setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) });
-          } catch (err) {
-            console.error("Login sync notice:", err);
-          } finally {
-            setCurrentUser(u);
-            setInitialSyncing(false);
-          }
-        }} />
-      </Suspense>
-    </>
-  }
-
-  // If an existing registered user is currently syncing on startup, don't flash onboarding
-  if (currentUser && !currentUser.isNewRegistration && !hasOnboardingParam && !onboarded && syncing) {
-    return (
-      <>
-        <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');*{box-sizing:border-box}body{margin:0}:root{--gold:${gold};--sidebar:${sidebar};--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:${gold}}`}</style>
-        <FullPageLoader message="Loading your bakery workspace..." />
+              try {
+                await syncFromBackend();
+                setTenantInfo(loadTenantInfo());
+                setInventory(loadInventory(DEFAULT_INV));
+                setProductions(loadProductions([]));
+                setTransactions(loadTransactions([]));
+                setExpenses(loadExpenses([]));
+                const freshRecs = loadRecipes();
+                if (freshRecs) setRecipes(freshRecs);
+                setUsers(loadUsers());
+                setCompany(loadCompany());
+                setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) });
+              } catch (err) {
+                console.error("Login sync notice:", err);
+              } finally {
+                setCurrentUser(u);
+                setAuthMode(null);
+                setInitialSyncing(false);
+              }
+            }}
+          />
+        </Suspense>
       </>
+    }
+
+    return (
+      <Suspense fallback={<FullPageLoader message="Loading BakeWealth..." />}>
+        <HomePage
+          onLoginClick={() => setAuthMode("login")}
+          onRegisterClick={() => setAuthMode("register")}
+          currentUser={null}
+        />
+      </Suspense>
     )
   }
 
-  // Show onboarding for first-time user registrations or when directly launched via welcome email link (?onboarding=1)
-  if (currentUser && (currentUser.isNewRegistration || !onboarded || hasOnboardingParam)) {
+  if (currentUser && view === "home") {
+    return (
+      <Suspense fallback={<FullPageLoader message="Loading BakeWealth Home..." />}>
+        <HomePage
+          onGoToDashboard={() => goTo("dashboard")}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
+      </Suspense>
+    )
+  }
+
+  // Show onboarding strictly for first-time user registrations or when directly launched via welcome email link (?onboarding=1)
+  const shouldShowOnboarding = Boolean(
+    currentUser && (currentUser.isNewRegistration || hasOnboardingParam) && !onboarded
+  )
+
+  if (shouldShowOnboarding) {
     const handleExitOnboarding = async (targetView) => {
       await saveLocal("ll_onboarded", "1");
       setOnboarded(true);
@@ -594,7 +606,7 @@ export default function App() {
 
   const sidebarContent = <>
     <div style={{ padding: "18px 16px 14px", borderBottom: "1px solid rgba(200,145,42,0.2)", display: "flex", alignItems: "center", gap: 10 }}>
-      {company.logo && <img src={company.logo} alt="logo" style={{ width: 30, height: 30, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />}
+      <img src={company.logo || "/Bakewealthlogo.jpeg"} alt="logo" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: "1px solid rgba(200,145,42,0.3)", background: "#fff" }} />
       <div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: gold, fontWeight: 700, lineHeight: 1.2 }}>{company.name || "BakeWealth"}</div><div style={{ fontSize: 9, color: "#7B5A3A", textTransform: "uppercase", letterSpacing: 2, marginTop: 1 }}>Bakery Books</div></div>
     </div>
     <div style={{ flex: 1, paddingTop: 8, overflowY: "auto" }}>
@@ -653,55 +665,7 @@ export default function App() {
       *{box-sizing:border-box}body{margin:0;padding:0}
       :root{--gold:${gold};--sidebar:${sidebar};--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:${gold}}
       @keyframes spin{to{transform:rotate(360deg)}}
-      @keyframes syncBar{0%{background-position:200% 0}100%{background-position:-200% 0}}
-      @keyframes pulseSubtle{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.85;transform:scale(0.98)}}
     `}</style>
-
-    {/* Global Top Progress Line */}
-    {syncing && (
-      <div style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 3,
-        background: `linear-gradient(90deg, transparent 0%, ${gold} 50%, transparent 100%)`,
-        backgroundSize: "200% 100%",
-        animation: "syncBar 1.2s linear infinite",
-        zIndex: 99999
-      }} />
-    )}
-
-    {/* Floating Loading Notification Toast */}
-    {syncing && (
-      <div style={{
-        position: "fixed",
-        bottom: 24,
-        left: isMobile ? 16 : 220,
-        zIndex: 9998,
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        background: "var(--panel)",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        padding: "9px 15px",
-        boxShadow: "0 6px 20px rgba(41,22,8,0.14)",
-        fontSize: 12.5,
-        color: "var(--text)"
-      }}>
-        <div style={{
-          width: 13,
-          height: 13,
-          border: "2px solid var(--border)",
-          borderTopColor: gold,
-          borderRadius: "50%",
-          animation: "spin 0.75s linear infinite",
-          flexShrink: 0
-        }} />
-        <span><strong>Loading data:</strong> {syncMessage}</span>
-      </div>
-    )}
 
     <div style={{ display: "flex", height: "100vh", fontFamily: "'DM Sans',sans-serif", background: "var(--bg)", overflow: "hidden" }}>
 
@@ -735,55 +699,9 @@ export default function App() {
                 <Menu size={22} />
               </button>
             )}
-            {company.logo && <img src={company.logo} alt="logo" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover" }} />}
+            <img src={company.logo || "/Bakewealthlogo.jpeg"} alt="logo" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(200,145,42,0.3)", background: "#fff" }} />
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: gold, fontWeight: 700 }}>{company.name || "BakeWealth"}</div>
             {!isMobile && <div style={{ fontSize: 12, color: "#8B6B4A", marginLeft: 10, background: "rgba(200,145,42,0.1)", padding: "2px 8px", borderRadius: 4 }}>{nav.find(n => n.id === view)?.label}</div>}
-
-            {/* Syncing / Loading Notification Pill in Header */}
-            {syncing && (
-              <div style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                background: "rgba(200,145,42,0.14)",
-                border: "1px solid rgba(200,145,42,0.35)",
-                color: gold,
-                padding: "3px 11px",
-                borderRadius: 20,
-                fontSize: 11.5,
-                fontWeight: 500,
-                animation: "pulseSubtle 1.8s infinite ease-in-out",
-                marginLeft: 6
-              }}>
-                <div style={{
-                  width: 10,
-                  height: 10,
-                  border: "2px solid currentColor",
-                  borderTopColor: "transparent",
-                  borderRadius: "50%",
-                  animation: "spin 0.8s linear infinite"
-                }} />
-                <span>{syncMessage}</span>
-              </div>
-            )}
-            {!syncing && showSynced && (
-              <div style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                background: "rgba(53,122,82,0.15)",
-                border: "1px solid rgba(53,122,82,0.35)",
-                color: "#48A36E",
-                padding: "3px 10px",
-                borderRadius: 20,
-                fontSize: 11.5,
-                fontWeight: 500,
-                marginLeft: 6
-              }}>
-                <Check size={11} strokeWidth={3} />
-                <span>Data up to date</span>
-              </div>
-            )}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

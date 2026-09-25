@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Steps, Spinner } from "../common/ui.jsx"
 import { fmt, uid, today, calcFullCost, callClaude, compressImage } from "../../lib/helpers.js"
-import { saveInventory, saveProduction, loadLocal, saveLocal, loadClients, upsertClient } from "../../lib/data.js"
+import { saveInventory, saveProduction, loadLocal, saveLocal, loadClients, upsertClient, checkPlanLimit, notifyPlanLimitReached } from "../../lib/data.js"
 import { Camera, Sparkles, Check, Lightbulb, AlertTriangle } from "lucide-react"
 
 // ═══════════════════════════════════════════════════════════
@@ -184,6 +184,13 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
   const toggleDecor = (id) => setDecorIds(prev => prev.includes(id) ? prev.filter(d=>d!==id) : [...prev,id])
 
   const doSave = async () => {
+    const limitCheck = typeof checkPlanLimit === "function" ? checkPlanLimit("ordersPerMonth") : { exceeded: false }
+    if (limitCheck.exceeded) {
+      if (typeof notifyPlanLimitReached === "function") {
+        notifyPlanLimitReached(limitCheck)
+      }
+      return
+    }
     setSaving(true)
     const tierSummary=tiers.map(t=>`${t.size}" ${t.shape} ${t.covering} (${t.layers.map(l=>(l.qty > 1 ? l.qty + "×" : "") + (l.flavour||"—")).join("/")})`).join(" + ")
     const flavourSummary=tiers.flatMap(t=>t.layers.map(l=>l.flavour)).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(", ")
@@ -208,22 +215,14 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
     setView("records")
   }
 
-  const tenantInfo = loadLocal("ll_tenant_info", null) || {}
-  const plan = (tenantInfo.plan || "free").toLowerCase()
-  const now = new Date()
-  const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-  const monthlyOrdersCount = useMemo(() => {
-    return (productions || []).filter(p => {
-      if (!p || p.status === "quote" || p.isQuote) return false
-      const d = p.orderDate || p.createdAt || p.date
-      return d && String(d).startsWith(currentMonthPrefix)
-    }).length
-  }, [productions, currentMonthPrefix])
+  const orderLimitCheck = useMemo(() => {
+    return typeof checkPlanLimit === "function" ? checkPlanLimit("ordersPerMonth") : { exceeded: false }
+  }, [productions])
 
   return <div>
     <SHead title="New Production Entry" sub="Upload cake photo → AI reads it → fills in details automatically."/>
 
-    {plan === "free" && monthlyOrdersCount >= 8 && (
+    {orderLimitCheck?.exceeded && (
       <div style={{
         background: "#FFF4E5",
         border: "1px solid #FFE2B8",
@@ -239,23 +238,14 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#8A4E00" }}>
           <AlertTriangle size={18} color="#D97706" style={{ flexShrink: 0 }} />
           <span>
-            <strong>Monthly Order Quota Reached:</strong> You have recorded {monthlyOrdersCount} of 8 orders on the Free plan this month.
+            <strong>Monthly Order &amp; Quote Quota Reached:</strong> You have recorded {orderLimitCheck.currentCount} of {orderLimitCheck.limit} orders/quotes on the Free plan this month.
           </span>
         </div>
         <Btn
           small
           onClick={() => {
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(new CustomEvent("layerledger:plan-limit-reached", {
-                detail: {
-                  limitType: "ordersPerMonth",
-                  limit: 8,
-                  currentCount: monthlyOrdersCount,
-                  plan: "free",
-                  upgradePlan: "standard",
-                  message: `You have reached your Free plan limit of 8 orders for this month (${monthlyOrdersCount}/8 used). Upgrade to Standard for unlimited orders.`
-                }
-              }))
+            if (typeof notifyPlanLimitReached === "function") {
+              notifyPlanLimitReached(orderLimitCheck)
             }
           }}
         >
@@ -500,7 +490,16 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
           {[["Prod. Cost",fmt(totalProdCost)],["Sale Price",fmt(effectiveSale)],["Gross Profit",fmt(effectiveSale-totalProdCost)]].map(([k,v])=><div key={k} style={{background:"var(--panel)",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:0.8}}>{k}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:700,color:"var(--gold)",marginTop:3}}>{v}</div></div>)}
         </div>
         <div style={{display:"flex",gap:8,marginTop:4}}>
-          {saving?<Spinner/>:<><Btn variant="success" onClick={doSave} style={{display:"inline-flex",alignItems:"center",gap:6}}><Check size={14} /> Save Production Record</Btn><Btn variant="ghost" onClick={()=>setStep(2)}>← Back</Btn></>}
+          {saving?<Spinner/>:<>
+            <Btn
+              variant={orderLimitCheck?.exceeded ? "primary" : "success"}
+              onClick={doSave}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, ...(orderLimitCheck?.exceeded ? { background: "#B8860B", color: "#FFFFFF" } : {}) }}
+            >
+              {orderLimitCheck?.exceeded ? "🔒 Upgrade to Save Production" : <><Check size={14} /> Save Production Record</>}
+            </Btn>
+            <Btn variant="ghost" onClick={()=>setStep(2)}>← Back</Btn>
+          </>}
         </div>
       </Card>
     </div>}

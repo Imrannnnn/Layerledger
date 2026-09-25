@@ -95,41 +95,35 @@ const createOrder = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
     const { clientId, status, dueDate, items, totalPrice, totalCost, payments, notes, usages, metadata } = req.body;
 
-    // Check order limits for Free plan (8 orders/month)
-    // NOTE: Quotes (status === 'quote') are pre-order customer estimates and drafts.
-    // They must not be blocked by the monthly order limit, and must not count toward the limit.
-    const isQuote = (status === 'quote' || req.body.status === 'quote');
-    if (!isQuote) {
-        const tenant = await prisma.tenant.findUnique({
-            where: { id: tenantId },
-            select: { settings: true }
-        });
-        const effective = getEffectivePlan(tenant);
-        const planLimits = PLAN_LIMITS[effective.plan] || PLAN_LIMITS.free;
+    // Check order and quote limits for Free plan (8 orders/quotes per month)
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const effective = getEffectivePlan(tenant);
+    const planLimits = PLAN_LIMITS[effective.plan] || PLAN_LIMITS.free;
 
-        if (planLimits.ordersPerMonth !== Infinity) {
-            const now = new Date();
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-            const monthlyOrdersCount = await prisma.order.count({
-                where: {
-                    tenantId,
-                    status: { not: 'quote' },
-                    createdAt: { gte: startOfMonth }
-                }
-            });
-
-            if (monthlyOrdersCount >= planLimits.ordersPerMonth) {
-                res.status(403);
-                const err = new Error(`Free plan order limit reached (${planLimits.ordersPerMonth} orders per month). Upgrade to Standard (₦5,000/mo) for unlimited orders.`);
-                err.code = 'PLAN_LIMIT_REACHED';
-                err.limitType = 'ordersPerMonth';
-                err.currentCount = monthlyOrdersCount;
-                err.limit = planLimits.ordersPerMonth;
-                err.plan = effective.plan;
-                err.upgradePlan = 'standard';
-                err.upgradePrice = 5000;
-                throw err;
+    if (planLimits.ordersPerMonth !== Infinity) {
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const monthlyOrdersCount = await prisma.order.count({
+            where: {
+                tenantId,
+                createdAt: { gte: startOfMonth }
             }
+        });
+
+        if (monthlyOrdersCount >= planLimits.ordersPerMonth) {
+            res.status(403);
+            const err = new Error(`Free plan limit reached (${planLimits.ordersPerMonth} orders/quotes per month). Upgrade to Standard (₦5,000/mo) for unlimited orders.`);
+            err.code = 'PLAN_LIMIT_REACHED';
+            err.limitType = 'ordersPerMonth';
+            err.currentCount = monthlyOrdersCount;
+            err.limit = planLimits.ordersPerMonth;
+            err.plan = effective.plan;
+            err.upgradePlan = 'standard';
+            err.upgradePrice = 5000;
+            throw err;
         }
     }
 

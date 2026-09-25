@@ -338,6 +338,10 @@ describe("OrderCalculator Multi-Item Tests", () => {
     // Verify after-save confirmation appears
     expect(container.textContent).toContain("Quote saved for Mrs Iye Achem!")
     expect(container.textContent).toContain("Send quote via WhatsApp")
+
+    // Verify calculator automatically cleared so user can enter new details immediately
+    expect(clientNameInput.value).toBe("")
+    expect(dataLib.clearTempCalculatorState).toHaveBeenCalled()
   })
 
   it("should support multiple design photos per cake and include them in the saved quote", async () => {
@@ -849,5 +853,41 @@ describe("OrderCalculator Multi-Item Tests", () => {
 
     // Ensure no NaN anywhere in the container
     expect(container.textContent).not.toContain("NaN")
+  })
+
+  it("should reset all calculator fields when clicking the Clear / New Quote button", async () => {
+    // Render calculator
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <OrderCalculator
+          inventory={mockInventory}
+          recipes={mockRecipes}
+          settings={mockSettings}
+          setView={jest.fn()}
+          company={{ name: "BakeWealth" }}
+        />
+      )
+    })
+
+    const clientNameInput = container.querySelector("div[data-testid='field-Client Name *'] input")
+    await act(async () => {
+      typeIntoInput(clientNameInput, "Temporary Draft Client")
+    })
+    expect(clientNameInput.value).toBe("Temporary Draft Client")
+
+    // Click Clear / New Quote button (with window.confirm mocked to true)
+    window.confirm = jest.fn(() => true)
+    const clearBtn = Array.from(container.querySelectorAll("button")).find(
+      b => b.textContent.includes("Clear / New Quote")
+    )
+    expect(clearBtn).toBeDefined()
+
+    await act(async () => {
+      clearBtn.click()
+    })
+
+    expect(clientNameInput.value).toBe("")
+    expect(dataLib.clearTempCalculatorState).toHaveBeenCalled()
   })
 })

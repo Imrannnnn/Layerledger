@@ -283,10 +283,10 @@ describe('BakeWealth Plans & Credit Packs Unit Tests', () => {
 
         expect(res.status).toHaveBeenCalledWith(403);
         expect(next).toHaveBeenCalledWith(expect.any(Error));
-        expect(next.mock.calls[0][0].message).toMatch(/Free plan order limit reached/);
+        expect(next.mock.calls[0][0].message).toMatch(/Free plan limit reached/);
     });
 
-    test('createOrder does NOT block quotes (status: quote) even when 8 orders/month limit is reached', async () => {
+    test('createOrder blocks quotes (status: quote) when 8 orders/month limit is reached', async () => {
         req.body = { status: 'quote', clientName: 'Walk-in' };
         prisma.tenant.findUnique.mockResolvedValue({
             settings: { plan: 'free' }
@@ -295,8 +295,9 @@ describe('BakeWealth Plans & Credit Packs Unit Tests', () => {
 
         await createOrder(req, res, next);
 
-        expect(res.status).not.toHaveBeenCalledWith(403);
-        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ id: 'ord-1' }));
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(next).toHaveBeenCalledWith(expect.any(Error));
+        expect(next.mock.calls[0][0].message).toMatch(/Free plan limit reached/);
     });
 
     test('createRecipe enforces 10 recipes limit on Free plan', async () => {

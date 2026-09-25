@@ -102,9 +102,12 @@ export function ProductionList({ productions, setProductions, company, setView }
         body { padding: 0; }
       }
     </style></head><body>
-      <div class="header">
-        <div class="company-name">${company?.name || "BakeWealth"}</div>
-        <div class="week-dates">${titleLabel}</div>
+      <div class="header" style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <img src="${company?.logo || '/Bakewealthlogo.jpeg'}" style="height:44px;max-width:100px;object-fit:contain;border-radius:4px" alt="logo"/>
+        <div>
+          <div class="company-name">${company?.name || "BakeWealth"}</div>
+          <div class="week-dates">${titleLabel}</div>
+        </div>
       </div>
       
       ${listToPrint.map((p, i) => {

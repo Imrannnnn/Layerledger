@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useMemo } from "react"
 import { Btn, Card, SHead, iSt, Pagination } from "../common/ui.jsx"
 import { fmt, uid, parseSpecialDate } from "../../lib/helpers.js"
-import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal, calculateOrderUsages, updateInventoryItemOnServer } from "../../lib/data.js"
+import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal, calculateOrderUsages, updateInventoryItemOnServer, deleteOrderOnServer } from "../../lib/data.js"
 import { DEFAULT_MULTS } from "../../constants.js"
 import { Invoices } from "./Invoices.jsx"
 import { ChevronUp, ChevronDown, Clock, Check, CreditCard, Pencil, Receipt, AlertTriangle, MessageSquare, Cake, Heart, Calendar } from "lucide-react"
@@ -107,6 +107,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
     const updated = quotes.filter(q => q.id !== id)
     setQuotes(updated)
     saveQuotes(updated)
+    deleteOrderOnServer(id)
   }
 
   const getDaysPending = (q) => {
@@ -764,8 +765,10 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               + "</style></head><body>"
                               + "<div id='invoice-body' style='background:#fff;padding:8px'>"
                               + "<div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px'>"
+                              + "<div style='display:flex;align-items:center;gap:12px'>"
+                              + "<img src='" + (co.logo || "/Bakewealthlogo.jpeg") + "' style='height:48px;max-width:100px;object-fit:contain;border-radius:4px' alt='logo'/>"
                               + "<div><h1>" + (co.name || "Bakery") + "</h1>"
-                              + "<div class='sub'>" + (co.address || "") + (co.phone ? " · " + co.phone : "") + (co.email ? " · " + co.email : "") + "</div></div>"
+                              + "<div class='sub'>" + (co.address || "") + (co.phone ? " · " + co.phone : "") + (co.email ? " · " + co.email : "") + "</div></div></div>"
                               + "<div style='text-align:right'><div style='font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px'>Invoice</div>"
                               + "<div style='font-size:20px;font-weight:700;color:" + gold + "'>" + invoiceNum + "</div>"
                               + "<div style='font-size:12px;color:#888'>Date: " + q.date + "</div></div></div>"

@@ -429,104 +429,112 @@ export function TokenUsageSection({ company = {} }) {
         )}
 
         {/* Live Usage Quotas */}
-        {planInfo?.limits && planInfo?.usage && (
-          <div style={{ marginTop: 18, borderTop: "1px solid rgba(200,145,42,0.2)", paddingTop: 14 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>
-              Account Capacity & Limits ({effectivePlan.toUpperCase()})
+        {planInfo?.limits && planInfo?.usage && (() => {
+          const ordersUsed = planInfo.usage.ordersThisMonth ?? 0
+          const recipesUsed = planInfo.usage.recipesCount ?? planInfo.usage.recipes ?? 0
+          const inventoryUsed = planInfo.usage.inventoryCount ?? planInfo.usage.inventoryItems ?? 0
+          const clientsUsed = planInfo.usage.clientsCount ?? planInfo.usage.clients ?? 0
+          const staffUsed = planInfo.usage.staffCount ?? planInfo.usage.staffLogins ?? 0
+
+          return (
+            <div style={{ marginTop: 18, borderTop: "1px solid rgba(200,145,42,0.2)", paddingTop: 14 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>
+                Account Capacity & Limits ({effectivePlan.toUpperCase()})
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
+                {/* Orders */}
+                <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+                    <span>Orders / Month</span>
+                    <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                      {planInfo.limits.ordersPerMonth === null ? "Unlimited" : `${ordersUsed} / ${planInfo.limits.ordersPerMonth}`}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{
+                      width: planInfo.limits.ordersPerMonth === null ? "100%" : `${Math.min(100, (ordersUsed / (planInfo.limits.ordersPerMonth || 1)) * 100)}%`,
+                      height: "100%",
+                      background: planInfo.limits.ordersPerMonth === null ? "#27AE60" : "var(--gold)",
+                      borderRadius: 4
+                    }} />
+                  </div>
+                </div>
+
+                {/* Recipes */}
+                <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+                    <span>Recipes</span>
+                    <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                      {planInfo.limits.recipes === null ? "Unlimited" : `${recipesUsed} / ${planInfo.limits.recipes}`}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{
+                      width: planInfo.limits.recipes === null ? "100%" : `${Math.min(100, (recipesUsed / (planInfo.limits.recipes || 1)) * 100)}%`,
+                      height: "100%",
+                      background: planInfo.limits.recipes === null ? "#27AE60" : "var(--gold)",
+                      borderRadius: 4
+                    }} />
+                  </div>
+                </div>
+
+                {/* Inventory Items */}
+                <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+                    <span>Inventory Items</span>
+                    <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                      {planInfo.limits.inventoryItems === null ? "Unlimited" : `${inventoryUsed} / ${planInfo.limits.inventoryItems}`}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{
+                      width: planInfo.limits.inventoryItems === null ? "100%" : `${Math.min(100, (inventoryUsed / (planInfo.limits.inventoryItems || 1)) * 100)}%`,
+                      height: "100%",
+                      background: planInfo.limits.inventoryItems === null ? "#27AE60" : "var(--gold)",
+                      borderRadius: 4
+                    }} />
+                  </div>
+                </div>
+
+                {/* Clients */}
+                <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+                    <span>Clients</span>
+                    <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                      {planInfo.limits.clients === null ? "Unlimited" : `${clientsUsed} / ${planInfo.limits.clients}`}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{
+                      width: planInfo.limits.clients === null ? "100%" : `${Math.min(100, (clientsUsed / (planInfo.limits.clients || 1)) * 100)}%`,
+                      height: "100%",
+                      background: planInfo.limits.clients === null ? "#27AE60" : "var(--gold)",
+                      borderRadius: 4
+                    }} />
+                  </div>
+                </div>
+
+                {/* Staff Logins */}
+                <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+                    <span>Staff Logins</span>
+                    <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                      {planInfo.limits.staffLogins === null ? "Unlimited" : (planInfo.limits.staffLogins === 0 ? "0 / 0 (Owner)" : `${staffUsed} / ${planInfo.limits.staffLogins}`)}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{
+                      width: planInfo.limits.staffLogins === null ? "100%" : `${Math.min(100, (staffUsed / (planInfo.limits.staffLogins || 1)) * 100)}%`,
+                      height: "100%",
+                      background: planInfo.limits.staffLogins === null ? "#27AE60" : "var(--gold)",
+                      borderRadius: 4
+                    }} />
+                  </div>
+                </div>
+              </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-              {/* Orders */}
-              <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
-                  <span>Orders / Month</span>
-                  <span style={{ fontWeight: 600, color: "var(--text)" }}>
-                    {planInfo.limits.ordersPerMonth === null ? "Unlimited" : `${planInfo.usage.ordersThisMonth} / ${planInfo.limits.ordersPerMonth}`}
-                  </span>
-                </div>
-                <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{
-                    width: planInfo.limits.ordersPerMonth === null ? "100%" : `${Math.min(100, (planInfo.usage.ordersThisMonth / planInfo.limits.ordersPerMonth) * 100)}%`,
-                    height: "100%",
-                    background: planInfo.limits.ordersPerMonth === null ? "#27AE60" : "var(--gold)",
-                    borderRadius: 4
-                  }} />
-                </div>
-              </div>
-
-              {/* Recipes */}
-              <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
-                  <span>Recipes</span>
-                  <span style={{ fontWeight: 600, color: "var(--text)" }}>
-                    {planInfo.limits.recipes === null ? "Unlimited" : `${planInfo.usage.recipesCount} / ${planInfo.limits.recipes}`}
-                  </span>
-                </div>
-                <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{
-                    width: planInfo.limits.recipes === null ? "100%" : `${Math.min(100, (planInfo.usage.recipesCount / planInfo.limits.recipes) * 100)}%`,
-                    height: "100%",
-                    background: planInfo.limits.recipes === null ? "#27AE60" : "var(--gold)",
-                    borderRadius: 4
-                  }} />
-                </div>
-              </div>
-
-              {/* Inventory Items */}
-              <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
-                  <span>Inventory Items</span>
-                  <span style={{ fontWeight: 600, color: "var(--text)" }}>
-                    {planInfo.limits.inventoryItems === null ? "Unlimited" : `${planInfo.usage.inventoryCount} / ${planInfo.limits.inventoryItems}`}
-                  </span>
-                </div>
-                <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{
-                    width: planInfo.limits.inventoryItems === null ? "100%" : `${Math.min(100, (planInfo.usage.inventoryCount / planInfo.limits.inventoryItems) * 100)}%`,
-                    height: "100%",
-                    background: planInfo.limits.inventoryItems === null ? "#27AE60" : "var(--gold)",
-                    borderRadius: 4
-                  }} />
-                </div>
-              </div>
-
-              {/* Clients */}
-              <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
-                  <span>Clients</span>
-                  <span style={{ fontWeight: 600, color: "var(--text)" }}>
-                    {planInfo.limits.clients === null ? "Unlimited" : `${planInfo.usage.clientsCount} / ${planInfo.limits.clients}`}
-                  </span>
-                </div>
-                <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{
-                    width: planInfo.limits.clients === null ? "100%" : `${Math.min(100, (planInfo.usage.clientsCount / planInfo.limits.clients) * 100)}%`,
-                    height: "100%",
-                    background: planInfo.limits.clients === null ? "#27AE60" : "var(--gold)",
-                    borderRadius: 4
-                  }} />
-                </div>
-              </div>
-
-              {/* Staff Logins */}
-              <div style={{ background: "#fff", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
-                  <span>Staff Logins</span>
-                  <span style={{ fontWeight: 600, color: "var(--text)" }}>
-                    {planInfo.limits.staffLogins === null ? "Unlimited" : `${planInfo.usage.staffCount} / ${planInfo.limits.staffLogins}`}
-                  </span>
-                </div>
-                <div style={{ width: "100%", height: 6, background: "#F1EEDB", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{
-                    width: planInfo.limits.staffLogins === null ? "100%" : `${Math.min(100, (planInfo.usage.staffCount / (planInfo.limits.staffLogins || 1)) * 100)}%`,
-                    height: "100%",
-                    background: planInfo.limits.staffLogins === null ? "#27AE60" : "var(--gold)",
-                    borderRadius: 4
-                  }} />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+          )
+        })()}
       </Card>
 
       {/* Notifications */}

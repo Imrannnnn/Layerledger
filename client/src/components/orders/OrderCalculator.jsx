@@ -10,9 +10,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, SearchableSelect } from "../common/ui.jsx"
 import { fmt, uid, today, MONTHS, SPECIAL_DATE_TYPES, parseSpecialDate, formatSpecialDate } from "../../lib/helpers.js"
-import { loadCompany, loadLocal, saveLocal, loadQuotes, saveQuotes, loadClients, upsertClient, clearTempCalculatorState } from "../../lib/data.js"
+import { loadCompany, loadLocal, saveLocal, loadQuotes, saveQuotes, loadClients, upsertClient, clearTempCalculatorState, checkPlanLimit, notifyPlanLimitReached } from "../../lib/data.js"
 import { DEFAULT_MULTS, DECORATION_ITEMS, PRICING_SIZES } from "../../constants.js"
-import { Camera, Check, MessageCircle, ClipboardList, Calculator, Cake, Heart, CalendarHeart, Cookie, X, ChevronDown, ChevronUp, Plus, Trash2, Calendar, Clock, AlertTriangle, Crop } from "lucide-react"
+import { Camera, Check, MessageCircle, ClipboardList, Calculator, Cake, Heart, CalendarHeart, Cookie, X, ChevronDown, ChevronUp, Plus, Trash2, Calendar, Clock, AlertTriangle, Crop, RotateCcw } from "lucide-react"
 import ImageCropperModal from "./ImageCropperModal.jsx"
 
 const compressImage = (file, maxWidth = 640, quality = 0.70) => {
@@ -896,8 +896,41 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   const [vatEnabled, setVatEnabled] = useState(() => saved?.vatEnabled || false)
   const [vatRate, setVatRate] = useState(() => saved?.vatRate || 7.5)
   const [quoteSaved, setQuoteSaved] = useState(false)
+  const [lastSavedQuote, setLastSavedQuote] = useState(null)
   const [isEdit, setIsEdit] = useState(() => !!saved?.isEdit)
   const [editId, setEditId] = useState(() => saved?.editId || null)
+
+  const quoteLimitCheck = useMemo(() => {
+    return typeof checkPlanLimit === "function" ? checkPlanLimit("ordersPerMonth") : { exceeded: false }
+  }, [items, isEdit, quoteSaved])
+
+  // Full reset function to clear calculator state and prepare for fresh order
+  const resetCalculator = (promptConfirm = false) => {
+    if (promptConfirm && (clientName.trim() || items.length > 1 || items[0]?.tiers?.some(t => t.layers?.some(l => l.flavour)))) {
+      if (!window.confirm("Clear all details in the order calculator and start a fresh order?")) return
+    }
+    setClientName("")
+    setClientPhone("")
+    setClientBirthday("")
+    setHasSpecialEvent(false)
+    setEventType("")
+    setGeneralNote("")
+    setOrderPurpose("sale")
+    setMargin(settings?.profitPct || 40)
+    setSalePrice("")
+    setDeliveryCharge("")
+    setVatEnabled(false)
+    setVatRate(7.5)
+    setIsEdit(false)
+    setEditId(null)
+    setItems([createDefaultCakeItem(1)])
+    setShowItemPicker(false)
+    setPreviewPhoto(null)
+    setShowClientSuggestions(false)
+    setAutoFilledBadge(false)
+    clearTempCalculatorState()
+    saveLocal("ll_calc_state", null)
+  }
 
   // Saved clients directory integration
   const [savedClients, setSavedClients] = useState(() => loadClients())
@@ -2197,7 +2230,17 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   }
 
   // Handle Save Quote
-  const handleSaveQuote = () => {
+  const handleSaveQuote = async () => {
+    if (!isEdit) {
+      const limitCheck = typeof checkPlanLimit === "function" ? checkPlanLimit("ordersPerMonth") : { exceeded: false }
+      if (limitCheck.exceeded) {
+        if (typeof notifyPlanLimitReached === "function") {
+          notifyPlanLimitReached(limitCheck)
+        }
+        return
+      }
+    }
+
     const isGS = orderPurpose === "gift" || orderPurpose === "sample"
     if (!isGS && !clientName.trim()) {
       alert("Please enter a client name at the top of the page.")
@@ -2248,6 +2291,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       const deliv = getDeliveryDetails(it, idx)
       return {
         ...it,
+        price: getItemPrice(it),
         deliveryDate: deliv.date,
         collectionTime: deliv.time,
         deliveryDetailsText: deliv.text,
@@ -2318,24 +2362,44 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     const updated = isEdit && editId
       ? existing.map(q => q.id === editId ? { ...quote, id: editId, status: q.status || "pending", confirmedAt: q.confirmedAt || null, isProd: false } : q)
       : [quote, ...existing]
-    saveQuotes(updated)
+    
+    try {
+      await saveQuotes(updated)
+    } catch (saveErr) {
+      console.warn("Quote save prevented:", saveErr)
+      return
+    }
 
     if (clientName && clientName.trim()) {
       upsertClient(clientName, clientPhone, "", "", generalNote, hasSpecialEvent ? clientBirthday : "").catch(console.error)
     }
-    clearTempCalculatorState()
+
+    // Keep snapshot of the saved quote so WhatsApp and Quotes links remain accessible
+    setLastSavedQuote(quote)
     setQuoteSaved(true)
+
+    // Automatically clear the calculator so the user can insert fresh new details immediately
+    resetCalculator(false)
   }
 
-  // WhatsApp sender
-  const handleSendWhatsApp = () => {
-    const phone = clientPhone.replace(/[^0-9]/g, "").replace(/^0/, "234")
+  // WhatsApp sender (uses saved quote snapshot if available, falling back to current form inputs)
+  const handleSendWhatsApp = (targetQuote = lastSavedQuote) => {
+    const q = targetQuote || {
+      clientPhone,
+      clientName,
+      items,
+      generalNote,
+      grandTotal
+    }
+    const rawPhone = q.clientPhone || ""
+    const phone = rawPhone.replace(/[^0-9]/g, "").replace(/^0/, "234")
     const co = loadCompany()
 
-    const itemBlocks = items.map((it, idx) => {
-      const price = getItemPrice(it)
-      const deliv = getDeliveryDetails(it, idx)
-      const delivLine = `\n  📅 Delivery: ${deliv.text}`
+    const qItems = q.items || items || []
+    const itemBlocks = qItems.map((it, idx) => {
+      const price = it.price !== undefined ? it.price : getItemPrice(it)
+      const delivText = it.deliveryDetailsText || getDeliveryDetails(it, idx).text
+      const delivLine = `\n  📅 Delivery: ${delivText}`
       const photoLine = (it.photos?.length || it.photo) ? `\n  🖼️ Inspiration: ${(it.photos?.length || 1)} photo${(it.photos?.length || 1) > 1 ? "s" : ""} attached` : ""
 
       if (it.type === "cake") {
@@ -2353,23 +2417,160 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       }
     }).join("\n\n")
 
-    const genNotePart = generalNote ? `\n\nGeneral note: ${generalNote}` : ""
-    const hasMultipleDates = items.some((it, idx) => idx > 0 && !it.sameDeliveryAsFirst && it.deliveryDate && it.deliveryDate !== items[0]?.deliveryDate)
+    const genNotePart = q.generalNote ? `\n\nGeneral note: ${q.generalNote}` : ""
+    const hasMultipleDates = qItems.some((it, idx) => idx > 0 && !it.sameDeliveryAsFirst && it.deliveryDate && it.deliveryDate !== qItems[0]?.deliveryDate)
     const deliveryPart = hasMultipleDates
       ? `\n\n📅 Delivery Schedule: Multi-date delivery (see individual cake dates above)`
-      : (items[0]?.deliveryDate ? `\n\n📅 Delivery / Collection: ${items[0].deliveryDate}${items[0].collectionTime ? ` @ ${items[0].collectionTime}` : ""}` : "")
+      : (qItems[0]?.deliveryDate ? `\n\n📅 Delivery / Collection: ${qItems[0].deliveryDate}${qItems[0].collectionTime ? ` @ ${qItems[0].collectionTime}` : ""}` : "")
 
-    const msg = `Hello ${clientName || "there"}! Here is your quote from ${co.name || "our bakery"}:\n\n${itemBlocks}${deliveryPart}${genNotePart}\n\n━━━━━━━━━━━━━━━━━━━━\nTotal: ₦${grandTotal.toLocaleString()}\n━━━━━━━━━━━━━━━━━━━━\n\nPlease confirm to proceed. Deposit required. Thank you for choosing ${co.name || "us"}!`
+    const totalToDisplay = q.grandTotal !== undefined ? q.grandTotal : grandTotal
+    const msg = `Hello ${q.clientName || "there"}! Here is your quote from ${co.name || "our bakery"}:\n\n${itemBlocks}${deliveryPart}${genNotePart}\n\n━━━━━━━━━━━━━━━━━━━━\nTotal: ₦${totalToDisplay.toLocaleString()}\n━━━━━━━━━━━━━━━━━━━━\n\nPlease confirm to proceed. Deposit required. Thank you for choosing ${co.name || "us"}!`
 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank")
   }
 
   return (
     <div>
-      <SHead
-        title="Order Calculator"
-        sub="Build a multi-cake & pastry quote for your client — all items consolidated into one unified quote and invoice."
-      />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <SHead
+          title="Order Calculator"
+          sub="Build a multi-cake & pastry quote for your client — all items consolidated into one unified quote and invoice."
+        />
+        <button
+          type="button"
+          onClick={() => resetCalculator(true)}
+          title="Clear all calculator fields and start a fresh quote"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            background: "#FAF6EC",
+            border: "1.2px solid var(--cream-line, #E3D6B3)",
+            color: "var(--gold)",
+            padding: "8px 14px",
+            borderRadius: 8,
+            fontSize: 12.5,
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.15s"
+          }}
+        >
+          <RotateCcw size={14} /> Clear / New Quote
+        </button>
+      </div>
+
+      {/* TOP NOTIFICATION BANNER IF QUOTA EXCEEDED */}
+      {quoteLimitCheck?.exceeded && !isEdit && (
+        <div style={{
+          marginBottom: 16,
+          background: "#FFF4E5",
+          border: "1.5px solid #FFE2B8",
+          borderRadius: 10,
+          padding: "12px 16px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 10
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#8A4E00" }}>
+            <AlertTriangle size={18} color="#D97706" style={{ flexShrink: 0 }} />
+            <span>
+              <strong>Monthly Order &amp; Quote Quota Reached:</strong> You have recorded {quoteLimitCheck.currentCount} of {quoteLimitCheck.limit} orders/quotes on the Free plan this month.
+            </span>
+          </div>
+          <Btn
+            small
+            onClick={() => {
+              if (typeof notifyPlanLimitReached === "function") {
+                notifyPlanLimitReached(quoteLimitCheck)
+              }
+            }}
+          >
+            Upgrade to Standard
+          </Btn>
+        </div>
+      )}
+
+      {/* TOP NOTIFICATION BANNER AFTER SAVING */}
+      {quoteSaved && lastSavedQuote && (
+        <div style={{
+          marginBottom: 16,
+          background: "#E1F5EE",
+          border: "1.5px solid #A3E0C8",
+          borderRadius: 10,
+          padding: "12px 16px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 10
+        }}>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: "#085041", display: "flex", alignItems: "center", gap: 6 }}>
+              <Check size={16} /> Quote saved for {lastSavedQuote.clientName}!
+            </div>
+            <div style={{ fontSize: 12, color: "#145A46", marginTop: 2 }}>
+              Total: <strong>{fmt(lastSavedQuote.grandTotal)}</strong>. Calculator has been cleared for your next order.
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={() => handleSendWhatsApp(lastSavedQuote)}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 7,
+                border: "none",
+                background: "#25D366",
+                color: "#fff",
+                cursor: "pointer",
+                fontSize: 12,
+                fontFamily: "inherit",
+                fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5
+              }}
+            >
+              <MessageCircle size={14} /> Send via WhatsApp
+            </button>
+            <button
+              onClick={() => setView("quotes")}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 7,
+                border: "none",
+                background: "var(--gold)",
+                color: "#fff",
+                cursor: "pointer",
+                fontSize: 12,
+                fontFamily: "inherit",
+                fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5
+              }}
+            >
+              <ClipboardList size={14} /> View in Quotes
+            </button>
+            <button
+              onClick={() => { setQuoteSaved(false); setLastSavedQuote(null); }}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 7,
+                border: "1px solid #B8DEC9",
+                background: "transparent",
+                color: "#085041",
+                cursor: "pointer",
+                fontSize: 12,
+                fontFamily: "inherit"
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* CLIENT DETAILS BLOCK */}
       <Card style={{ marginBottom: 16, background: "var(--cream, #FAF6EC)", border: "1.4px solid var(--cream-line, #E3D6B3)" }}>
@@ -3205,19 +3406,59 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
             )}
 
             {/* SAVE BUTTON */}
-            <Btn full onClick={handleSaveQuote}>
-              {isEdit ? "Update quote" : "Generate & save quote"}
+            {quoteLimitCheck?.exceeded && !isEdit && (
+              <div style={{
+                background: "#FFF4E5",
+                border: "1px solid #FFE2B8",
+                borderRadius: 10,
+                padding: "10px 14px",
+                marginBottom: 10,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#8A4E00" }}>
+                  <AlertTriangle size={16} color="#D97706" style={{ flexShrink: 0 }} />
+                  <span>
+                    <strong>Free Plan Quota Reached:</strong> {quoteLimitCheck.currentCount} of {quoteLimitCheck.limit} orders/quotes used this month. Upgrade to continue.
+                  </span>
+                </div>
+                <Btn
+                  small
+                  onClick={() => {
+                    if (typeof notifyPlanLimitReached === "function") {
+                      notifyPlanLimitReached(quoteLimitCheck)
+                    }
+                  }}
+                >
+                  Upgrade
+                </Btn>
+              </div>
+            )}
+            <Btn
+              full
+              onClick={handleSaveQuote}
+              style={quoteLimitCheck?.exceeded && !isEdit ? {
+                background: "#B8860B",
+                color: "#FFFFFF"
+              } : {}}
+            >
+              {isEdit ? "Update quote" : (quoteLimitCheck?.exceeded ? "🔒 Upgrade to Generate & Save Quote" : "Generate & save quote")}
             </Btn>
 
             {/* AFTER-SAVE ACTIONS */}
-            {quoteSaved ? (
-              <div style={{ marginTop: 10, background: "#E1F5EE", borderRadius: 8, padding: "10px 12px" }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#085041", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                  <Check size={14} /> Quote saved for {clientName}!
+            {quoteSaved && lastSavedQuote ? (
+              <div style={{ marginTop: 10, background: "#E1F5EE", border: "1px solid #B7E4D3", borderRadius: 8, padding: "12px 14px" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#085041", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Check size={14} /> Quote saved for {lastSavedQuote.clientName}!
+                </div>
+                <div style={{ fontSize: 11.5, color: "#0E6251", marginBottom: 10 }}>
+                  Total: <strong>{fmt(lastSavedQuote.grandTotal)}</strong>. Calculator has been cleared for your next order.
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <button
-                    onClick={handleSendWhatsApp}
+                    onClick={() => handleSendWhatsApp(lastSavedQuote)}
                     style={{
                       padding: "7px",
                       borderRadius: 8,
@@ -3247,41 +3488,32 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                       cursor: "pointer",
                       fontSize: 12.5,
                       fontFamily: "inherit",
+                      fontWeight: 600,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                       gap: 6
                     }}
                   >
-                    <ClipboardList size={14} /> View all quotes
+                    <ClipboardList size={14} /> View in Quotes
                   </button>
                   <button
                     onClick={() => {
                       setQuoteSaved(false)
-                      setIsEdit(false)
-                      setEditId(null)
-                      setClientName("")
-                      setClientPhone("")
-                      setGeneralNote("")
-                      setItems([createDefaultCakeItem(1)])
-                      clearTempCalculatorState()
+                      setLastSavedQuote(null)
                     }}
                     style={{
-                      padding: "7px",
+                      padding: "6px",
                       borderRadius: 8,
                       border: "1px solid var(--border)",
                       background: "transparent",
                       color: "var(--muted)",
                       cursor: "pointer",
-                      fontSize: 12.5,
-                      fontFamily: "inherit",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 6
+                      fontSize: 12,
+                      fontFamily: "inherit"
                     }}
                   >
-                    <Calculator size={14} /> Start new quote
+                    Dismiss notification
                   </button>
                 </div>
               </div>

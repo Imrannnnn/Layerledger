@@ -563,7 +563,7 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
     .total{background:#F5F0E4;font-weight:700}
     .sec{margin-top:24px;font-size:14px;font-weight:700;color:#291608;border-bottom:2px solid ${company?.primaryColor || "var(--gold)"};padding-bottom:4px;margin-bottom:10px}
     </style></head><body>
-    ${company?.logo ? `<img src="${company.logo}" style="height:50px;margin-bottom:10px;display:block"/>` : ""}
+    ${(company?.logo || "/Bakewealthlogo.jpeg") ? `<img src="${company?.logo || "/Bakewealthlogo.jpeg"}" style="height:50px;margin-bottom:10px;display:block;object-fit:contain"/>` : ""}
     <h1>${company?.name || "Bakery"} — Monthly Overview</h1>
     <h2>${monthLabel}</h2>
     <div class="grid">

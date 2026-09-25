@@ -51,15 +51,15 @@ export function PlanLimitModal({
     if (message) return message
     switch (limitType) {
       case "ordersPerMonth":
-        return `You have reached your Free plan quota of ${limit || 8} orders this month. Draft quotes remain completely unlimited, but confirming new production orders requires Standard or Premium.`
+        return `You have reached your Free plan quota of ${limit || 8} orders and quotes this month. Generating and saving new quotes or production orders requires upgrading to Standard or Premium.`
       case "recipes":
-        return `You have reached the maximum of ${limit || 10} recipes allowed on your current plan.`
+        return `You have reached the maximum of ${limit || 10} recipes allowed on your current plan. Upgrade to add more recipes.`
       case "inventoryItems":
-        return `You have reached the maximum of ${limit || 50} inventory items on your current plan.`
+        return `You have reached the maximum of ${limit || 50} inventory items on your current plan. Upgrade to add more items.`
       case "clients":
-        return `You have reached the client directory limit (${limit || 20} clients) for your current plan.`
+        return `You have reached the client directory limit (${limit || 20} clients) for your current plan. Upgrade to add more clients.`
       case "staffLogins":
-        return `Your current plan has reached its allowed staff member logins (${limit || 0}).`
+        return `Your current plan has reached its allowed staff member logins (${limit || 0}). Upgrade to add staff accounts.`
       default:
         return "You have reached the capacity limit for this feature on your current subscription plan."
     }

@@ -30,8 +30,16 @@ const authLimiter = rateLimit({
     message: { message: 'Too many login or registration attempts, please try again after 15 minutes' }
 });
 
-app.use(helmet())
+const path = require('path')
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }))
 app.use(cors())
+
+// Serve static assets (Bakewealth logo for email links and web requests)
+app.use(express.static(path.join(__dirname, 'public')))
+const clientPublicPath = path.join(__dirname, '../client/public')
+if (require('fs').existsSync(clientPublicPath)) {
+    app.use(express.static(clientPublicPath))
+}
 
 // Apply rate limiting
 app.use('/api/', apiLimiter)

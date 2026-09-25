@@ -198,7 +198,7 @@ export function printHtmlDocument({ title, contentHtml, company = {}, subtitle =
 <body>
   <div class="header-container">
     <div class="brand-section">
-      ${company?.logo ? `<img src="${company.logo}" class="brand-logo" alt="Logo"/>` : ""}
+      ${(company?.logo || "/Bakewealthlogo.jpeg") ? `<img src="${company?.logo || "/Bakewealthlogo.jpeg"}" class="brand-logo" alt="Logo"/>` : ""}
       <div>
         <div class="biz-name">${company?.name || "BakeWealth Bakery"}</div>
         <div class="biz-sub">

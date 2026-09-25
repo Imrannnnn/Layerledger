@@ -34,7 +34,7 @@ export function Reports({productions,transactions,expenses,company,inventory}){
   const dl=()=>{
     const w=window.open("","_blank")
     w.document.write(`<!DOCTYPE html><html><head><title>P&L ${monthLabel}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;color:#291608;padding:40px;max-width:750px;margin:0 auto}.gold{color:${company.primaryColor||"var(--gold)"}}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:36px}h1{font-size:22px;font-weight:700}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0}.stat{border:1px solid #E0D3BB;border-radius:8px;padding:12px}.sl{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:4px}.sv{font-size:18px;font-weight:bold;color:${company.primaryColor||"var(--gold)"}}table{width:100%;border-collapse:collapse;margin:14px 0}th{background:#EDE5D6;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:#888}td{padding:8px 10px;border-bottom:1px solid #E0D3BB;font-size:13px}.total{font-weight:bold;background:#F5F0E4}.pbox{padding:14px 16px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;margin-top:14px;background:${net>=0?"#E8F5EE":"#FDEBE9"}}.plabel{font-size:15px;font-weight:bold}.pval{font-size:17px;font-weight:bold;color:${net>=0?"#357A52":"#B03A2E"}}@media print{button{display:none}}</style></head><body>
-      <div class="header"><div>${company.logo?`<img src="${company.logo}" style="height:55px;display:block;margin-bottom:8px" alt="logo"/>`:""}
+      <div class="header"><div>${(company?.logo || "/Bakewealthlogo.jpeg")?`<img src="${company?.logo || "/Bakewealthlogo.jpeg"}" style="height:55px;display:block;margin-bottom:8px;object-fit:contain" alt="logo"/>`:""}
       <h1 class="gold">${company.name||"Bakery"}</h1><div style="font-size:13px;color:#888;margin-top:2px">${company.tagline||""}</div></div>
       <div><div style="font-size:22px;font-weight:700;color:#DDD">PROFIT & LOSS</div><div style="font-size:13px;color:#888;margin-top:4px">${monthLabel}</div></div></div>
       <div class="grid">
@@ -84,7 +84,7 @@ export function Reports({productions,transactions,expenses,company,inventory}){
       return found ? (Number(found.openingQty) || 0) : 0
     }
     w.document.write(`<!DOCTYPE html><html><head><title>Stock Statement ${monthLabel2}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;color:#291608;padding:40px;max-width:780px;margin:0 auto}h1{font-size:20px;font-weight:700;color:${company.primaryColor||"var(--gold)"}}h2{font-size:13px;color:#888;font-weight:normal;margin:4px 0 20px}table{width:100%;border-collapse:collapse;margin:14px 0}th{background:#EDE5D6;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:#888}td{padding:8px 10px;border-bottom:1px solid #E0D3BB;font-size:13px}.right{text-align:right}.total{font-weight:bold;background:#F5F0E4}@media print{button{display:none}}</style></head><body>
-      ${company.logo?`<img src="${company.logo}" style="height:50px;display:block;margin-bottom:10px" alt="logo"/>`:""}
+      ${(company?.logo || "/Bakewealthlogo.jpeg")?`<img src="${company?.logo || "/Bakewealthlogo.jpeg"}" style="height:50px;display:block;margin-bottom:10px;object-fit:contain" alt="logo"/>`:""}
       <h1>${company.name||"Bakery"} — Monthly Stock Statement</h1>
       <h2>${monthLabel2}</h2>
       <table>

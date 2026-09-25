@@ -199,6 +199,7 @@ class EmailService {
   wrapTemplate({ preheader = '', heading, content, ctaText, ctaUrl, footerNote = '' }) {
     const appUrl = this.getAppUrl();
     const currentYear = new Date().getFullYear();
+    const logoUrl = `${appUrl}/Bakewealthlogo.jpeg`;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -230,6 +231,19 @@ class EmailService {
       padding: 32px 24px;
       text-align: center;
       border-bottom: 3px solid #c8912a;
+    }
+    .header-logo-link {
+      display: inline-block;
+      text-decoration: none;
+      margin-bottom: 12px;
+    }
+    .header-logo-img {
+      max-height: 58px;
+      width: auto;
+      border: 0;
+      display: block;
+      margin: 0 auto;
+      border-radius: 6px;
     }
     .header-brand {
       font-family: 'Playfair Display', Georgia, serif;
@@ -314,8 +328,11 @@ class EmailService {
     <tr>
       <td align="center" style="padding: 20px 12px;">
         <div class="container">
-          <!-- Header -->
+          <!-- Header with linked logo -->
           <div class="header">
+            <a href="${appUrl}" target="_blank" class="header-logo-link">
+              <img src="${logoUrl}" alt="Bakewealth Logo" class="header-logo-img" />
+            </a>
             <h1 class="header-brand">Bakewealth</h1>
             <div class="header-tagline">Bakery Financial Operating System</div>
           </div>
@@ -333,8 +350,13 @@ class EmailService {
             ${footerNote ? `<p style="font-size: 13px; color: #8C6E52; margin-top: 24px;">${footerNote}</p>` : ''}
           </div>
 
-          <!-- Footer -->
+          <!-- Footer with linked brand mark -->
           <div class="footer">
+            <div style="margin-bottom: 12px;">
+              <a href="${appUrl}" target="_blank" style="text-decoration:none;display:inline-block;">
+                <img src="${logoUrl}" alt="Bakewealth" width="90" style="max-height:32px;width:auto;border:0;display:block;margin:0 auto;opacity:0.9;border-radius:4px;" />
+              </a>
+            </div>
             <p style="margin: 0 0 8px 0; font-weight: 600; color: #291608;">Bakewealth &bull; Financial Intelligence for Artisan Bakeries</p>
             <p style="margin: 0 0 8px 0;">Have questions or need assistance? Reply directly to this email or visit our portal at <a href="${appUrl}">${appUrl}</a>.</p>
             <p style="margin: 0; font-size: 11px; color: #A08872;">&copy; ${currentYear} Bakewealth. All rights reserved.</p>

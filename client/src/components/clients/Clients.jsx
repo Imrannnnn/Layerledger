@@ -6,7 +6,9 @@ import {
   deleteClient,
   fetchPaginatedClients,
   createClientOnServer,
-  updateClientOnServer
+  updateClientOnServer,
+  checkPlanLimit,
+  notifyPlanLimitReached
 } from "../../lib/data.js"
 import { Users, Search, MessageCircle, MapPin, Calculator, Pencil, Trash2, AlertTriangle, Plus, Cake, Heart, CalendarHeart, Download } from "lucide-react"
 import { exportClientsPDF } from "../../lib/pdfReportGenerator.js"
@@ -146,6 +148,16 @@ export function Clients({ setView, company = {} }) {
         setClients(updated)
         await saveClients(updated)
       } else {
+        const limitCheck = typeof checkPlanLimit === "function" ? checkPlanLimit("clients") : { exceeded: false }
+        if (limitCheck.exceeded) {
+          if (typeof notifyPlanLimitReached === "function") {
+            notifyPlanLimitReached(limitCheck)
+          }
+          setErrorMsg(limitCheck.message)
+          setSaving(false)
+          return
+        }
+
         let created = null
         if (typeof createClientOnServer === "function") {
           try {
@@ -157,7 +169,11 @@ export function Clients({ setView, company = {} }) {
               birthday: cleanBirthday,
               notes: formData.notes || ""
             })
-          } catch {}
+          } catch (serverErr) {
+            setErrorMsg(serverErr.message || "Failed to create client on server")
+            setSaving(false)
+            return
+          }
         }
         const newClient = created || {
           id: "cl_" + Date.now(),

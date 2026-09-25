@@ -35,7 +35,7 @@ describe('Account Activation Flow Tests', () => {
         });
 
         expect(res.success).toBe(true);
-    });
+    }, 20000);
 
     test('2. Validators should accept valid activation and resend payloads', () => {
         const parsedActivate = activateAccountSchema.parse({

@@ -210,6 +210,138 @@ export const loadLocal = (key, fallback) => {
   return val
 }
 
+export const checkPlanLimit = (limitType) => {
+  const tenant = loadLocal("ll_tenant_info", null) || {}
+  const planInfo = loadLocal("ll_plan_info", null) || {}
+
+  let plan = (planInfo.plan || tenant.settings?.plan || tenant.plan || "free").toLowerCase()
+  if (planInfo.isExpired) {
+    plan = "free"
+  } else if (tenant.settings?.planExpiresAt) {
+    try {
+      if (new Date(tenant.settings.planExpiresAt).getTime() < Date.now()) {
+        plan = "free"
+      }
+    } catch (e) {}
+  }
+
+  if (plan === "pro" || plan === "studio") plan = "premium"
+  if (plan !== "free" && plan !== "standard" && plan !== "premium") {
+    plan = "free"
+  }
+
+  const limits = {
+    free: {
+      ordersPerMonth: 8,
+      recipes: 10,
+      inventoryItems: 50,
+      clients: 20,
+      staffLogins: 0
+    },
+    standard: {
+      ordersPerMonth: Infinity,
+      recipes: 60,
+      inventoryItems: 250,
+      clients: 150,
+      staffLogins: 2
+    },
+    premium: {
+      ordersPerMonth: Infinity,
+      recipes: Infinity,
+      inventoryItems: Infinity,
+      clients: Infinity,
+      staffLogins: 4
+    }
+  }
+
+  const planLimit = limits[plan]?.[limitType] ?? (plan === "free" ? 8 : Infinity)
+  let currentCount = 0
+
+  if (limitType === "ordersPerMonth") {
+    const now = new Date()
+    const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+    const localQuotes = load("ll_quotes", []) || []
+    const localProds = load("ll_prods", []) || []
+
+    const seenQuoteIds = new Set()
+    let count = 0
+
+    for (const q of localQuotes) {
+      if (!q) continue
+      const d = q.date || q.createdAt
+      if (d && String(d).startsWith(curMonth)) {
+        count++
+        if (q.id) seenQuoteIds.add(q.id)
+      }
+    }
+
+    for (const p of localProds) {
+      if (!p) continue
+      if (p.quoteId && seenQuoteIds.has(p.quoteId)) continue
+      const d = p.orderDate || p.createdAt || p.date
+      if (d && String(d).startsWith(curMonth)) {
+        count++
+      }
+    }
+
+    const serverCount = planInfo.usage?.ordersThisMonth || 0
+    currentCount = Math.max(count, serverCount)
+  } else if (limitType === "recipes") {
+    const localRecipes = load("ll_recipes", []) || []
+    const serverCount = planInfo.usage?.recipesCount ?? planInfo.usage?.recipes ?? 0
+    currentCount = Math.max(localRecipes.length, serverCount)
+  } else if (limitType === "inventoryItems") {
+    const localInv = load("ll_inv", []) || []
+    const serverCount = planInfo.usage?.inventoryCount ?? planInfo.usage?.inventoryItems ?? 0
+    currentCount = Math.max(localInv.length, serverCount)
+  } else if (limitType === "clients") {
+    const localClients = load("ll_clients", []) || []
+    const serverCount = planInfo.usage?.clientsCount ?? planInfo.usage?.clients ?? 0
+    currentCount = Math.max(localClients.length, serverCount)
+  } else if (limitType === "staffLogins") {
+    const localUsers = load("ll_users", []) || []
+    const staffCount = localUsers.filter(u => u && u.role !== "owner").length
+    const serverCount = planInfo.usage?.staffCount ?? planInfo.usage?.staffLogins ?? 0
+    currentCount = Math.max(staffCount, serverCount)
+  }
+
+  const exceeded = planLimit !== Infinity && currentCount >= planLimit
+
+  let message = ""
+  if (exceeded) {
+    switch (limitType) {
+      case "ordersPerMonth":
+        message = `You have reached your Free plan limit of ${planLimit} orders and quotes this month (${currentCount}/${planLimit} used). Upgrade to Standard (₦5,000/mo) to generate and save more quotes and orders.`
+        break
+      case "recipes":
+        message = `You have reached your ${plan} plan limit of ${planLimit} recipes (${currentCount}/${planLimit} used). Upgrade your plan to add more recipes.`
+        break
+      case "inventoryItems":
+        message = `You have reached your ${plan} plan limit of ${planLimit} inventory items (${currentCount}/${planLimit} used). Upgrade your plan to add more inventory items.`
+        break
+      case "clients":
+        message = `You have reached your ${plan} plan limit of ${planLimit} clients (${currentCount}/${planLimit} used). Upgrade your plan to add more clients.`
+        break
+      case "staffLogins":
+        message = `Staff accounts are only available on the Standard plan (up to 2 staff) or Premium plan (up to 4 staff). Upgrade to add team members.`
+        break
+      default:
+        message = `Your current plan limit has been reached for this feature. Please upgrade to continue.`
+    }
+  }
+
+  return {
+    exceeded,
+    limitType,
+    limit: planLimit,
+    currentCount,
+    plan,
+    upgradePlan: plan === "free" ? "standard" : "premium",
+    upgradePrice: plan === "free" ? 5000 : 10000,
+    message
+  }
+}
+
 const save = async (key, val) => {
   try {
     cache[key] = val
@@ -803,28 +935,7 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
       ...safeQuotes.map(q => ({ ...q, isProd: false }))
     ]
 
-    // Only delete orders if local state has loaded items to prevent accidental mass deletion
-    const quotesLoaded = safeQuotes.length > 0 || !!cache["_quotes_synced"]
-    const prodsLoaded = safeProds.length > 0 || !!cache["_prods_synced"]
-
-    const ordersToDelete = serverOrders.filter(sOrder => {
-      const isQuote = sOrder.status === "quote" || sOrder.metadata?.isProd === false
-      if (isQuote) {
-        // Only delete quotes if quotes list is loaded and this quote was explicitly removed
-        return quotesLoaded && !combinedLocal.some(o => o.id === sOrder.id)
-      } else {
-        // Only delete productions if prods list is loaded and this prod was explicitly removed
-        return prodsLoaded && !combinedLocal.some(o => o.id === sOrder.id)
-      }
-    })
-
-    if (ordersToDelete.length > 0) {
-      await Promise.allSettled(
-        ordersToDelete.map(sOrder =>
-          fetchWithTimeout(`${apiUrl}/api/orders/${sOrder.id}`, { method: "DELETE", headers }).catch(() => {})
-        )
-      )
-    }
+    // Create/Update only if changed (deletions are handled explicitly via direct database calls)
 
     // Create/Update only if changed
     for (const o of combinedLocal) {
@@ -1717,6 +1828,13 @@ export const clearTempCalculatorState = () => {
     } catch (e) {
       /* ignore error */
     }
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.removeItem(k)
+      }
+    } catch (e) {
+      /* ignore error */
+    }
   })
 }
 
@@ -2084,6 +2202,11 @@ export const fetchFreshInventoryFromServer = async () => {
 }
 
 export const createInventoryItemOnServer = async (item) => {
+  const limitCheck = checkPlanLimit("inventoryItems")
+  if (limitCheck.exceeded) {
+    notifyPlanLimitReached(limitCheck)
+    throw new Error(limitCheck.message)
+  }
   const headers = getAuthHeaders()
   if (!headers) throw new Error("You are not logged in. Please log in to save items directly to the database.")
   const apiUrl = import.meta.env.VITE_API_URL
@@ -2204,6 +2327,16 @@ export const saveProductionsList = async (data) => {
 export const saveProduction = async (prod) => {
   const all = load("ll_prods", [])
   const exists = all.find(p => p.id === prod.id)
+  if (!exists) {
+    const isFromExistingQuote = prod.fromQuote && prod.quoteId && (load("ll_quotes", []) || []).some(q => q.id === prod.quoteId)
+    if (!isFromExistingQuote) {
+      const limitCheck = checkPlanLimit("ordersPerMonth")
+      if (limitCheck.exceeded) {
+        notifyPlanLimitReached(limitCheck)
+        throw new Error(limitCheck.message)
+      }
+    }
+  }
   const updated = exists ? all.map(p => p.id === prod.id ? prod : p) : [...all, prod]
   await saveProductionsList(updated)
 }
@@ -2239,12 +2372,22 @@ export const loadCompany = () => load("ll_co", {
   pin: "1234",
   primaryColor: "#f6ae13",
   sidebarColor: "#0a0a0a",
+  logo: "/Bakewealthlogo.jpeg"
 })
 export const saveCompany = async (data) => await save("ll_co", data)
 
 // Quotes
 export const loadQuotes = (def = []) => load("ll_quotes", def)
 export const saveQuotes = async (data) => {
+  const currentQuotes = load("ll_quotes", [])
+  const isAddingNew = Array.isArray(data) && data.some(q => q && q.id && !currentQuotes.some(cq => cq.id === q.id))
+  if (isAddingNew) {
+    const limitCheck = checkPlanLimit("ordersPerMonth")
+    if (limitCheck.exceeded) {
+      notifyPlanLimitReached(limitCheck)
+      throw new Error(limitCheck.message)
+    }
+  }
   cache["ll_quotes"] = data
   lastSyncedValues["ll_quotes"] = JSON.stringify(data)
   if (typeof window !== "undefined" && window.localStorage) {
@@ -2255,18 +2398,52 @@ export const saveQuotes = async (data) => {
   await syncOrdersList(headers, load("ll_prods", []), data, load("ll_inv", []), load("ll_recipes", []))
 }
 
+export const deleteOrderOnServer = async (id) => {
+  if (!id) return false
+  try {
+    const apiUrl = import.meta.env.VITE_API_URL
+    if (!apiUrl) return false
+    const headers = getAuthHeaders()
+    if (!headers) return false
+    const res = await fetchWithTimeout(`${apiUrl}/api/orders/${id}`, {
+      method: "DELETE",
+      headers
+    })
+    return res.ok
+  } catch (err) {
+    console.warn("Direct delete order notice:", err)
+    return false
+  }
+}
+
 // Invoices
 export const loadInvoices = () => load("ll_invoices", [])
 export const saveInvoice = async (data) => await save("ll_invoices", data)
 
 // Users
 export const loadUsers = () => load("ll_users", [{ id: "u1", name: "Owner", pin: "1234", role: "owner" }])
-export const saveUsers = async (data) => await save("ll_users", data)
+export const saveUsers = async (data) => {
+  const currentUsers = loadUsers()
+  const isAddingNewStaff = Array.isArray(data) && data.some(u => u && u.id && u.role !== "owner" && !currentUsers.some(cu => cu.id === u.id))
+  if (isAddingNewStaff) {
+    const limitCheck = checkPlanLimit("staffLogins")
+    if (limitCheck.exceeded) {
+      notifyPlanLimitReached(limitCheck)
+      throw new Error(limitCheck.message)
+    }
+  }
+  return await save("ll_users", data)
+}
 
 // Recipes
 export const loadRecipes = () => load("ll_recipes", null)
 
 export const createRecipeOnServer = async (rec) => {
+  const limitCheck = checkPlanLimit("recipes")
+  if (limitCheck.exceeded) {
+    notifyPlanLimitReached(limitCheck)
+    throw new Error(limitCheck.message)
+  }
   const headers = getAuthHeaders()
   if (!headers) throw new Error("You are not logged in. Please log in to save recipes directly to the database.")
   const apiUrl = import.meta.env.VITE_API_URL
@@ -2370,6 +2547,15 @@ export const deleteRecipeOnServer = async (id) => {
 }
 
 export const saveRecipes = async (data) => {
+  const curRecs = load("ll_recipes", []) || []
+  const isAddingNew = Array.isArray(data) && data.some(r => r && r.id && !curRecs.some(cr => cr.id === r.id))
+  if (isAddingNew) {
+    const limitCheck = checkPlanLimit("recipes")
+    if (limitCheck.exceeded) {
+      notifyPlanLimitReached(limitCheck)
+      throw new Error(limitCheck.message)
+    }
+  }
   cache["ll_recipes"] = data
   const headers = getAuthHeaders()
   if (!headers) return
@@ -2378,7 +2564,18 @@ export const saveRecipes = async (data) => {
 
 // Clients
 export const loadClients = () => load("ll_clients", [])
-export const saveClients = async (data) => await save("ll_clients", data)
+export const saveClients = async (data) => {
+  const currentClients = loadClients()
+  const isAddingNew = Array.isArray(data) && data.some(c => c && c.id && !currentClients.some(cc => cc.id === c.id))
+  if (isAddingNew) {
+    const limitCheck = checkPlanLimit("clients")
+    if (limitCheck.exceeded) {
+      notifyPlanLimitReached(limitCheck)
+      throw new Error(limitCheck.message)
+    }
+  }
+  return await save("ll_clients", data)
+}
 export const upsertClient = async (name, phone = "", email = "", address = "", notes = "", birthday = "") => {
   if (!name || !name.trim()) return null
   const cleanName = name.trim()
@@ -2404,6 +2601,11 @@ export const upsertClient = async (name, phone = "", email = "", address = "", n
     }
     updatedList = all.map(c => c.id === existing.id ? targetClient : c)
   } else {
+    const limitCheck = checkPlanLimit("clients")
+    if (limitCheck.exceeded) {
+      notifyPlanLimitReached(limitCheck)
+      throw new Error(limitCheck.message)
+    }
     targetClient = {
       id: "cl_" + Date.now(),
       name: cleanName,
@@ -2499,25 +2701,27 @@ export const fetchPaginatedClients = async ({ page = 1, limit = 25, search = "" 
 }
 
 export const createClientOnServer = async (clientData) => {
+  const limitCheck = checkPlanLimit("clients")
+  if (limitCheck.exceeded) {
+    notifyPlanLimitReached(limitCheck)
+    throw new Error(limitCheck.message)
+  }
   const apiUrl = import.meta.env.VITE_API_URL
   const headers = getAuthHeaders()
   if (apiUrl && headers) {
-    try {
-      const res = await fetch(`${apiUrl}/api/clients`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(clientData)
-      })
-      if (res.ok) {
-        return await res.json()
-      } else {
-        const err = await res.json().catch(() => ({}))
-        if (res.status === 403 || err.code === "PLAN_LIMIT_REACHED" || (err.message && err.message.includes("limit reached"))) {
-          notifyPlanLimitReached({ limitType: "clients", ...err })
-        }
+    const res = await fetch(`${apiUrl}/api/clients`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(clientData)
+    })
+    if (res.ok) {
+      return await res.json()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      if (res.status === 403 || err.code === "PLAN_LIMIT_REACHED" || (err.message && err.message.includes("limit reached"))) {
+        notifyPlanLimitReached({ limitType: "clients", ...err })
       }
-    } catch (e) {
-      console.warn("createClientOnServer error:", e)
+      throw new Error(err.message || `Failed to create client on server (${res.status})`)
     }
   }
   return null
@@ -3269,6 +3473,13 @@ export const fetchPlanInfo = async () => {
   if (!apiUrl || !headers) {
     const tenant = loadLocal("ll_tenant_info", null) || {}
     const plan = (tenant.settings?.plan || "free").toLowerCase()
+    const localRecipes = load("ll_recipes", []) || []
+    const localInv = load("ll_inv", []) || []
+    const localClients = load("ll_clients", []) || []
+    const localStaff = (load("ll_users", []) || []).filter(u => u && u.role !== "owner")
+    const orderLimit = checkPlanLimit("ordersPerMonth")
+    const ordersThisMonth = orderLimit.currentCount
+
     return {
       plan,
       isExpired: false,
@@ -3282,11 +3493,15 @@ export const fetchPlanInfo = async () => {
         staffLogins: plan === "free" ? 0 : (plan === "standard" ? 2 : 4)
       },
       usage: {
-        ordersThisMonth: 0,
-        recipes: 0,
-        inventoryItems: 0,
-        clients: 0,
-        staffLogins: 0
+        ordersThisMonth,
+        recipes: localRecipes.length,
+        recipesCount: localRecipes.length,
+        inventoryItems: localInv.length,
+        inventoryCount: localInv.length,
+        clients: localClients.length,
+        clientsCount: localClients.length,
+        staffLogins: localStaff.length,
+        staffCount: localStaff.length
       }
     }
   }
@@ -3295,6 +3510,16 @@ export const fetchPlanInfo = async () => {
     const res = await fetch(`${apiUrl}/api/plans/current`, { headers })
     if (res.ok) {
       const data = await res.json()
+      if (data && data.usage) {
+        data.usage.recipesCount = data.usage.recipesCount ?? data.usage.recipes ?? 0
+        data.usage.recipes = data.usage.recipes ?? data.usage.recipesCount ?? 0
+        data.usage.inventoryCount = data.usage.inventoryCount ?? data.usage.inventoryItems ?? 0
+        data.usage.inventoryItems = data.usage.inventoryItems ?? data.usage.inventoryCount ?? 0
+        data.usage.clientsCount = data.usage.clientsCount ?? data.usage.clients ?? 0
+        data.usage.clients = data.usage.clients ?? data.usage.clientsCount ?? 0
+        data.usage.staffCount = data.usage.staffCount ?? data.usage.staffLogins ?? 0
+        data.usage.staffLogins = data.usage.staffLogins ?? data.usage.staffCount ?? 0
+      }
       saveLocal("ll_plan_info", data)
       if (typeof data.tokenBalance === "number") {
         const tenant = loadLocal("ll_tenant_info", null) || {}
