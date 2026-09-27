@@ -28,6 +28,42 @@ const PAY = {
   premium: { 1: "", 3: "", 6: "", 12: "" }
 }
 
+export const CREDIT_PACKS = [
+  {
+    id: "small",
+    name: "Small Pack",
+    price: 3000,
+    credits: 20,
+    scans: 10,
+    statements: 4,
+    popular: false,
+    tagline: "Ideal for occasional top-ups",
+    description: "Roughly 10 receipt scans or 4 bank statement imports."
+  },
+  {
+    id: "medium",
+    name: "Medium Pack",
+    price: 6500,
+    credits: 50,
+    scans: 25,
+    statements: 10,
+    popular: true,
+    tagline: "Best value for active bakers",
+    description: "Roughly 25 receipt scans or 10 bank statement imports."
+  },
+  {
+    id: "large",
+    name: "Large Pack",
+    price: 14000,
+    credits: 120,
+    scans: 60,
+    statements: 24,
+    popular: false,
+    tagline: "Maximum credit efficiency",
+    description: "Roughly 60 receipt scans or 24 bank statement imports."
+  }
+]
+
 export function HomePage({
   onLoginClick,
   onRegisterClick,
@@ -851,26 +887,71 @@ export function HomePage({
           gap: 16px;
         }
         .bw-home-root .pack {
-          border: 1px solid var(--line);
-          border-radius: 14px;
-          padding: 20px;
+          background: var(--card);
+          border: 1.5px solid var(--line);
+          border-radius: 16px;
+          padding: 24px 20px;
           text-align: center;
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+        .bw-home-root .pack:hover {
+          border-color: var(--gold-soft);
+          box-shadow: 0 8px 24px rgba(59, 35, 23, 0.06);
+        }
+        .bw-home-root .pack.popular {
+          border-color: var(--gold);
+          background: rgba(185, 139, 50, 0.03);
+          box-shadow: 0 10px 30px -15px rgba(185, 139, 50, 0.35);
+        }
+        .bw-home-root .pack-badge {
+          position: absolute;
+          top: -11px;
+          right: 16px;
+          background: var(--gold);
+          color: #FFF6EA;
+          font-size: 10px;
+          font-weight: 700;
+          padding: 2px 10px;
+          border-radius: 999px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
         }
         .bw-home-root .pack .nm {
           font-weight: 700;
-          font-size: 16px;
+          font-size: 17px;
+          color: var(--ink);
+        }
+        .bw-home-root .pack .pr {
+          font-family: "Bricolage Grotesque", sans-serif;
+          font-size: 28px;
+          font-weight: 800;
+          color: var(--gold);
+          margin: 6px 0 2px;
+          line-height: 1.1;
         }
         .bw-home-root .pack .cr {
           font-family: "Bricolage Grotesque", sans-serif;
-          font-size: 26px;
-          font-weight: 800;
-          color: var(--gold);
-          margin: 8px 0 2px;
+          font-size: 18px;
+          font-weight: 700;
+          color: var(--ink);
+          margin: 4px 0 2px;
         }
         .bw-home-root .pack .sc {
-          font-size: 13px;
+          font-size: 12.5px;
           color: var(--ink-soft);
-          margin-bottom: 14px;
+          margin-bottom: 6px;
+          line-height: 1.4;
+        }
+        .bw-home-root .pack .desc {
+          font-size: 12px;
+          color: var(--ink-faint);
+          margin-bottom: 18px;
+          line-height: 1.4;
+          min-height: 34px;
         }
         .bw-home-root .arith {
           background: var(--bg-alt);
@@ -881,8 +962,9 @@ export function HomePage({
           color: var(--ink-soft);
           display: flex;
           gap: 12px;
+          align-items: flex-start;
         }
-        .bw-home-root .arith b {
+        .bw-home-root .arith strong {
           color: var(--ink);
         }
 
@@ -1488,22 +1570,86 @@ export function HomePage({
 
           <p className="dur-note">Stackable anytime. Buy more months whenever you like and they add to what you have.</p>
 
+          {/* FREE PLAN AI & USAGE HIGHLIGHT BANNER */}
+          <div style={{
+            background: "#FAF7F0",
+            border: "1.5px dashed var(--gold)",
+            borderRadius: 14,
+            padding: "16px 20px",
+            marginBottom: 28,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 14
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 280 }}>
+              <div style={{
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                background: "rgba(185, 139, 50, 0.15)",
+                color: "var(--gold)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 800,
+                fontSize: 20,
+                flexShrink: 0
+              }}>
+                ✦
+              </div>
+              <div>
+                <strong style={{ fontSize: 15, color: "var(--ink)", display: "block" }}>
+                  What the Free Plan Entails: Free Forever with 10 Bonus AI Scans
+                </strong>
+                <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>
+                  Start free with <strong>8 orders/mo</strong>, <strong>10 costed recipes</strong>, <strong>50 inventory items</strong>, <strong>20 clients</strong>, and <strong>10 free AI receipt scans (20 credits)</strong> upon registration. Run automated bookkeeping, generate invoices, view full P&amp;L reports, and top up scan packs anytime without subscribing!
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ padding: "9px 20px", fontSize: 13.5, flexShrink: 0 }}
+              onClick={() => onRegisterClick ? onRegisterClick("free") : handleChoosePlan("free")}
+            >
+              Get Started Free ↗
+            </button>
+          </div>
+
           <div className="plans">
             {/* FREE PLAN */}
             <div className="plan">
+              <div className="ribbon" style={{ background: "#E8F3EC", color: "#1E6B45" }}>
+                10 FREE AI SCANS INCLUDED
+              </div>
               <h3>Free</h3>
-              <p className="tagline">Explore BakeWealth without commitments. Upgrade anytime.</p>
+              <p className="tagline">Explore BakeWealth without commitments. Upgrade or top up anytime.</p>
               <div className="price-box">
                 <div className="price">₦0</div>
-                <div className="price-sub">No card needed</div>
+                <div className="price-sub">No card needed · Free forever</div>
               </div>
+
+              {/* Free AI & Quota Highlight Callout */}
+              <div style={{ background: "#F6FBF7", border: "1px solid #C6E7D2", borderRadius: 10, padding: "10px 12px", margin: "0 0 16px", fontSize: 12.5, color: "#1B5E38", lineHeight: 1.45 }}>
+                <strong style={{ display: "block", color: "#166534", marginBottom: 3, fontWeight: 700 }}>
+                  ✦ AI &amp; Scan Usage on Free:
+                </strong>
+                Get <strong>10 free receipt scans (20 AI credits)</strong> immediately upon registration. Need more scans? Buy credit packs whenever you want — no subscription required!
+              </div>
+
               <ul>
-                <li><span className="tick">✓</span><span>Orders: <b>limited</b></span></li>
-                <li><span className="tick">✓</span><span>Recipes: <b>limited</b></span></li>
-                <li><span className="tick">✓</span><span>Inventory: <b>limited</b></span></li>
-                <li><span className="tick">✓</span><span>Client records: <b>limited</b></span></li>
-                <li><span className="tick">✓</span><span>Invoices with BakeWealth mark</span></li>
-                <li><span className="tick">✓</span><span>See how it fits your business before you spend anything</span></li>
+                <li><span className="tick">✓</span><span>AI Allowance: <b>10 free starter scans</b> (20 credits bonus)</span></li>
+                <li><span className="tick">✓</span><span>AI Rates: <b>2 credits</b> / receipt, <b>5 credits</b> / statement</span></li>
+                <li><span className="tick">✓</span><span>Top-up Scans: <b>Credit packs anytime</b> (credits never expire)</span></li>
+                <li><span className="tick">✓</span><span>Orders: <b>8 / month</b></span></li>
+                <li><span className="tick">✓</span><span>Recipes: <b>10 recipes</b></span></li>
+                <li><span className="tick">✓</span><span>Inventory items: <b>50 items</b></span></li>
+                <li><span className="tick">✓</span><span>Client records: <b>20 clients</b></span></li>
+                <li><span className="tick">✓</span><span>Staff logins: <b>1 user</b> (Owner account)</span></li>
+                <li><span className="tick">✓</span><span>Invoices carry the BakeWealth mark</span></li>
+                <li><span className="tick">✓</span><span>Accounting: <b>Full P&amp;L &amp; Balance Sheet reports</b></span></li>
               </ul>
               <button
                 type="button"
@@ -1592,56 +1738,47 @@ export function HomePage({
 
           {/* CREDIT PACKS */}
           <div className="packs">
-            <h3>Scan and import credit packs</h3>
-            <p>
-              Run out of scans before the month is up? Top up without changing your plan.
-              A receipt costs 2 credits. A bank statement costs 5.
-            </p>
-            <div className="pack-grid">
-              <div className="pack">
-                <div className="nm">Small</div>
-                <div className="cr">30 credits</div>
-                <div className="sc">About 15 receipts</div>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-block"
-                  onClick={() => currentUser ? (onGoToDashboard && onGoToDashboard()) : onRegisterClick && onRegisterClick()}
-                >
-                  Buy credits
-                </button>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
+              <div>
+                <h3>Scan and import credit packs</h3>
+                <p style={{ margin: "4px 0 0", color: "var(--ink-soft)", fontSize: 15 }}>
+                  For free users, and for paid users who need more scans than their prepaid plan includes. Credits never expire.
+                </p>
               </div>
-              <div className="pack">
-                <div className="nm">Medium</div>
-                <div className="cr">90 credits</div>
-                <div className="sc">About 45 receipts</div>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-block"
-                  onClick={() => currentUser ? (onGoToDashboard && onGoToDashboard()) : onRegisterClick && onRegisterClick()}
-                >
-                  Buy credits
-                </button>
-              </div>
-              <div className="pack">
-                <div className="nm">Large</div>
-                <div className="cr">200 credits</div>
-                <div className="sc">About 100 receipts</div>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-block"
-                  onClick={() => currentUser ? (onGoToDashboard && onGoToDashboard()) : onRegisterClick && onRegisterClick()}
-                >
-                  Buy credits
-                </button>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#1E6B45", background: "#E8F3EC", padding: "6px 14px", borderRadius: 999, fontWeight: 600 }}>
+                <span>✓</span>
+                <span>1 Receipt = 2 Credits • 1 Statement = 5 Credits</span>
               </div>
             </div>
 
+            <div className="pack-grid">
+              {CREDIT_PACKS.map(pack => (
+                <div key={pack.id} className={`pack ${pack.popular ? "popular" : ""}`}>
+                  {pack.popular && (
+                    <div className="pack-badge">Best Value</div>
+                  )}
+                  <div>
+                    <div className="nm">{pack.name}</div>
+                    <div className="pr">₦{fmt(pack.price)}</div>
+                    <div className="cr">{pack.credits} Credits</div>
+                    <div className="sc">~{pack.scans} receipt scans or {pack.statements} bank statements</div>
+                    <div className="desc">{pack.description}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className={`btn ${pack.popular ? "btn-gold" : "btn-ghost"} btn-block`}
+                    onClick={() => currentUser ? (onGoToDashboard && onGoToDashboard("credits")) : (onRegisterClick && onRegisterClick())}
+                  >
+                    {currentUser ? "Buy credits" : "Get started"}
+                  </button>
+                </div>
+              ))}
+            </div>
+
             <div className="arith">
-              <span>⚡</span>
+              <span style={{ fontSize: 22, lineHeight: 1 }}>⚡</span>
               <div>
-                <b>Worth knowing.</b> A Standard baker who runs out of scans
-                and buys a Medium pack ends up above the Premium price, for fewer scans and tighter limits.
-                If you scan often, Premium is usually the cheaper answer.
+                <strong>The Premium Arithmetic:</strong> A Standard baker who runs out of scans and buys a Medium pack spends <strong>₦11,500</strong> (₦5,000 plan + ₦6,500 pack) for 45 scans with plan limits. <strong>Premium is only ₦10,000 for 80 scans</strong> with unlimited recipes, inventory items, and clients. Cheaper, with nearly double the scans!
               </div>
             </div>
           </div>

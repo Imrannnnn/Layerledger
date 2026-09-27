@@ -6,7 +6,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, Card, SHead, TH, TR2, Alert } from "../common/ui.jsx"
-import { fmt, isDateInMonth } from "../../lib/helpers.js"
+import { fmt, fmtCost, isDateInMonth } from "../../lib/helpers.js"
 import { loadLocal, calculateOrderUsages, loadOpeningStock } from "../../lib/data.js"
 import { Download } from "lucide-react"
 
@@ -122,7 +122,7 @@ export function StockStatement({inventory, productions = [], expenses = [], comp
       const bought = getBought(item.id)
       const used = getUsed(item.id)
       const closing = Math.max(0, parseFloat((opening + bought - used).toFixed(3)))
-      return`<tr><td>${item.name}</td><td>${unit}</td><td class="right">${opening} ${unit}</td><td class="right" style="color:#1D9E75">+${bought} ${unit}</td><td class="right" style="color:#B03A2E">−${used.toFixed(2)} ${unit}</td><td class="right"><strong>${closing} ${unit}</strong></td><td class="right">₦${Math.round(cost).toLocaleString()}</td></tr>`
+      return`<tr><td>${item.name}</td><td>${unit}</td><td class="right">${opening} ${unit}</td><td class="right" style="color:#1D9E75">+${bought} ${unit}</td><td class="right" style="color:#B03A2E">−${used.toFixed(2)} ${unit}</td><td class="right"><strong>${closing} ${unit}</strong></td><td class="right">${fmtCost(cost)}</td></tr>`
     }).join("")}
     <tr class="total"><td colspan="5" class="right">Total closing stock value</td><td class="right" colspan="2" style="color:${company.primaryColor||"var(--gold)"};font-size:15px">₦${Math.round(inventory.reduce((s,i)=>{
       const f = osItems.find(x => x.id === i.id)
@@ -184,7 +184,7 @@ export function StockStatement({inventory, productions = [], expenses = [], comp
             <span style={{color:"#357A52",fontWeight:500}}>+{bought} {unit}</span>,
             <span style={{color:"#B03A2E"}}>−{used} {unit}</span>,
             <span style={{fontWeight:600,color:closing<=(item.minStock||5)?"#B03A2E":"#357A52"}}>{closing} {unit}</span>,
-            <span style={{color:"var(--gold)"}}>{fmt(cost)}/{unit}</span>,
+            <span style={{color:"var(--gold)"}}>{fmtCost(cost)}/{unit}</span>,
             <span style={{fontWeight:500}}>{fmt(closing*cost)}</span>,
           ]}/>
         })}</tbody>

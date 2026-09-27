@@ -293,6 +293,9 @@ export function exportInventoryPDF(inventory = [], company = {}) {
           const minStock = item.minStock !== undefined && item.minStock !== null && item.minStock !== "" && !isNaN(Number(item.minStock)) ? Number(item.minStock) : 5
           const cost = Number(item.cost) || 0
           const val = stock * cost
+          const stockDisplay = Number.isInteger(stock) ? stock.toLocaleString() : stock
+          const costDisplay = cost % 1 !== 0 ? `₦${cost.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : fmt(cost)
+          const valDisplay = val % 1 !== 0 && val < 100 ? `₦${val.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : fmt(val)
           let statusBadge = `<span class="badge badge-green">In Stock</span>`
           if (stock === 0) {
             statusBadge = `<span class="badge badge-red">Out of Stock</span>`
@@ -306,10 +309,10 @@ export function exportInventoryPDF(inventory = [], company = {}) {
               <td class="bold">${item.name || "—"}</td>
               <td>${mapCategory(item.cat, item.name)}</td>
               <td>${item.unit || "kg"}</td>
-              <td class="right bold">${stock.toLocaleString()}</td>
+              <td class="right bold">${stockDisplay}</td>
               <td class="right" style="color: #777;">${minStock}</td>
-              <td class="right">${fmt(cost)}</td>
-              <td class="right bold">${fmt(val)}</td>
+              <td class="right">${costDisplay}</td>
+              <td class="right bold">${valDisplay}</td>
               <td class="center">${statusBadge}</td>
             </tr>
           `
@@ -382,15 +385,18 @@ export function exportOpeningStockPDF(items = [], monthStr = "", totalVal = 0, c
           const qty = Number(item.openingQty) || 0
           const cost = Number(item.cost) || 0
           const val = qty * cost
+          const qtyDisplay = Number.isInteger(qty) ? qty.toLocaleString() : qty
+          const costDisplay = cost % 1 !== 0 ? `₦${cost.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : fmt(cost)
+          const valDisplay = val % 1 !== 0 && val < 100 ? `₦${val.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : fmt(val)
 
           return `
             <tr>
               <td style="color: #888;">${idx + 1}</td>
               <td class="bold">${item.name || "—"}</td>
               <td>${item.unit || "kg"}</td>
-              <td class="right">${fmt(cost)}</td>
-              <td class="right bold">${qty.toLocaleString()} ${item.unit || ""}</td>
-              <td class="right bold">${fmt(val)}</td>
+              <td class="right">${costDisplay}</td>
+              <td class="right bold">${qtyDisplay} ${item.unit || ""}</td>
+              <td class="right bold">${valDisplay}</td>
               <td class="center">
                 <span class="badge ${item.locked ? 'badge-green' : 'badge-amber'}">
                   ${item.locked ? 'Locked' : 'Active'}

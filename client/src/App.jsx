@@ -553,7 +553,14 @@ export default function App() {
     return (
       <Suspense fallback={<FullPageLoader message="Loading BakeWealth Home..." />}>
         <HomePage
-          onGoToDashboard={() => goTo("dashboard")}
+          onGoToDashboard={(target) => {
+            if (target === "credits" || target === "tokens" || target === "settings") {
+              setSettingsTab("tokens")
+              goTo("settings")
+            } else {
+              goTo(target || "dashboard")
+            }
+          }}
           currentUser={currentUser}
           onLogout={handleLogout}
         />

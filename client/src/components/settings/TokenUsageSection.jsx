@@ -342,7 +342,9 @@ export function TokenUsageSection({ company = {} }) {
               <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>
                 BakeWealth Prepaid Access
               </span>
-              <span style={{ fontSize: 11, color: "var(--muted)" }}>• 5 September 2026</span>
+              <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                • {new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}
+              </span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, fontWeight: 700, margin: 0, color: "var(--text)" }}>
@@ -602,6 +604,55 @@ export function TokenUsageSection({ company = {} }) {
       {/* 3. Tab Content: Prepaid Plans */}
       {activeTab === "plans" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Free Forever Plan & AI Usage Entitlements Banner */}
+          <div style={{
+            background: "#F6FBF7",
+            border: "1px solid #C6E7D2",
+            borderRadius: 12,
+            padding: "14px 18px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12
+          }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ background: "#E8F5E9", padding: "8px", borderRadius: 8, color: "#166534", marginTop: 2 }}>
+                <Sparkles size={18} />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#166534", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span>Free Forever Plan Entitlements &amp; AI Usage</span>
+                  <span style={{ background: "#DCFCE7", color: "#15803D", fontSize: 10, padding: "2px 7px", borderRadius: 10, fontWeight: 700 }}>
+                    10 FREE SCANS INCLUDED
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "#2E7D32", marginTop: 3, lineHeight: 1.45 }}>
+                  Every account has access to the Free Forever plan (₦0/mo) with <strong>10 free AI receipt scans (20 credits)</strong>, 10 recipes, 50 inventory items, 20 clients, and 8 orders/mo.
+                  AI features consume <strong>2 credits per receipt scan</strong> and <strong>5 credits per statement import</strong>.
+                  Need more scans? You can buy <strong>Scan &amp; Import Credit Packs anytime</strong> without a paid monthly subscription!
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab("credits")}
+              style={{
+                padding: "7px 14px",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#166534",
+                background: "#fff",
+                border: "1px solid #A3D9B1",
+                borderRadius: 7,
+                cursor: "pointer",
+                whiteSpace: "nowrap"
+              }}
+            >
+              Buy Credit Packs ↗
+            </button>
+          </div>
+
           {/* Duration Selector with Discounts */}
           <div style={{
             background: "var(--panel)",
@@ -662,7 +713,206 @@ export function TokenUsageSection({ company = {} }) {
           </div>
 
           {/* Plans Cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
+            {/* Free Plan Card */}
+            <div
+              style={{
+                background: "var(--panel)",
+                border: effectivePlan === "free" ? "2px solid #27AE60" : "1px solid var(--border)",
+                borderRadius: 14,
+                padding: 20,
+                position: "relative",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                boxShadow: effectivePlan === "free" ? "0 4px 14px rgba(39, 174, 96, 0.12)" : "none",
+                transition: "all 0.15s ease"
+              }}
+            >
+              {effectivePlan === "free" ? (
+                <div style={{
+                  position: "absolute",
+                  top: -11,
+                  right: 20,
+                  background: "#27AE60",
+                  color: "#fff",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "2px 10px",
+                  borderRadius: 10,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5
+                }}>
+                  Current Active Plan
+                </div>
+              ) : (
+                <div style={{
+                  position: "absolute",
+                  top: -11,
+                  right: 20,
+                  background: "#E8F5E9",
+                  color: "#166534",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "2px 10px",
+                  borderRadius: 10,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5
+                }}>
+                  Free Forever Base
+                </div>
+              )}
+
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                  <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 700, margin: 0, color: "var(--text)" }}>
+                    Free Plan
+                  </h3>
+                  <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                    ₦0 / mo
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, minHeight: 34 }}>
+                  Explore BakeWealth without commitments. Upgrade or top up credits anytime.
+                </div>
+
+                {/* Price display */}
+                <div style={{
+                  background: "#F6FBF7",
+                  border: "1px solid #C6E7D2",
+                  padding: "12px 14px",
+                  borderRadius: 10,
+                  marginBottom: 16
+                }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span style={{ fontSize: 26, fontWeight: 700, color: "#166534" }}>
+                      ₦0
+                    </span>
+                    <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                      Free Forever · No card required
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#1B5E38", marginTop: 4 }}>
+                    Includes <strong>10 free starter scans (20 AI credits)</strong>
+                  </div>
+                </div>
+
+                {/* AI & Scan Usage Callout */}
+                <div style={{
+                  background: "#F0F9F3",
+                  border: "1px dashed #A3D9B1",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  marginBottom: 16,
+                  fontSize: 12,
+                  color: "#166534",
+                  lineHeight: 1.45
+                }}>
+                  <strong style={{ display: "block", marginBottom: 3, fontWeight: 700 }}>
+                    ✦ AI &amp; Scan Usage on Free:
+                  </strong>
+                  • <strong>10 free receipt scans (20 credits)</strong> upon registration<br />
+                  • <strong>2 credits</strong> / receipt scan, <strong>5 credits</strong> / statement<br />
+                  • Top-up credits anytime via credit packs — <em>no subscription required!</em>
+                </div>
+
+                {/* Feature Limits List */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12.5 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Check size={15} color="#27AE60" />
+                    <span>Orders: <strong>8 orders / month</strong></span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Check size={15} color="#27AE60" />
+                    <span>Recipes: <strong>10 recipes</strong></span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Check size={15} color="#27AE60" />
+                    <span>Inventory Items: <strong>50 items</strong></span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Check size={15} color="#27AE60" />
+                    <span>Client Records: <strong>20 clients</strong></span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Check size={15} color="#27AE60" />
+                    <span>Staff Logins: <strong>1 login (Owner account)</strong></span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Check size={15} color="#27AE60" />
+                    <span>Scan Allowance: <strong>10 free starter scans (20 credits)</strong></span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Check size={15} color="#27AE60" />
+                    <span>Invoices: <strong>BakeWealth mark</strong></span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Check size={15} color="#27AE60" />
+                    <span>Accounting: <strong>Full accounting reports without exception</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                {effectivePlan === "free" ? (
+                  <div>
+                    <div style={{
+                      background: "#E8F5E9",
+                      color: "#166534",
+                      border: "1px solid #A3D9B1",
+                      borderRadius: 8,
+                      padding: "9px",
+                      textAlign: "center",
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6
+                    }}>
+                      <Check size={15} /> Current Active Plan
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("credits")}
+                      style={{
+                        marginTop: 8,
+                        width: "100%",
+                        background: "#fff",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        padding: "8px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--gold)",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Top Up Scan Credits (No Plan Needed) →
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("credits")}
+                    style={{
+                      width: "100%",
+                      background: "#FAF7F0",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      padding: "10px",
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: "var(--text)",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Included Base Tier · Top Up Credits →
+                  </button>
+                )}
+              </div>
+            </div>
+
             {PREPAID_PLANS.map(p => {
               const isSelected = selectedPlanId === p.id
               const basePrice = p.monthlyPrice * selectedMonths

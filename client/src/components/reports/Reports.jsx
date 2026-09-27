@@ -6,7 +6,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, Card, SHead } from "../common/ui.jsx"
-import { fmt, isDateInMonth, formatDateDMY } from "../../lib/helpers.js"
+import { fmt, fmtCost, isDateInMonth, formatDateDMY } from "../../lib/helpers.js"
 import { Download, Calendar, AlertTriangle, Check } from "lucide-react"
 import { loadOpeningStock } from "../../lib/data.js"
 
@@ -94,7 +94,7 @@ export function Reports({productions,transactions,expenses,company,inventory}){
           const purchased=expenses.filter(e=>e.date?.startsWith(sel)&&(e.description?.toLowerCase().includes(item.name.toLowerCase()))).reduce((s,e)=>s+(e.amount||0),0)
           const closing=item.stock||0
           const used=Math.max(0,opening-closing)
-          return `<tr><td>${item.name}</td><td>${item.unit}</td><td class="right">${opening} ${item.unit}</td><td class="right" style="color:#357A52">+${Math.round(purchased/Math.max(item.cost,1))} ${item.unit}</td><td class="right" style="color:#B03A2E">−${used} ${item.unit}</td><td class="right"><strong>${closing} ${item.unit}</strong></td><td class="right" style="color:var(--gold)">₦${Math.round(item.cost).toLocaleString()}</td><td class="right">₦${Math.round(closing*item.cost).toLocaleString()}</td></tr>`
+          return `<tr><td>${item.name}</td><td>${item.unit}</td><td class="right">${opening} ${item.unit}</td><td class="right" style="color:#357A52">+${Math.round(purchased/Math.max(item.cost,1))} ${item.unit}</td><td class="right" style="color:#B03A2E">−${used} ${item.unit}</td><td class="right"><strong>${closing} ${item.unit}</strong></td><td class="right" style="color:var(--gold)">${fmtCost(item.cost)}</td><td class="right">${fmtCost(closing*item.cost)}</td></tr>`
         }).join("")}
         <tr class="total"><td colspan="7" class="right">Total closing stock value</td><td class="right">₦${Math.round(inventory.reduce((s,i)=>s+(i.stock||0)*(i.cost||0),0)).toLocaleString()}</td></tr>
       </table>

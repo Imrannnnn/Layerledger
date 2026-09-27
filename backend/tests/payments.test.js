@@ -54,7 +54,10 @@ const {
     REFUND_STATES,
     toMinorUnits,
     toMajorUnits,
-    isValidTransition
+    isValidTransition,
+    calculatePaystackFee,
+    calculatePaystackGross,
+    calculatePaystackFeeInMinorUnits
 } = require('../modules/payments/payment.constants');
 
 const paymentRepository = require('../modules/payments/payment.repository');
@@ -123,6 +126,83 @@ describe('LayerLedger Payment Gateway Engineering Principles (50 Principles Veri
         test('correctly converts minor integer units back to major currency', () => {
             expect(toMajorUnits(500000, 'NGN')).toBe(5000);
             expect(toMajorUnits(10050, 'NGN')).toBe(100.5);
+        });
+    });
+
+    describe('Paystack Fee Calculation: Passing Transaction Charges to Customer', () => {
+        test('calculates correct fees for credit packages ensuring exact net merchant payout', () => {
+            // Small Pack: ₦3,000 -> ₦147.21 fee -> ₦3,147.21 gross (Paystack reports 1.5% + ₦100)
+            const smallFee = calculatePaystackFee(3000);
+            expect(smallFee).toBe(147.21);
+            expect(calculatePaystackGross(3000)).toBe(3147.21);
+            expect(calculatePaystackFeeInMinorUnits(300000)).toBe(14721);
+
+            // Medium Pack: ₦6,500 -> ₦200.51 fee -> ₦6,700.51 gross
+            const mediumFee = calculatePaystackFee(6500);
+            expect(mediumFee).toBe(200.51);
+            expect(calculatePaystackGross(6500)).toBe(6700.51);
+
+            // Large Pack: ₦14,000 -> ₦314.72 fee -> ₦14,314.72 gross
+            const largeFee = calculatePaystackFee(14000);
+            expect(largeFee).toBe(314.72);
+            expect(calculatePaystackGross(14000)).toBe(14314.72);
+        });
+
+        test('calculates correct fees for subscription plans', () => {
+            // Standard: ₦5,000 -> ₦177.66 fee -> ₦5,177.66 gross
+            expect(calculatePaystackFee(5000)).toBe(177.66);
+            expect(calculatePaystackGross(5000)).toBe(5177.66);
+
+            // Premium: ₦10,000 -> ₦253.81 fee -> ₦10,253.81 gross
+            expect(calculatePaystackFee(10000)).toBe(253.81);
+            expect(calculatePaystackGross(10000)).toBe(10253.81);
+        });
+
+        test('respects the ₦2,000 maximum fee cap on very large transactions', () => {
+            expect(calculatePaystackFee(200000)).toBe(2000);
+            expect(calculatePaystackGross(200000)).toBe(202000);
+        });
+
+        test('initializePayment charges customer the gross amount (amount + fee) so merchant receives full amount', async () => {
+            mockPrisma.payment.create.mockImplementation(({ data }) => Promise.resolve({
+                id: 'pay-charge-1',
+                ...data,
+                status: PAYMENT_STATES.PENDING
+            }));
+            mockPrisma.payment.findUnique.mockImplementation(({ where }) => Promise.resolve({
+                id: 'pay-charge-1',
+                paymentReference: where.paymentReference || 'LL-PAY-FEE-TEST',
+                amount: 300000,
+                fees: 14721,
+                totalAmount: 314721,
+                status: PAYMENT_STATES.PENDING
+            }));
+            mockPrisma.payment.update.mockImplementation(({ data }) => Promise.resolve({
+                id: 'pay-charge-1',
+                amount: 300000,
+                fees: 14721,
+                totalAmount: 314721,
+                status: PAYMENT_STATES.INITIALIZED,
+                ...data
+            }));
+
+            const result = await paymentService.initializePayment({
+                tenantId: 'tenant-1',
+                userId: 'user-1',
+                customerEmail: 'baker@example.com',
+                resourceType: 'credit_pack',
+                resourceId: 'small'
+            });
+
+            expect(result.baseAmount).toBe(3000);
+            expect(result.fee).toBe(147.21);
+            expect(result.amount).toBe(3147.21);
+            expect(result.amountInMinorUnits).toBe(314721);
+
+            // Provider received gross amount so Paystack charges customer with fee included
+            expect(mockProvider.initializeTransaction).toHaveBeenCalledWith(expect.objectContaining({
+                amountInMinorUnits: 314721
+            }));
         });
     });
 

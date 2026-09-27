@@ -85,6 +85,25 @@ export const mapCategory = (cat, name = "") => {
 
 
 export const fmt = n => `₦${Math.round(n || 0).toLocaleString("en")}`
+export const fmtCost = n => {
+  if (typeof n === "string") {
+    n = n.replace(",", ".")
+  }
+  const num = Number(n) || 0
+  if (num % 1 !== 0) {
+    return `₦${num.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+  }
+  return fmt(num)
+}
+export const fmtQty = n => {
+  if (n === "" || n === undefined || n === null) return 0
+  const num = typeof n === "string" ? parseFloat(n.replace(",", ".")) : Number(n)
+  if (isNaN(num)) return 0
+  if (num % 1 !== 0) {
+    return parseFloat(num.toFixed(4))
+  }
+  return num
+}
 export const uid = () => "_" + Math.random().toString(36).slice(2, 9)
 export const today = () => new Date().toISOString().slice(0, 10)
 
@@ -406,8 +425,37 @@ export function parseCSV(text) {
     return ''
   }
 
+  const parseNum = (str, def = 0) => {
+    if (!str) return def
+    const trimmed = String(str).trim().replace(/[₦$]/g, '')
+    if (trimmed.includes(',') && !trimmed.includes('.') && /^\d+,\d{1,4}$/.test(trimmed)) {
+      return parseFloat(trimmed.replace(',', '.')) || def
+    }
+    return parseFloat(trimmed.replace(/,/g, '')) || def
+  }
+
+  const splitRow = (l, d) => {
+    if (d === ';' || d === '\t') return l.split(d)
+    const res = []
+    let cur = ''
+    let inQuotes = false
+    for (let i = 0; i < l.length; i++) {
+      const char = l[i]
+      if (char === '"' || char === "'") {
+        inQuotes = !inQuotes
+      } else if (char === d && !inQuotes) {
+        res.push(cur)
+        cur = ''
+      } else {
+        cur += char
+      }
+    }
+    res.push(cur)
+    return res
+  }
+
   return lines.slice(1).map(line => {
-    const row = line.split(delim)
+    const row = splitRow(line, delim)
     const name = findCol(row, 'name', 'item', 'ingredient', 'product', 'description')
     if (!name) return null
     return {
@@ -415,9 +463,9 @@ export function parseCSV(text) {
       name,
       cat: findCol(row, 'cat', 'category', 'type', 'group', 'class') || 'General',
       unit: findCol(row, 'unit', 'measure', 'uom', 'per') || 'kg',
-      cost: +(findCol(row, 'cost', 'price', 'rate', 'unit cost', 'price unit', 'price/unit', 'per unit') || '0').replace(/[,₦]/g, '') || 0,
-      stock: +(findCol(row, 'stock', 'quantity', 'qty', 'current stock', 'on hand', 'balance') || '0').replace(/[,]/g, '') || 0,
-      minStock: +(findCol(row, 'min', 'minimum', 'minstock', 'reorder', 'alert') || '2').replace(/[,]/g, '') || 2,
+      cost: parseNum(findCol(row, 'cost', 'price', 'rate', 'unit cost', 'price unit', 'price/unit', 'per unit'), 0),
+      stock: parseNum(findCol(row, 'stock', 'quantity', 'qty', 'current stock', 'on hand', 'balance'), 0),
+      minStock: parseNum(findCol(row, 'min', 'minimum', 'minstock', 'reorder', 'alert'), 2),
     }
   }).filter(Boolean).filter(i => i.name)
 }

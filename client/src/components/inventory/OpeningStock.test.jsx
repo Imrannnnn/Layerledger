@@ -330,5 +330,156 @@ describe("OpeningStock Component Tests", () => {
     expect(container.textContent).not.toContain("Loading opening stock from database...")
     expect(dataLib.fetchOpeningStockFromServer).not.toHaveBeenCalled()
   })
+
+  test("allows clearing out zero in opening stock quantity in table and entering a new number", async () => {
+    const changeInput = (input, value) => {
+      const lastValue = input.value
+      input.value = value
+      const tracker = input._valueTracker
+      if (tracker) {
+        tracker.setValue(lastValue)
+      }
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    }
+
+    dataLib.loadLocal.mockReturnValue(null)
+    dataLib.loadOpeningStock.mockReturnValue([
+      { id: "item-zero", name: "Baking Powder", unit: "kg", cost: 1000, openingQty: 0, locked: false }
+    ])
+    dataLib.fetchOpeningStockFromServer.mockResolvedValue([
+      { id: "item-zero", name: "Baking Powder", unit: "kg", cost: 1000, openingQty: 0, locked: false }
+    ])
+
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={[]}
+          setInventory={jest.fn()}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+
+    const qtyInputs = container.querySelectorAll('tbody input[type="number"]')
+    // There are cost and qty inputs; qty input width is 110px
+    const qtyInput = Array.from(qtyInputs).find(inp => inp.style.width === "110px")
+    expect(qtyInput).toBeTruthy()
+    expect(qtyInput.value).toBe("0")
+
+    // User clears out the zero
+    await act(async () => {
+      qtyInput.focus()
+      changeInput(qtyInput, "")
+    })
+
+    // Value should be empty string, NOT stuck on zero
+    expect(qtyInput.value).toBe("")
+
+    // User types in their desired starting quantity (e.g. 25)
+    await act(async () => {
+      changeInput(qtyInput, "25")
+    })
+
+    expect(qtyInput.value).toBe("25")
+    expect(dataLib.saveOpeningStock).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: "item-zero", openingQty: 25 })]),
+      expect.any(String),
+      expect.any(Boolean)
+    )
+  })
+
+  test("Add Item modal opening quantity starts empty without a constant zero", async () => {
+    const changeInput = (input, value) => {
+      const lastValue = input.value
+      input.value = value
+      const tracker = input._valueTracker
+      if (tracker) {
+        tracker.setValue(lastValue)
+      }
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    }
+
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={[]}
+          setInventory={jest.fn()}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+
+    const addBtn = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Add Item"))
+    await act(async () => {
+      addBtn.click()
+    })
+
+    const modalQtyInput = container.querySelector('input[placeholder="e.g. 25"]')
+    expect(modalQtyInput).toBeTruthy()
+    // Should be empty string, not "0"
+    expect(modalQtyInput.value).toBe("")
+
+    // Typing a number should not have a leading zero
+    await act(async () => {
+      changeInput(modalQtyInput, "45")
+    })
+    expect(modalQtyInput.value).toBe("45")
+  })
+
+  test("entering decimal unit quantity (2.5) in opening stock remains 2.5 without approximating", async () => {
+    const changeInput = (input, value) => {
+      const lastValue = input.value
+      input.value = value
+      const tracker = input._valueTracker
+      if (tracker) {
+        tracker.setValue(lastValue)
+      }
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    }
+
+    dataLib.loadOpeningStock.mockReturnValue([
+      { id: "item-dec", name: "Vanilla Extract", unit: "L", cost: 4000, openingQty: 1, locked: false }
+    ])
+    dataLib.fetchOpeningStockFromServer.mockResolvedValue([
+      { id: "item-dec", name: "Vanilla Extract", unit: "L", cost: 4000, openingQty: 1, locked: false }
+    ])
+
+    const mockSetInv = jest.fn()
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={[{ id: "item-dec", name: "Vanilla Extract", unit: "L", cost: 4000, stock: 1 }]}
+          setInventory={mockSetInv}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+
+    const qtyInput = container.querySelector('input[type="number"][value="1"]')
+    expect(qtyInput).toBeTruthy()
+
+    // Enter 2.5
+    await act(async () => {
+      changeInput(qtyInput, "2.5")
+    })
+
+    expect(qtyInput.value).toBe("2.5")
+    expect(dataLib.saveOpeningStock).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: "item-dec", openingQty: 2.5 })]),
+      expect.any(String),
+      expect.any(Boolean)
+    )
+
+    // Verify inventory feed receives exact 2.5 without approximation
+    expect(mockSetInv).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: "item-dec", stock: 2.5 })])
+    )
+
+    // Baseline valuation for 2.5 L * 4000 = 10,000
+    const valCells = Array.from(container.querySelectorAll("td"))
+    const totalValCell = valCells.find(td => td.textContent.includes("₦10,000"))
+    expect(totalValCell).toBeTruthy()
+  })
 })
+
 

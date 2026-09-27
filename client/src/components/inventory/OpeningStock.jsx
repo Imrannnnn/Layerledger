@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react"
 import { Btn, Inp, Sel, Card, SHead, iSt, TH, Modal, Pagination } from "../common/ui.jsx"
-import { fmt, uid } from "../../lib/helpers.js"
+import { fmt, fmtCost, uid } from "../../lib/helpers.js"
 import {
   saveInventory,
   deleteOpeningStockOnServer,
@@ -38,7 +38,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const [showSavedMsg, setShowSavedMsg] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
   const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
-  const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
+  const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
   const [editCosts, setEditCosts] = useState(false)
   const [loadingAction, setLoadingAction] = useState(null)
 
@@ -142,13 +142,21 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
 
   // Inline update handlers
   const updateOSQty = async (id, val) => {
-    const qtyVal = parseFloat(val) || 0
-    const updated = items.map(item => item.id === id ? { ...item, openingQty: qtyVal } : item)
+    const isBlank = val === "" || val === undefined || val === null
+    const qtyVal = isBlank ? 0 : (parseFloat(val) || 0)
+    const displayVal = isBlank ? "" : val
+    const updated = items.map(item => item.id === id ? { ...item, openingQty: displayVal } : item)
     setItems(updated)
     if (id && !id.startsWith("os_")) {
-      updateOpeningStockItemOnServer(id, { openingQty: qtyVal }).catch(e => console.warn(e))
+      try {
+        const p = updateOpeningStockItemOnServer(id, { openingQty: qtyVal })
+        if (p && typeof p.catch === "function") p.catch(e => console.warn(e))
+      } catch (err) {
+        console.warn(err)
+      }
     }
-    await saveOpeningStock(updated, currentMonthStr, saved)
+    const forSaving = updated.map(it => ({ ...it, openingQty: it.openingQty === "" ? 0 : (parseFloat(it.openingQty) || 0) }))
+    await saveOpeningStock(forSaving, currentMonthStr, saved)
 
     // Opening stock feeds inventory
     if (inventory && setInventory) {
@@ -174,7 +182,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
             name: targetItem.name,
             cat: "Dry Goods",
             unit: targetItem.unit || "kg",
-            cost: targetItem.cost || 0,
+            cost: targetItem.cost === "" || targetItem.cost === undefined ? 0 : (parseFloat(targetItem.cost) || 0),
             stock: qtyVal,
             minStock: 5
           }
@@ -188,13 +196,21 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   }
 
   const updateOSCost = async (id, val) => {
-    const costVal = parseFloat(val) || 0
-    const updated = items.map(item => item.id === id ? { ...item, cost: costVal } : item)
+    const isBlank = val === "" || val === undefined || val === null
+    const costVal = isBlank ? 0 : (parseFloat(val) || 0)
+    const displayVal = isBlank ? "" : val
+    const updated = items.map(item => item.id === id ? { ...item, cost: displayVal } : item)
     setItems(updated)
     if (id && !id.startsWith("os_")) {
-      updateOpeningStockItemOnServer(id, { cost: costVal }).catch(e => console.warn(e))
+      try {
+        const p = updateOpeningStockItemOnServer(id, { cost: costVal })
+        if (p && typeof p.catch === "function") p.catch(e => console.warn(e))
+      } catch (err) {
+        console.warn(err)
+      }
     }
-    await saveOpeningStock(updated, currentMonthStr, saved)
+    const forSaving = updated.map(it => ({ ...it, cost: it.cost === "" ? 0 : (parseFloat(it.cost) || 0) }))
+    await saveOpeningStock(forSaving, currentMonthStr, saved)
 
     // Opening stock feeds inventory
     if (inventory && setInventory) {
@@ -212,6 +228,22 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
         )
         setInventory(updatedInventory)
         await saveInventory(updatedInventory)
+      } else if (targetItem) {
+        const rawQty = targetItem.openingQty !== undefined ? targetItem.openingQty : targetItem.qty
+        const updatedInventory = [
+          ...currentInv,
+          {
+            id: targetItem.itemId || targetItem.id || uid(),
+            name: targetItem.name,
+            cat: "Dry Goods",
+            unit: targetItem.unit || "kg",
+            cost: costVal,
+            stock: rawQty === "" || rawQty === undefined ? 0 : (parseFloat(rawQty) || 0),
+            minStock: 5
+          }
+        ]
+        setInventory(updatedInventory)
+        await saveInventory(updatedInventory)
       }
     }
   }
@@ -220,7 +252,12 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
     const updated = items.map(item => item.id === id ? { ...item, unit: val } : item)
     setItems(updated)
     if (id && !id.startsWith("os_")) {
-      updateOpeningStockItemOnServer(id, { unit: val }).catch(e => console.warn(e))
+      try {
+        const p = updateOpeningStockItemOnServer(id, { unit: val })
+        if (p && typeof p.catch === "function") p.catch(e => console.warn(e))
+      } catch (err) {
+        console.warn(err)
+      }
     }
     await saveOpeningStock(updated, currentMonthStr, saved)
 
@@ -238,6 +275,22 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
         const updatedInventory = currentInv.map((invItem, idx) =>
           idx === invIdx ? { ...invItem, unit: val } : invItem
         )
+        setInventory(updatedInventory)
+        await saveInventory(updatedInventory)
+      } else if (targetItem) {
+        const rawQty = targetItem.openingQty !== undefined ? targetItem.openingQty : targetItem.qty
+        const updatedInventory = [
+          ...currentInv,
+          {
+            id: targetItem.itemId || targetItem.id || uid(),
+            name: targetItem.name,
+            cat: "Dry Goods",
+            unit: val || "kg",
+            cost: targetItem.cost === "" || targetItem.cost === undefined ? 0 : (parseFloat(targetItem.cost) || 0),
+            stock: rawQty === "" || rawQty === undefined ? 0 : (parseFloat(rawQty) || 0),
+            minStock: 5
+          }
+        ]
         setInventory(updatedInventory)
         await saveInventory(updatedInventory)
       }
@@ -359,7 +412,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
 
     setLoadingAction("addNewItem")
     try {
-      const openingQty = parseFloat(newItem.openingQty) || 0
+      const openingQty = newItem.openingQty === "" ? 0 : (parseFloat(newItem.openingQty) || 0)
 
       let created = null
       try {
@@ -425,7 +478,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
         await saveInventory(updatedInventory)
       }
 
-      setNewItem({ name: "", unit: "kg", cost: "", openingQty: 0, totalPaid: "", qtyBought: "" })
+      setNewItem({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
       setCalcMode("manual")
       setAddingItem(false)
     } finally {
@@ -434,7 +487,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   }
 
   // Bulk paste helpers
-  const L = v => v.trim().split(String.fromCharCode(10)).map(s => s.replace(/,/g, "").trim()).filter(Boolean)
+  const L = v => v.trim().split(String.fromCharCode(10)).map(s => s.trim()).filter(Boolean)
 
   const doPreview = async () => {
     const ns = L(pasteN)
@@ -458,10 +511,17 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
     setLoadingAction("doPreview")
     try {
       const parsed = ns.map((name, i) => {
-        const qtyStr = qs[i] || "0"
-        const qty = parseFloat(qtyStr.replace(/[^0-9.]/g, "")) || 0
-        const costStr = cs[i] || ""
-        const cost = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0
+        const rawQty = qs[i] || "0"
+        const cleanQty = (rawQty.includes(",") && !rawQty.includes("."))
+          ? rawQty.replace(/,/g, ".")
+          : rawQty.replace(/,/g, "")
+        const qty = parseFloat(cleanQty.replace(/[^0-9.]/g, "")) || 0
+
+        const rawCost = cs[i] || ""
+        const cleanCost = (rawCost.includes(",") && !rawCost.includes("."))
+          ? rawCost.replace(/,/g, ".")
+          : rawCost.replace(/,/g, "")
+        const cost = parseFloat(cleanCost.replace(/[^0-9.]/g, "")) || 0
         const match = items.find(it => it.name.trim().toLowerCase() === name.toLowerCase())
 
         return {
@@ -761,11 +821,22 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                             type="number"
                             step="any"
                             value={item.cost !== undefined ? item.cost : ""}
+                            placeholder="0"
+                            onFocus={e => {
+                              if (e.target.value === "0") e.target.select()
+                            }}
+                            onBlur={() => {
+                              if (item.cost === "" || item.cost === undefined) updateOSCost(item.id, 0)
+                            }}
                             onChange={e => updateOSCost(item.id, e.target.value)}
                             style={{ ...iSt, width: 100, padding: "4px 8px", fontSize: 12 }}
                           />
                         ) : (
-                          <span style={{ fontFamily: "monospace" }}>{fmt(itemCost)}</span>
+                          <span style={{ fontFamily: "monospace" }}>
+                            {itemCost % 1 !== 0
+                              ? `₦${itemCost.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+                              : fmt(itemCost)}
+                          </span>
                         )}
                       </td>
                       <td style={{ padding: "10px 16px" }}>
@@ -774,6 +845,20 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                             type="number"
                             step="any"
                             value={item.openingQty !== undefined ? item.openingQty : ""}
+                            placeholder="0"
+                            onFocus={e => {
+                              if (e.target.value === "0") e.target.select()
+                            }}
+                            onBlur={() => {
+                              if (item.openingQty === "" || item.openingQty === undefined) {
+                                updateOSQty(item.id, 0)
+                              } else {
+                                const num = parseFloat(item.openingQty)
+                                if (!isNaN(num) && String(item.openingQty).endsWith(".")) {
+                                  updateOSQty(item.id, num)
+                                }
+                              }
+                            }}
                             onChange={e => updateOSQty(item.id, e.target.value)}
                             style={{ ...iSt, width: 110, padding: "4px 8px", fontSize: 12, fontWeight: 600 }}
                           />
@@ -782,7 +867,9 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                         )}
                       </td>
                       <td style={{ padding: "10px 16px", fontWeight: 600, color: "var(--gold)" }}>
-                        {fmt(itemVal)}
+                        {itemVal % 1 !== 0 && itemVal < 100
+                          ? `₦${itemVal.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : fmt(itemVal)}
                       </td>
                       <td style={{ padding: "10px 16px", textAlign: "right" }}>
                         {!isLocked && (
@@ -844,6 +931,9 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                 label="Opening Quantity On Hand"
                 type="number"
                 value={newItem.openingQty}
+                onFocus={e => {
+                  if (e.target.value === "0") e.target.select()
+                }}
                 onChange={v => setNewItem(p => ({ ...p, openingQty: v }))}
                 placeholder="e.g. 25"
               />
@@ -899,7 +989,13 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                   </div>
                   {newItem.totalPaid && newItem.qtyBought && parseFloat(newItem.qtyBought) > 0 && (
                     <div style={{ fontSize: 12, color: "var(--gold)", fontWeight: 600, marginTop: 6 }}>
-                      → Calculated Cost: {fmt(parseFloat(newItem.totalPaid) / parseFloat(newItem.qtyBought))} per {newItem.unit}
+                      {(() => {
+                        const calculated = parseFloat(newItem.totalPaid) / parseFloat(newItem.qtyBought)
+                        const costDisplay = calculated % 1 !== 0
+                          ? `₦${calculated.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+                          : fmt(calculated)
+                        return `→ Calculated Cost: ${costDisplay} per ${newItem.unit}`
+                      })()}
                     </div>
                   )}
                 </div>
@@ -1015,7 +1111,11 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                           </td>
                           <td style={{ padding: 6, fontWeight: 600 }}>{item.name}</td>
                           <td style={{ padding: 6 }}>{item.unit}</td>
-                          <td style={{ padding: 6 }}>{fmt(item.cost)}</td>
+                          <td style={{ padding: 6 }}>
+                            {item.cost % 1 !== 0
+                              ? `₦${item.cost.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+                              : fmt(item.cost)}
+                          </td>
                           <td style={{ padding: 6 }}>{item.openingQty}</td>
                         </tr>
                       ))}

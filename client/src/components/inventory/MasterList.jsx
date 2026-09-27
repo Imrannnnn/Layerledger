@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect, Spinner, Pagination } from "../common/ui.jsx"
-import { fmt, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES } from "../../lib/helpers.js"
+import { fmt, fmtCost, fmtQty, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES } from "../../lib/helpers.js"
 
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
 import { 
@@ -33,7 +33,7 @@ import { exportInventoryPDF } from "../../lib/pdfReportGenerator.js"
 export function RestockCell({id,unit,onRestock}){
   const [qty,setQty]=useState("")
   return <div style={{display:"flex",gap:4,alignItems:"center"}}>
-    <input type="number" placeholder="qty" value={qty} onChange={e=>setQty(e.target.value)} style={{...iSt,width:55,padding:"4px 6px",fontSize:12}}/>
+    <input type="number" step="any" placeholder="qty" value={qty} onChange={e=>setQty(e.target.value)} style={{...iSt,width:55,padding:"4px 6px",fontSize:12}}/>
     <Btn small variant="outline" onClick={()=>{onRestock(id,qty);setQty("")}}>+</Btn>
   </div>
 }
@@ -115,8 +115,8 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
                 return <tr key={ing.iid} style={{borderBottom:"1px solid var(--border)"}}>
                   <td style={{padding:"5px 0",fontSize:13}}>{it.name}</td>
                   <td style={{textAlign:"right",fontSize:12,color:"var(--text)",fontWeight:500}}>{scaledQty} {it.unit}</td>
-                  <td style={{textAlign:"right",fontSize:12,color:"var(--muted)"}}>{fmt(it.cost)}/{it.unit}</td>
-                  <td style={{textAlign:"right",fontSize:13,fontWeight:500}}>{fmt(lineCost)}</td>
+                  <td style={{textAlign:"right",fontSize:12,color:"var(--muted)"}}>{fmtCost(it.cost)}/{it.unit}</td>
+                  <td style={{textAlign:"right",fontSize:13,fontWeight:500}}>{fmtCost(lineCost)}</td>
                 </tr>
               })}
             </tbody>
@@ -308,7 +308,10 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
 
   const toggleCat = (cat) => setCollapsedCats(prev => ({ ...prev, [cat]: !prev[cat] }))
 
-  const L=v=>v.trim().split(String.fromCharCode(10)).map(s=>s.replace(/,/g,"").trim()).filter(Boolean)
+  const L=v=>v.trim().split(String.fromCharCode(10)).map(s=>{
+    const str = s.trim()
+    return (str.includes(',') && !str.includes('.') && /^\d+,\d{1,4}$/.test(str)) ? str.replace(',', '.') : str.replace(/,/g, "")
+  }).filter(Boolean)
 
   const getMinStock = (item) => (item?.minStock !== undefined && item?.minStock !== null && item?.minStock !== "" && !isNaN(Number(item?.minStock)) ? Number(item.minStock) : 5)
   const lowStock=inventory.filter(i=>(Number(i.stock) || 0) <= getMinStock(i))
@@ -328,7 +331,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
     if(ns.length!==cs.length)return showMsg(`Names (${ns.length}) and costs (${cs.length}) must have same number of rows`,"red")
     const items=ns.map((name,i)=>{
       const rawCost = cs[i] || ""
-      const cleanedCostStr = rawCost.replace(/[^0-9.]/g, "")
+      const cleanedCostStr = (rawCost.includes(',') && !rawCost.includes('.') && /^\d+,\d{1,4}$/.test(rawCost.trim())) ? rawCost.trim().replace(',', '.') : rawCost.replace(/[^0-9.]/g, "")
       const parsedCost = parseFloat(cleanedCostStr) || 0
       return {
         id:uid(),name,
@@ -374,14 +377,16 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
   const addSingle=async()=>{
     let cost = newItem.cost
     if (calcMode === "auto") {
-      const price = parseFloat(newItem.totalPaid)
-      const qty = parseFloat(newItem.qtyBought)
+      const price = parseFloat(String(newItem.totalPaid || "").replace(",", "."))
+      const qty = parseFloat(String(newItem.qtyBought || "").replace(",", "."))
       if (!newItem.totalPaid || !newItem.qtyBought || isNaN(price) || isNaN(qty) || qty <= 0) {
         return showMsg("Total amount paid and quantity bought must be valid positive numbers", "red")
       }
       cost = price / qty
+    } else {
+      cost = typeof cost === "string" ? parseFloat(cost.replace(",", ".")) : Number(cost)
     }
-    if(!newItem.name||!cost)return showMsg("Name and cost per unit are required","red")
+    if(!newItem.name||cost === undefined || isNaN(cost) || cost < 0)return showMsg("Name and cost per unit are required","red")
 
     let selectedCat = newItem.cat
     if (selectedCat === "__new__") {
@@ -394,7 +399,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
       const itemToSave = {
         name: newItem.name.trim(),
         unit: newItem.unit || "kg",
-        cost: +cost,
+        cost: cost || 0,
         stock: 0,
         minStock: newItem.minStock !== "" && !isNaN(Number(newItem.minStock)) ? Number(newItem.minStock) : 5,
         cat: selectedCat || "Dry Goods"
@@ -428,12 +433,14 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
     }
     setSaving(true)
     try {
+      const parsedCost = typeof editRow.cost === "string" ? parseFloat(editRow.cost.replace(",", ".")) : Number(editRow.cost)
+      const parsedStock = typeof editRow.stock === "string" ? parseFloat(editRow.stock.replace(",", ".")) : Number(editRow.stock)
       const itemToUpdate = {
         name: editRow.name,
         cat: finalCat,
         unit: editRow.unit,
-        cost: +editRow.cost,
-        stock: +editRow.stock || 0,
+        cost: isNaN(parsedCost) ? 0 : parsedCost,
+        stock: isNaN(parsedStock) ? 0 : parsedStock,
         minStock: editRow.minStock !== "" && !isNaN(Number(editRow.minStock)) ? Number(editRow.minStock) : 5
       }
       const updatedItem = await updateInventoryItemOnServer(editId, itemToUpdate)
@@ -794,7 +801,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
               <td style={{padding:"6px 10px"}}><div onClick={()=>setPrevItems(prev=>prev.map((x,j)=>j===i?{...x,on:!x.on}:x))} style={{width:30,height:16,borderRadius:8,background:p.on?"#357A52":"var(--border)",cursor:"pointer",position:"relative"}}><div style={{width:12,height:12,borderRadius:"50%",background:"white",position:"absolute",top:2,left:p.on?16:2,transition:"left 0.2s"}}/></div></td>
               <td style={{padding:"6px 10px",fontWeight:500}}>{p.name}</td>
               <td style={{padding:"6px 10px",color:"var(--muted)"}}>{p.unit}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:500,color:"var(--gold)"}}>{fmt(p.cost)}/{p.unit}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:500,color:"var(--gold)"}}>{fmtCost(p.cost)}/{p.unit}</td>
             </tr>)}</tbody>
           </table>
         </div>
@@ -886,9 +893,9 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
           <Inp label="Total Amount Paid (₦) *" type="number" value={newItem.totalPaid || ""} onChange={v => setNewItem(p => ({ ...p, totalPaid: v }))} placeholder="e.g. 5000" />
           <Inp label="Quantity Bought *" type="number" value={newItem.qtyBought || ""} onChange={v => setNewItem(p => ({ ...p, qtyBought: v }))} placeholder="e.g. 2.5" />
-          {newItem.totalPaid && newItem.qtyBought && parseFloat(newItem.qtyBought) > 0 && (
+          {newItem.totalPaid && newItem.qtyBought && parseFloat(String(newItem.qtyBought).replace(",", ".")) > 0 && (
             <div style={{ gridColumn: "span 2", padding: "8px 12px", background: "var(--panel)", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "var(--gold)", border: "1px solid var(--border)" }}>
-              Calculated Cost per Unit: {fmt(parseFloat(newItem.totalPaid) / parseFloat(newItem.qtyBought))}/{newItem.unit}
+              Calculated Cost per Unit: {fmtCost(parseFloat(String(newItem.totalPaid).replace(",", ".")) / parseFloat(String(newItem.qtyBought).replace(",", ".")))}/{newItem.unit}
             </div>
           )}
         </div>
@@ -1259,9 +1266,9 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
                               <>
                                 <td style={{padding:"9px 10px",fontWeight:500,fontSize:13}}>{item.name}</td>
                                 <td style={{padding:"9px 10px",color:"var(--muted)",fontSize:13}}>{item.unit}</td>
-                                <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{item.stock||0} {item.unit}</td>
-                                <td style={{padding:"9px 10px",fontSize:13,fontWeight:500,color:"var(--gold)"}}>{fmt(item.cost)}/{item.unit}</td>
-                                <td style={{padding:"9px 10px",fontSize:13,color:"var(--muted)"}}>{getMinStock(item)} {item.unit}</td>
+                                <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{fmtQty(item.stock)} {item.unit}</td>
+                                <td style={{padding:"9px 10px",fontSize:13,fontWeight:500,color:"var(--gold)"}}>{fmtCost(item.cost)}/{item.unit}</td>
+                                <td style={{padding:"9px 10px",fontSize:13,color:"var(--muted)"}}>{fmtQty(getMinStock(item))} {item.unit}</td>
                                 <td style={{padding:"9px 10px"}}>{badge(item)}</td>
                                 {isOwner && (
                                   <td style={{padding:"9px 10px"}} onClick={e=>e.stopPropagation()}>
@@ -1458,7 +1465,7 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
       .filter(isDecor)
       .map(i => ({
         value: i.id,
-        label: `${i.name} (${i.unit}) — ${fmt(i.cost)}/${i.unit}`
+        label: `${i.name} (${i.unit}) — ${fmtCost(i.cost)}/${i.unit}`
       }))
   }, [inventory])
 
@@ -1701,21 +1708,21 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
                     )
                   }).map(i => ({
                     value: i.id,
-                    label: `${i.name} (${i.unit}) — ${fmt(i.cost)}/${i.unit}`
+                    label: `${i.name} (${i.unit}) — ${fmtCost(i.cost)}/${i.unit}`
                   }))}
                   placeholder="Type to search item..."
                 />
               </td>
 
 
-              <td style={{padding:"6px 8px"}}><input type="number" value={editRow.qty||""} onChange={e=>setEditRow(r=>({...r,qty:e.target.value}))} style={{...iSt,width:70,padding:"4px 6px",fontSize:12}}/></td>
-              <td style={{padding:"6px 8px",fontSize:13}}>{editRow.iid&&inventory.find(x=>x.id===editRow.iid)?fmt(inventory.find(x=>x.id===editRow.iid).cost*(+editRow.qty||0)):"—"}</td>
+              <td style={{padding:"6px 8px"}}><input type="number" step="any" value={editRow.qty||""} onChange={e=>setEditRow(r=>({...r,qty:e.target.value}))} style={{...iSt,width:70,padding:"4px 6px",fontSize:12}}/></td>
+              <td style={{padding:"6px 8px",fontSize:13}}>{editRow.iid&&inventory.find(x=>x.id===editRow.iid)?fmtCost(inventory.find(x=>x.id===editRow.iid).cost*(+editRow.qty||0)):"—"}</td>
               <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={saveEdit} disabled={saving}><Check size={12}/></Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}><X size={12}/></Btn></div></td>
             </> : <>
               <td style={{padding:"9px 10px",fontWeight:500,fontSize:13}}>{d.name||d.label}</td>
               <td style={{padding:"9px 10px",color:"var(--muted)",fontSize:12.5}}>{it?.name||<span style={{color:"#B03A2E",display:"inline-flex",alignItems:"center",gap:3}}><AlertTriangle size={11}/> Not found</span>}</td>
               <td style={{padding:"9px 10px",fontSize:13}}>{d.qty} {it?.unit||""}</td>
-              <td style={{padding:"9px 10px",color:"var(--gold)",fontWeight:500,fontSize:13}}>{it?fmt(it.cost*d.qty):"—"}</td>
+              <td style={{padding:"9px 10px",color:"var(--gold)",fontWeight:500,fontSize:13}}>{it?fmtCost(it.cost*d.qty):"—"}</td>
               {isOwner&&<td style={{padding:"9px 10px"}}><div style={{display:"flex",gap:4}}><Btn small variant="ghost" onClick={()=>startEdit(d)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><Pencil size={11}/> Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(d.id)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn></div></td>}
             </>}
           </tr>
@@ -1853,12 +1860,14 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
     setSaving(true)
     try {
       const existing = inventory.find(i => i.id === id) || {}
+      const parsedPrice = typeof editRow.price === "string" ? parseFloat(editRow.price.replace(",", ".")) : Number(editRow.price)
+      const parsedStock = typeof editRow.stock === "string" ? parseFloat(editRow.stock.replace(",", ".")) : Number(editRow.stock)
       const itemToUpdate = {
         name: editRow.name.trim(),
         cat: "Board and Packaging",
         unit: editRow.unit || "pcs",
-        cost: +editRow.price,
-        stock: +editRow.stock || 0,
+        cost: isNaN(parsedPrice) ? 0 : parsedPrice,
+        stock: isNaN(parsedStock) ? 0 : parsedStock,
         minStock: +editRow.minStock || 5
       }
       const updatedItem = await updateInventoryItemOnServer(id, itemToUpdate)
@@ -1981,17 +1990,17 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
               {editId===item.id
                 ?<>
                   <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
-                  <td style={{padding:"6px 8px"}}><input type="number" value={editRow.price||""} onChange={e=>setEditRow(r=>({...r,price:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
+                  <td style={{padding:"6px 8px"}}><input type="number" step="any" value={editRow.price !== undefined ? editRow.price : ""} onChange={e=>setEditRow(r=>({...r,price:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
                   <td style={{padding:"6px 8px"}}><select value={editRow.unit||"pcs"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,fontSize:12}}>{["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
-                  <td style={{padding:"6px 8px"}}><input type="number" value={editRow.stock||0} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,fontSize:12,width:70}}/></td>
+                  <td style={{padding:"6px 8px"}}><input type="number" step="any" min="0" value={editRow.stock !== undefined ? editRow.stock : ""} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,fontSize:12,width:70}}/></td>
                   <td style={{padding:"6px 8px"}}></td>
                   <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={()=>saveEdit(item.id)} disabled={saving}><Check size={12}/></Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}><X size={12}/></Btn></div></td>
                 </>
                 :<>
                   <td style={{padding:"9px 10px",fontSize:13,fontWeight:500}}>{item.name}</td>
-                  <td style={{padding:"9px 10px",fontSize:13,color:"var(--gold)",fontWeight:600}}>{fmt(item.cost)}</td>
+                  <td style={{padding:"9px 10px",fontSize:13,color:"var(--gold)",fontWeight:600}}>{fmtCost(item.cost)}</td>
                   <td style={{padding:"9px 10px",fontSize:12,color:"var(--muted)"}}>{item.unit}</td>
-                  <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{item.stock||0} {item.unit}</td>
+                  <td style={{padding:"9px 10px",fontSize:13,fontWeight:600,color:isLow?"#B03A2E":"#357A52"}}>{fmtQty(item.stock)} {item.unit}</td>
                   <td style={{padding:"9px 10px"}}>{badge(item)}</td>
                   {isOwner&&<td style={{padding:"9px 8px"}}><div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><Btn small variant="ghost" onClick={()=>{setEditId(item.id);setEditRow({name:item.name,price:item.cost,unit:item.unit,stock:item.stock||0,minStock:item.minStock||5})}} disabled={saving}>Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(item.id)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn></div></td>}
                 </>}
@@ -2216,7 +2225,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
             .filter(i => i.cat !== "Board and Packaging" && i.category !== "Board and Packaging")
             .map(i => ({
               value: i.id,
-              label: `${i.name} (${i.unit}) — ${fmt(i.cost)}/${i.unit}`
+              label: `${i.name} (${i.unit}) — ${fmtCost(i.cost)}/${i.unit}`
             }))
           return <div key={idx} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
             <SearchableSelect
@@ -2225,7 +2234,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
               options={options}
               placeholder="Type to search ingredient..."
             />
-            <input type="number" placeholder="Qty" value={ing.qty} onChange={e=>updateIng(idx,"qty",e.target.value)} style={{...iSt,width:70,fontSize:12}}/>
+            <input type="number" step="any" placeholder="Qty" value={ing.qty} onChange={e=>updateIng(idx,"qty",e.target.value)} style={{...iSt,width:70,fontSize:12}}/>
             <Btn small variant="danger" onClick={()=>removeIng(idx)} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn>
           </div>
         })}

@@ -3,6 +3,20 @@ import { Modal, Btn } from "./ui.jsx"
 import { CreditCard, Building2, Smartphone, CheckCircle, Lock, Loader2, ExternalLink, ShieldCheck, AlertCircle, RefreshCw } from "lucide-react"
 import { purchaseTokens, initializeGatewayPayment, verifyGatewayPayment } from "../../lib/data.js"
 
+export const calculatePaystackFee = (majorAmount) => {
+  const A = Number(majorAmount) || 0
+  if (A <= 0) return 0
+  let gross
+  if (A < 2500) {
+    gross = A / 0.985
+  } else {
+    gross = (A + 100) / 0.985
+  }
+  let fee = gross - A
+  if (fee > 2000) fee = 2000
+  return Math.round(fee * 100) / 100
+}
+
 export function DummyPaymentGatewayModal({
   isOpen,
   onClose,
@@ -20,6 +34,9 @@ export function DummyPaymentGatewayModal({
 }) {
   const paystackPublicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ""
   const isLiveMode = Boolean(paystackPublicKey && paystackPublicKey.startsWith("pk_live_"))
+  const baseAmount = Number(amount) || 0
+  const gatewayFee = calculatePaystackFee(baseAmount)
+  const totalWithFee = Math.round((baseAmount + gatewayFee) * 100) / 100
   const [channel, setChannel] = useState("paystack")
   const [cardNumber, setCardNumber] = useState("4084 •••• •••• 4081")
   const [cardExpiry, setCardExpiry] = useState("09/28")
@@ -236,11 +253,14 @@ export function DummyPaymentGatewayModal({
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8 }}>
-              Pay
+            <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8 }}>
+              Total Payable
             </div>
             <div style={{ fontSize: 20, fontWeight: 700, color: "var(--gold)" }}>
-              ₦{Number(amount).toLocaleString()}
+              ₦{Number(totalWithFee).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+              ₦{Number(amount).toLocaleString()} + ₦{gatewayFee.toFixed(2)} fee
             </div>
           </div>
         </div>
@@ -583,6 +603,25 @@ export function DummyPaymentGatewayModal({
               </>
             )}
 
+            {/* Paystack Fee Breakdown */}
+            <div style={{ background: "#FAF7F0", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--text)", marginBottom: 4 }}>
+                <span>{packageName || "Order Amount"}</span>
+                <span style={{ fontWeight: 600 }}>₦{Number(amount).toLocaleString()}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                <span>Paystack Gateway Fee (1.5% + ₦100)</span>
+                <span>+₦{gatewayFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              <div style={{ borderTop: "1px dashed var(--border)", paddingTop: 6, display: "flex", justifyContent: "space-between", fontSize: 13.5, fontWeight: 700, color: "var(--text)" }}>
+                <span>Total Amount to Pay</span>
+                <span style={{ color: "var(--gold)" }}>₦{Number(totalWithFee).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 5, lineHeight: 1.4 }}>
+                Paystack transaction charges are covered by customer so your bakery account is credited with the full ₦{Number(amount).toLocaleString()} value.
+              </div>
+            </div>
+
             {/* Pay Button */}
             <Btn
               full
@@ -611,8 +650,8 @@ export function DummyPaymentGatewayModal({
                   <Lock size={14} />
                   <span>
                     {(isLiveMode || channel === "paystack")
-                      ? `Pay ₦${Number(amount).toLocaleString()} with Paystack`
-                      : `Pay ₦${Number(amount).toLocaleString()} (Demo Simulator)`}
+                      ? `Pay ₦${Number(amount).toLocaleString()} (+₦${gatewayFee.toFixed(2)} charge = ₦${totalWithFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+                      : `Pay ₦${Number(amount).toLocaleString()} (+₦${gatewayFee.toFixed(2)} charge = ₦${totalWithFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) (Demo)`}
                   </span>
                 </>
               )}

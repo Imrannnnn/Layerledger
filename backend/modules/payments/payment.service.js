@@ -15,7 +15,8 @@ const {
     PAYMENT_STATES,
     ERROR_CODES,
     toMinorUnits,
-    toMajorUnits
+    toMajorUnits,
+    calculatePaystackFeeInMinorUnits
 } = require('./payment.constants');
 const { PLAN_LIMITS, MULTI_MONTH_DISCOUNTS } = require('../../controller/planController');
 const { CREDIT_PACKS } = require('../../controller/tokenController');
@@ -203,6 +204,10 @@ class PaymentService {
         const paymentReference = this.generatePaymentReference();
         const effectiveIdempotencyKey = idempotencyKey || `IDEM-${paymentReference}`;
 
+        // Calculate Paystack processing charge passed to customer so net settlement matches exact item price
+        const feeInMinorUnits = calculatePaystackFeeInMinorUnits(amountInMinorUnits, currency);
+        const totalAmountInMinorUnits = amountInMinorUnits + feeInMinorUnits;
+
         // Principle #13: Create payment snapshot in database
         const payment = await this.repository.createPayment({
             tenantId,
@@ -213,24 +218,27 @@ class PaymentService {
             paymentReference,
             amount: amountInMinorUnits,
             currency,
-            fees: 0,
-            totalAmount: amountInMinorUnits,
+            fees: feeInMinorUnits,
+            totalAmount: totalAmountInMinorUnits,
             customerEmail,
             customerName,
             metadata: {
                 ...metadataSnapshot,
+                baseAmount: toMajorUnits(amountInMinorUnits, currency),
+                feeAmount: toMajorUnits(feeInMinorUnits, currency),
+                totalChargedAmount: toMajorUnits(totalAmountInMinorUnits, currency),
                 clientOptions: options,
                 callbackUrl
             },
             provider: this.provider.providerName
         });
 
-        // Initialize with gateway provider
+        // Initialize with gateway provider (charge customer total amount including Paystack processing fee)
         let gatewayResult;
         try {
             gatewayResult = await this.provider.initializeTransaction({
                 reference: paymentReference,
-                amountInMinorUnits,
+                amountInMinorUnits: totalAmountInMinorUnits,
                 currency,
                 email: customerEmail,
                 callbackUrl,
@@ -239,7 +247,9 @@ class PaymentService {
                     paymentReference,
                     tenantId,
                     userId,
-                    resourceType
+                    resourceType,
+                    baseAmount: amountInMinorUnits,
+                    feeAmount: feeInMinorUnits
                 }
             });
         } catch (err) {
@@ -293,8 +303,10 @@ class PaymentService {
             reference: paymentReference,
             authorizationUrl: gatewayResult.authorizationUrl,
             accessCode: gatewayResult.accessCode,
-            amount: toMajorUnits(amountInMinorUnits, currency),
-            amountInMinorUnits,
+            baseAmount: toMajorUnits(amountInMinorUnits, currency),
+            fee: toMajorUnits(feeInMinorUnits, currency),
+            amount: toMajorUnits(totalAmountInMinorUnits, currency),
+            amountInMinorUnits: totalAmountInMinorUnits,
             currency,
             status: updatedPayment.status
         };
@@ -353,17 +365,20 @@ class PaymentService {
         // Principle #10: Verify Amount
         const reportedAmount = Number(providerData.amount);
         const expectedAmount = Number(payment.amount);
+        const expectedTotalAmount = Number(payment.totalAmount || payment.amount);
         const requestedAmount = providerData.requestedAmount !== undefined && providerData.requestedAmount !== null
             ? Number(providerData.requestedAmount)
             : null;
         const fees = Number(providerData.fees || 0);
         const netAmount = reportedAmount - fees;
 
-        // Support both direct amount match and fee-adjusted match (where gateway adds transaction fee to customer)
+        // Support direct amount match, total amount with fee match, and fee-adjusted match (where gateway adds transaction fee to customer)
         const isAmountMatch =
             reportedAmount === expectedAmount ||
-            (requestedAmount !== null && requestedAmount === expectedAmount) ||
-            (fees > 0 && Math.abs(netAmount - expectedAmount) <= 10);
+            reportedAmount === expectedTotalAmount ||
+            (requestedAmount !== null && (requestedAmount === expectedAmount || requestedAmount === expectedTotalAmount)) ||
+            (fees > 0 && Math.abs(netAmount - expectedAmount) <= 10) ||
+            (Math.abs(reportedAmount - expectedTotalAmount) <= 10);
 
         if (!isAmountMatch) {
             await this.repository.transitionPaymentState({

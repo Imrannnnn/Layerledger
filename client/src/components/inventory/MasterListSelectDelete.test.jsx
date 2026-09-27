@@ -321,6 +321,54 @@ describe("Multi-Item Select and Delete Tests", () => {
     expect(minAlertInp).toBeDefined()
     expect(minAlertInp.getAttribute("step")).toBe("any")
   })
+
+  it("should not approximate decimal stock quantity and unit cost in Inventory", async () => {
+    const mockInventory = [
+      { id: "i-dec-stock", name: "Premium Yeast", cat: "Dry Goods", unit: "kg", cost: 2.5, stock: 2.5, minStock: 1 }
+    ]
+    const mockSetInventory = jest.fn()
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <InventoryTab
+          inventory={mockInventory}
+          setInventory={mockSetInventory}
+          isOwner={true}
+          searchQuery=""
+        />
+      )
+    })
+
+    // Quantity must be exact 2.5 kg, not rounded to 2 or 3
+    expect(container.textContent).toContain("2.5 kg")
+    // Unit cost must be exact ₦2.50/kg, not rounded to ₦3/kg
+    expect(container.textContent).toContain("₦2.50/kg")
+  })
+
+  it("should not approximate decimal unit cost and stock in Packaging", async () => {
+    const mockInventory = [
+      { id: "p-dec-1", name: "Ribbon Strip", cat: "Board and Packaging", unit: "pcs", cost: 2.5, stock: 12.5, minStock: 2 }
+    ]
+    const mockSetInventory = jest.fn()
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <PackagingTab
+          inventory={mockInventory}
+          setInventory={mockSetInventory}
+          isOwner={true}
+          searchQuery=""
+        />
+      )
+    })
+
+    // Cost must be ₦2.50, not rounded to ₦3
+    expect(container.textContent).toContain("₦2.50")
+    // Stock must be 12.5 pcs
+    expect(container.textContent).toContain("12.5 pcs")
+  })
 })
 
 

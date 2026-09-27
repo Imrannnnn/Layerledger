@@ -1,5 +1,7 @@
 import {
   fmt,
+  fmtCost,
+  fmtQty,
   uid,
   today,
   recipeCost,
@@ -39,6 +41,33 @@ describe('client helpers', () => {
       expect(fmt(0)).toBe('₦0');
       expect(fmt(150.75)).toBe('₦151'); // rounded to nearest int
       expect(fmt(null)).toBe('₦0');
+    });
+  });
+
+  describe('fmtCost', () => {
+    it('should preserve fractional decimals without approximation', () => {
+      expect(fmtCost(2.5)).toBe('₦2.50');
+      expect(fmtCost(2.55)).toBe('₦2.55');
+      expect(fmtCost(0.75)).toBe('₦0.75');
+      expect(fmtCost('2.5')).toBe('₦2.50');
+      expect(fmtCost('2,5')).toBe('₦2.50');
+    });
+
+    it('should format whole integers with commas and no trailing decimals', () => {
+      expect(fmtCost(1500)).toBe('₦1,500');
+      expect(fmtCost(0)).toBe('₦0');
+      expect(fmtCost(null)).toBe('₦0');
+    });
+  });
+
+  describe('fmtQty', () => {
+    it('should cleanly format quantities with decimals without approximation', () => {
+      expect(fmtQty(2.5)).toBe(2.5);
+      expect(fmtQty('2.5')).toBe(2.5);
+      expect(fmtQty('2,5')).toBe(2.5);
+      expect(fmtQty(10)).toBe(10);
+      expect(fmtQty(0)).toBe(0);
+      expect(fmtQty(null)).toBe(0);
     });
   });
 
@@ -242,6 +271,25 @@ Sugar,Dry Goods,kg,1500,50,10`;
       expect(result[0].cost).toBe(1140);
       expect(result[0].stock).toBe(50);
       expect(result[0].minStock).toBe(10);
+    });
+
+    it('should parse decimal costs and quantities including comma decimals without approximation', () => {
+      const csvText = `Name,Category,Unit,Cost,Stock,MinStock
+Flour,Dry Goods,kg,2.5,10.5,2
+Vanilla,Flavours,ml,"2,5","5,5",1`;
+
+      const result = parseCSV(csvText);
+      expect(result).toHaveLength(2);
+      expect(result[0].cost).toBe(2.5);
+      expect(result[0].stock).toBe(10.5);
+      expect(result[1].cost).toBe(2.5);
+      expect(result[1].stock).toBe(5.5);
+
+      const semiText = `Name;Category;Unit;Cost;Stock;MinStock
+Cocoa;Dry Goods;kg;2,5;15,5;2`;
+      const semiResult = parseCSV(semiText);
+      expect(semiResult[0].cost).toBe(2.5);
+      expect(semiResult[0].stock).toBe(15.5);
     });
 
     it('should return empty list if CSV has no data rows', () => {

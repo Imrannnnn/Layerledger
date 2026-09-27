@@ -167,6 +167,19 @@ describe('Opening Stock Dedicated Table Integration Tests', () => {
         expect(updated.openingQty).toBe(40);
         expect(updated.cost).toBe(1600);
         expect(updated.totalValue).toBe(64000);
+
+        // Verify decimal unit quantity like 2.5 does not approximate
+        const updateDecimalReq = {
+            user: { tenantId, role: 'owner' },
+            params: { id: target.id },
+            body: {
+                openingQty: 2.5,
+                cost: 1600
+            }
+        };
+        const updatedDecimal = await callController(updateOpeningStock, updateDecimalReq, {});
+        expect(updatedDecimal.openingQty).toBe(2.5);
+        expect(updatedDecimal.totalValue).toBe(4000);
     });
 
     test('DELETE /api/opening-stock/:id deletes a single item', async () => {

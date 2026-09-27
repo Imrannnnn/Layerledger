@@ -132,6 +132,61 @@ const isValidTransition = (currentState, nextState) => {
     return allowed.includes(nextState);
 };
 
+/**
+ * Calculate the Paystack transaction fee to pass to the customer.
+ * In Nigeria (NGN):
+ * - Transactions under ₦2,500: 1.5% fee (₦100 flat fee waived)
+ * - Transactions ₦2,500 and above: 1.5% + ₦100 flat fee
+ * - Maximum fee cap: ₦2,000
+ *
+ * Formula to ensure merchant receives exact base amount A:
+ * For A < 2500: Gross = A / (1 - 0.015)
+ * For A >= 2500: Gross = (A + 100) / (1 - 0.015)
+ * If (Gross - A) > 2000: Gross = A + 2000
+ * Fee = Gross - A
+ *
+ * @param {number} majorAmount 
+ * @param {string} currencyCode 
+ * @returns {number}
+ */
+const calculatePaystackFee = (majorAmount, currencyCode = 'NGN') => {
+    const A = Number(majorAmount) || 0;
+    if (A <= 0) return 0;
+
+    if ((currencyCode || 'NGN').toUpperCase() !== 'NGN') {
+        const rate = 0.039;
+        const flat = 0.30;
+        const gross = (A + flat) / (1 - rate);
+        return Math.round((gross - A) * 100) / 100;
+    }
+
+    let gross;
+    if (A < 2500) {
+        gross = A / 0.985;
+    } else {
+        gross = (A + 100) / 0.985;
+    }
+
+    let fee = gross - A;
+    if (fee > 2000) {
+        fee = 2000;
+    }
+
+    return Math.round(fee * 100) / 100;
+};
+
+const calculatePaystackGross = (majorAmount, currencyCode = 'NGN') => {
+    const A = Number(majorAmount) || 0;
+    const fee = calculatePaystackFee(A, currencyCode);
+    return Math.round((A + fee) * 100) / 100;
+};
+
+const calculatePaystackFeeInMinorUnits = (minorAmount, currencyCode = 'NGN') => {
+    const major = toMajorUnits(minorAmount, currencyCode);
+    const feeMajor = calculatePaystackFee(major, currencyCode);
+    return toMinorUnits(feeMajor, currencyCode);
+};
+
 module.exports = {
     PAYMENT_STATES,
     REFUND_STATES,
@@ -140,5 +195,8 @@ module.exports = {
     SUPPORTED_CURRENCIES,
     toMinorUnits,
     toMajorUnits,
-    isValidTransition
+    isValidTransition,
+    calculatePaystackFee,
+    calculatePaystackGross,
+    calculatePaystackFeeInMinorUnits
 };

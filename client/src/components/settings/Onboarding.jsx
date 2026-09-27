@@ -10,7 +10,7 @@
 import React, { useState, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, Modal, Alert } from "../common/ui.jsx"
 import { saveCompany, saveSetting, saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
-import { uid, fmt, parseCSV } from "../../lib/helpers.js"
+import { uid, fmt, fmtCost, parseCSV } from "../../lib/helpers.js"
 import { AlertTriangle, Check, FileSpreadsheet, PenLine, Lock, Calculator, BookOpen, Receipt, Search } from "lucide-react"
 
 export function Onboarding({ gold, company, setCompany, inventory, setInventory, recipes, setRecipes, settings, setSettings, onComplete, onSkip, setView }) {
@@ -157,37 +157,47 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
   // Opening Stock Helpers (Step 2)
   const updateOS = async (id, val) => {
-    const updated = { ...os, [id]: parseFloat(val) || 0 }
+    const isBlank = val === "" || val === undefined || val === null
+    const updated = { ...os, [id]: isBlank ? "" : val }
     setOs(updated)
-    await saveLocal("ll_opening_stock", updated)
+    const numericOS = Object.fromEntries(
+      Object.entries(updated).map(([k, v]) => [k, v === "" ? 0 : (parseFloat(v) || 0)])
+    )
+    await saveLocal("ll_opening_stock", numericOS)
     setSavedOS(false)
   }
 
   const updateCost = async (id, val) => {
-    const updatedInv = inventory.map(item => item.id === id ? { ...item, cost: parseFloat(val) || 0 } : item)
+    const isBlank = val === "" || val === undefined || val === null
+    const updatedInv = inventory.map(item => item.id === id ? { ...item, cost: isBlank ? "" : val } : item)
     setInventory(updatedInv)
-    await saveInventory(updatedInv)
+    const numericInv = updatedInv.map(item => ({ ...item, cost: item.cost === "" ? 0 : (parseFloat(item.cost) || 0) }))
+    await saveInventory(numericInv)
   }
 
   const lockOpeningStock = async () => {
     const monthKey = "ll_os_" + new Date().toISOString().slice(0, 7)
+    const numericOS = Object.fromEntries(
+      Object.entries(os).map(([k, v]) => [k, v === "" ? 0 : (parseFloat(v) || 0)])
+    )
     const snapshot = {
       date: new Date().toISOString(),
       items: inventory.map(i => ({
         id: i.id,
         name: i.name,
         unit: i.unit,
-        openingQty: os[i.id] || 0,
-        cost: i.cost
+        openingQty: numericOS[i.id] !== undefined ? numericOS[i.id] : (parseFloat(i.stock) || 0),
+        cost: i.cost === "" ? 0 : (parseFloat(i.cost) || 0)
       }))
     }
     await saveLocal(monthKey, snapshot)
-    await saveLocal("ll_opening_stock", os)
+    await saveLocal("ll_opening_stock", numericOS)
 
     // Set live inventory levels to match these opening stocks
     const updatedInventory = inventory.map(item => ({
       ...item,
-      stock: os[item.id] || 0
+      cost: item.cost === "" ? 0 : (parseFloat(item.cost) || 0),
+      stock: numericOS[item.id] !== undefined ? numericOS[item.id] : (parseFloat(item.stock) || 0)
     }))
     setInventory(updatedInventory)
     await saveInventory(updatedInventory)
@@ -404,7 +414,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                               </td>
                               <td style={{ padding: "6px 10px", fontWeight: 500 }}>{p.name}</td>
                               <td style={{ padding: "6px 10px", color: "var(--muted)" }}>{p.unit}</td>
-                              <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 500, color: "var(--gold)" }}>{fmt(p.cost)}/{p.unit}</td>
+                              <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 500, color: "var(--gold)" }}>{fmtCost(p.cost)}/{p.unit}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -509,8 +519,11 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                     </tr>
                   ) : (
                     filteredInventory.map((item, i) => {
-                      const qty = os[item.id] || 0
-                      const value = qty * item.cost
+                      const rawQty = os[item.id] !== undefined ? os[item.id] : ""
+                      const qty = rawQty === "" ? 0 : (parseFloat(rawQty) || 0)
+                      const rawCost = item.cost !== undefined ? item.cost : ""
+                      const cost = rawCost === "" ? 0 : (parseFloat(rawCost) || 0)
+                      const value = qty * cost
                       return (
                         <tr key={item.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
                           <td style={{ padding: "8px 10px", fontWeight: 500 }}>{item.name}</td>
@@ -518,8 +531,22 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                           <td style={{ padding: "8px 10px", textAlign: "right" }}>
                             <input
                               type="number"
-                              value={qty || ""}
+                              step="any"
+                              value={rawQty}
                               onChange={e => updateOS(item.id, e.target.value)}
+                              onFocus={e => {
+                                if (e.target.value === "0") e.target.select()
+                              }}
+                              onBlur={() => {
+                                if (os[item.id] === "" || os[item.id] === undefined) {
+                                  updateOS(item.id, 0)
+                                } else {
+                                  const num = parseFloat(os[item.id])
+                                  if (!isNaN(num) && String(os[item.id]).endsWith(".")) {
+                                    updateOS(item.id, num)
+                                  }
+                                }
+                              }}
                               placeholder="0"
                               style={{ ...iSt, width: 70, padding: "4px 8px", fontSize: 13, textAlign: "right" }}
                             />
@@ -527,13 +554,31 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                           <td style={{ padding: "8px 10px", textAlign: "right" }}>
                             <input
                               type="number"
-                              value={item.cost || ""}
+                              step="any"
+                              value={rawCost}
                               onChange={e => updateCost(item.id, e.target.value)}
+                              onFocus={e => {
+                                if (e.target.value === "0") e.target.select()
+                              }}
+                              onBlur={() => {
+                                if (item.cost === "" || item.cost === undefined) {
+                                  updateCost(item.id, 0)
+                                } else {
+                                  const num = parseFloat(item.cost)
+                                  if (!isNaN(num) && String(item.cost).endsWith(".")) {
+                                    updateCost(item.id, num)
+                                  }
+                                }
+                              }}
                               placeholder="0"
                               style={{ ...iSt, width: 85, padding: "4px 8px", fontSize: 13, textAlign: "right" }}
                             />
                           </td>
-                          <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>{fmt(value)}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>
+                            {value % 1 !== 0 && value < 100
+                              ? `₦${value.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : fmt(value)}
+                          </td>
                         </tr>
                       )
                     })
@@ -607,9 +652,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                     <div style={{ gridColumn: "span 2" }}>
                       <Inp label="Quantity Bought *" type="number" value={manualItem.qtyBought} onChange={v => setManualItem(m => ({ ...m, qtyBought: v }))} placeholder="e.g. 2.5" />
                     </div>
-                    {manualItem.totalPaid && manualItem.qtyBought && parseFloat(manualItem.qtyBought) > 0 && (
+                    {manualItem.totalPaid && manualItem.qtyBought && parseFloat(String(manualItem.qtyBought).replace(",", ".")) > 0 && (
                       <div style={{ gridColumn: "span 2", padding: "8px 12px", background: "var(--bg)", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "var(--gold)" }}>
-                        Calculated Cost per Unit: {fmt(parseFloat(manualItem.totalPaid) / parseFloat(manualItem.qtyBought))}/{manualItem.unit}
+                        Calculated Cost per Unit: {fmtCost(parseFloat(String(manualItem.totalPaid).replace(",", ".")) / parseFloat(String(manualItem.qtyBought).replace(",", ".")))}/{manualItem.unit}
                       </div>
                     )}
                   </div>
