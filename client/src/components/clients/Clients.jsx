@@ -11,7 +11,7 @@ import {
   notifyPlanLimitReached,
   saveLocal
 } from "../../lib/data.js"
-import { Users, Search, MessageCircle, MapPin, Calculator, Pencil, Trash2, AlertTriangle, Plus, Cake, Heart, CalendarHeart, Download } from "lucide-react"
+import { Users, Search, MessageCircle, MapPin, Calculator, Pencil, Trash2, AlertTriangle, Plus, Cake, Heart, CalendarHeart, Download, X } from "lucide-react"
 import { exportClientsPDF } from "../../lib/pdfReportGenerator.js"
 import { MONTHS, SPECIAL_DATE_TYPES, parseSpecialDate, formatSpecialDate } from "../../lib/helpers.js"
 
@@ -47,6 +47,18 @@ export function Clients({ setView, company = {} }) {
   const [errorMsg, setErrorMsg] = useState("")
   const [saving, setSaving] = useState(false)
   const isSavingRef = useRef(false)
+
+  const handleImmediateSearch = (e) => {
+    if (e && e.preventDefault) e.preventDefault()
+    setDebouncedSearch(search)
+    setCurrentPage(1)
+  }
+
+  const handleClearClientSearch = () => {
+    setSearch("")
+    setDebouncedSearch("")
+    setCurrentPage(1)
+  }
 
   // Debounce search input to avoid spamming the backend
   useEffect(() => {
@@ -285,24 +297,59 @@ export function Clients({ setView, company = {} }) {
       {/* TOP CONTROLS */}
       <Card style={{ marginBottom: 16, padding: "14px 16px" }}>
         <div style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 240, maxWidth: 420, position: "relative" }}>
-            <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }} />
-            <input
-              type="text"
-              placeholder="Search clients by name, phone, email, or notes..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "8px 12px 8px 32px",
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "#FAF7F0",
-                fontSize: 13,
-                outline: "none"
-              }}
-            />
-          </div>
+          <form onSubmit={handleImmediateSearch} style={{ display: "flex", gap: 6, flex: 1, minWidth: 260, maxWidth: 500, alignItems: "center" }}>
+            <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center" }}>
+              <Search size={15} style={{ position: "absolute", left: 10, color: "var(--muted)", pointerEvents: "none" }} />
+              <input
+                type="text"
+                placeholder="Search clients by name, phone, email, notes..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    handleImmediateSearch(e)
+                  }
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 30px 8px 32px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "#FAF7F0",
+                  fontSize: 13,
+                  outline: "none"
+                }}
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={handleClearClientSearch}
+                  title="Clear search"
+                  style={{
+                    position: "absolute",
+                    right: 8,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 2,
+                    color: "var(--muted)",
+                    display: "flex",
+                    alignItems: "center"
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <Btn type="submit" small variant="primary" style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 35 }}>
+              <Search size={13} /> Search
+            </Btn>
+            {debouncedSearch && (
+              <Btn type="button" small variant="ghost" onClick={handleClearClientSearch} style={{ height: 35 }}>
+                Reset
+              </Btn>
+            )}
+          </form>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <Btn
               variant="outline"

@@ -25,7 +25,7 @@ import {
   updateRecipeOnServer,
   deleteRecipeOnServer
 } from "../../lib/data.js"
-import { Pencil, Trash2, Check, X, AlertTriangle, ShoppingCart, Folder, FileSpreadsheet, Camera, Sparkles, Plus, ChevronUp, ChevronDown, Download } from "lucide-react"
+import { Pencil, Trash2, Check, X, AlertTriangle, ShoppingCart, Folder, FileSpreadsheet, Camera, Sparkles, Plus, ChevronUp, ChevronDown, Download, Search } from "lucide-react"
 import { exportInventoryPDF } from "../../lib/pdfReportGenerator.js"
 
 
@@ -2137,23 +2137,39 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
       <Tabs tabs={[{v:"inventory",l:"Inventory"},{v:"recipes",l:"Base Recipes"},{v:"decorations",l:"Decoration Extras"},{v:"packaging",l:"Boards & Packaging"}]} active={tab} onChange={setTab}/>
-      <div style={{ position: "relative", minWidth: 240 }}>
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          placeholder={`Search ${tab === "inventory" ? "inventory" : tab === "recipes" ? "base recipes" : tab === "decorations" ? "decorations" : "packaging"}...`}
-          style={{ ...iSt, padding: "8px 30px 8px 12px", fontSize: 13, borderRadius: 8, border: "1.5px solid var(--gold)" }}
-        />
+      <form
+        onSubmit={e => e.preventDefault()}
+        style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 260, flex: "0 1 360px" }}
+      >
+        <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+          <Search size={14} style={{ position: "absolute", left: 10, color: "var(--muted)", pointerEvents: "none" }} />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder={`Search ${tab === "inventory" ? "inventory" : tab === "recipes" ? "base recipes" : tab === "decorations" ? "decorations" : "packaging"}...`}
+            style={{ ...iSt, width: "100%", padding: "8px 28px 8px 30px", fontSize: 13, borderRadius: 8, border: "1.5px solid var(--gold)" }}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              title="Clear search"
+              style={{ position: "absolute", right: 8, background: "none", border: "none", cursor: "pointer", color: "var(--muted)", display: "flex", alignItems: "center" }}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <Btn type="submit" small variant="primary" style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 35 }}>
+          <Search size={13} /> Search
+        </Btn>
         {searchQuery && (
-          <button
-            onClick={() => setSearchQuery("")}
-            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--muted)", display: "flex", alignItems: "center" }}
-          >
-            <X size={14} />
-          </button>
+          <Btn type="button" small variant="ghost" onClick={() => setSearchQuery("")} style={{ height: 35 }}>
+            Reset
+          </Btn>
         )}
-      </div>
+      </form>
     </div>
 
     {/* ── INVENTORY ── */}

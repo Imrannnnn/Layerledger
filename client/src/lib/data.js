@@ -3466,14 +3466,23 @@ export const savePurchases = async (data) => {
   }
 }
 
-export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = "" } = {}) => {
+export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = "", search = "" } = {}) => {
   const apiUrl = import.meta.env.VITE_API_URL
   const headers = getAuthHeaders()
   const isMonthFilter = month && month.trim() && month.trim() !== "all"
 
   if (!apiUrl || !headers) {
     const all = loadLocal("ll_purchases", [])
-    const filtered = isMonthFilter ? all.filter(p => isDateMatchingMonth(p.date, month.trim())) : all
+    let filtered = isMonthFilter ? all.filter(p => isDateMatchingMonth(p.date, month.trim())) : all
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase()
+      filtered = filtered.filter(p =>
+        (p.item || "").toLowerCase().includes(q) ||
+        (p.supplier || "").toLowerCase().includes(q) ||
+        (p.notes || "").toLowerCase().includes(q) ||
+        (p.category || "").toLowerCase().includes(q)
+      )
+    }
     const sz = limit === "all" ? filtered.length : Number(limit) || 25
     const start = (page - 1) * sz
     const slice = filtered.slice(start, start + sz)
@@ -3500,6 +3509,7 @@ export const fetchPaginatedPurchases = async ({ page = 1, limit = 25, month = ""
     if (page) params.set("page", page)
     if (limit) params.set("limit", limit)
     if (isMonthFilter) params.set("month", month.trim())
+    if (search && search.trim()) params.set("search", search.trim())
 
     const res = await fetch(`${apiUrl}/api/purchases?${params.toString()}`, { headers })
     if (res.ok) {

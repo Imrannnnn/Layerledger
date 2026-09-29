@@ -464,41 +464,47 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             </div>
 
             {/* Search Bar */}
-            <div style={{ position: "relative", marginBottom: 12 }}>
-              <input
-                type="text"
-                placeholder="Search items by name..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                style={{
-                  ...iSt,
-                  padding: "8px 10px 8px 30px",
-                  fontSize: 13,
-                  borderRadius: 8,
-                  border: "1px solid var(--border)",
-                  background: "var(--panel)"
-                }}
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
+            <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center" }}>
+              <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+                <Search size={14} style={{ position: "absolute", left: 10, color: "var(--muted)", pointerEvents: "none" }} />
+                <input
+                  type="text"
+                  placeholder="Search items by name..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
                   style={{
-                    position: "absolute",
-                    right: 10,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    background: "none",
-                    border: "none",
-                    color: "var(--muted)",
-                    cursor: "pointer",
+                    ...iSt,
+                    width: "100%",
+                    padding: "8px 28px 8px 30px",
                     fontSize: 13,
-                    fontWeight: 500,
-                    padding: 0
+                    borderRadius: 8,
+                    border: "1px solid var(--border)",
+                    background: "var(--panel)"
                   }}
-                >
-                  Clear
-                </button>
-              )}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    style={{
+                      position: "absolute",
+                      right: 10,
+                      background: "none",
+                      border: "none",
+                      color: "var(--muted)",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      display: "flex",
+                      alignItems: "center"
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <Btn small variant="primary" style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 35 }}>
+                <Search size={13} /> Search
+              </Btn>
             </div>
 
             <div style={{ overflowY: "auto", maxHeight: 260, border: "1px solid var(--border)", borderRadius: 10, marginBottom: 16 }}>

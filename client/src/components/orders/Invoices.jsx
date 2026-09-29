@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo } from "react"
 import { Btn, iSt, Card, Badge, SHead, Tabs, Spinner, Pagination } from "../common/ui.jsx"
 import { loadLocal, saveLocal } from "../../lib/data.js"
-import { Receipt, Trash2, Calendar, Truck, Cake, Check, Zap, Clock } from "lucide-react"
+import { Receipt, Trash2, Calendar, Truck, Cake, Check, Zap, Clock, Search, X } from "lucide-react"
 
 export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner}){
   const loadInvs=()=>{return loadLocal("ll_quote_invoices",[])}
@@ -241,7 +241,41 @@ export function Invoices({productions,company,prefillProd,setPrefillProd,isOwner
         {/* Search and filter */}
         <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",gap:10,flex:1,minWidth:200,alignItems:"center",flexWrap:"wrap"}}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by client name or invoice number..." style={{...iSt,flex:1,minWidth:200}}/>
+            <form
+              onSubmit={e => {
+                e.preventDefault()
+                setCurrentPage(1)
+              }}
+              style={{ display: "flex", gap: 6, flex: 1, minWidth: 260, maxWidth: 440, alignItems: "center" }}
+            >
+              <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+                <Search size={14} style={{ position: "absolute", left: 10, color: "var(--muted)", pointerEvents: "none" }} />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search by client name or invoice number..."
+                  style={{ ...iSt, width: "100%", padding: "7px 28px 7px 30px", fontSize: 13 }}
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    title="Clear search"
+                    style={{ position: "absolute", right: 8, background: "none", border: "none", cursor: "pointer", color: "var(--muted)", display: "flex", alignItems: "center" }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <Btn type="submit" small variant="primary" style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 35 }}>
+                <Search size={13} /> Search
+              </Btn>
+              {search && (
+                <Btn type="button" small variant="ghost" onClick={() => setSearch("")} style={{ height: 35 }}>
+                  Reset
+                </Btn>
+              )}
+            </form>
             <Tabs tabs={[{v:"all",l:"All"},{v:"unpaid",l:"Unpaid"},{v:"paid",l:"Paid"}]} active={filter} onChange={setFilter}/>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

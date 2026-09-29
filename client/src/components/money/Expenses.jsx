@@ -10,7 +10,7 @@ import { Btn, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, iSt, Spinner, Paginat
 import { fmt, uid, today, formatDateDMY, isDateInMonth } from "../../lib/helpers.js"
 import { EXP_CATS } from "../../constants.js"
 import { saveExpenses } from "../../lib/data.js"
-import { Lightbulb, Trash2, Zap, Pencil, Check, X, Download } from "lucide-react"
+import { Lightbulb, Trash2, Zap, Pencil, Check, X, Download, Search } from "lucide-react"
 import { exportExpensesPDF } from "../../lib/pdfReportGenerator.js"
 
 export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
@@ -24,6 +24,8 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
   const [pageSize, setPageSize] = useState(25)
   const [saving, setSaving] = useState(false)
   const [savingEditId, setSavingEditId] = useState(null)
+  const [searchInput, setSearchInput] = useState("")
+  const [appliedSearch, setAppliedSearch] = useState("")
   const isSavingEditRef = useRef(false)
 
 
@@ -247,20 +249,40 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
     if (!isDateInMonth(e.date, selectedMonth)) return false
 
     if (tab === "by_category") {
-      return e.category === selectedCategoryFilter
+      if (e.category !== selectedCategoryFilter) return false
+    } else if (tab === "manual") {
+      if (e.source !== "manual" && e.source !== "receipt" && !!e.source) return false
+    } else if (tab === "bank") {
+      if (e.source !== "bank") return false
     }
-    if (tab === "manual") {
-      return e.source === "manual" || e.source === "receipt" || !e.source
+
+    if (appliedSearch) {
+      const q = appliedSearch.toLowerCase()
+      const matchDesc = e.description && e.description.toLowerCase().includes(q)
+      const matchNotes = e.notes && e.notes.toLowerCase().includes(q)
+      const matchCat = e.category && e.category.toLowerCase().includes(q)
+      const matchMethod = e.paymentMethod && e.paymentMethod.toLowerCase().includes(q)
+      if (!matchDesc && !matchNotes && !matchCat && !matchMethod) return false
     }
-    if (tab === "bank") {
-      return e.source === "bank"
-    }
-    return true // "monthly"
+
+    return true
   })
+
+  const handleSearchSubmit = (e) => {
+    if (e && e.preventDefault) e.preventDefault()
+    setAppliedSearch(searchInput.trim())
+    setCurrentPage(1)
+  }
+
+  const handleClearSearch = () => {
+    setSearchInput("")
+    setAppliedSearch("")
+    setCurrentPage(1)
+  }
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [selectedMonth, tab, selectedCategoryFilter])
+  }, [selectedMonth, tab, selectedCategoryFilter, appliedSearch])
 
   const paginatedExpenses = useMemo(() => {
     if (pageSize === "all") return filtered
@@ -364,6 +386,70 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
           )}
           <Btn onClick={() => setAdding(!adding)}>+ Add Cash Expense</Btn>
         </div>
+      </div>
+
+      {/* Search Toolbar */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, flexWrap: "wrap", justifyContent: "space-between" }}>
+        <form onSubmit={handleSearchSubmit} style={{ display: "flex", gap: 6, alignItems: "center", flex: "1 1 280px", maxWidth: 460 }}>
+          <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+            <Search size={14} style={{ position: "absolute", left: 10, color: "var(--muted)", pointerEvents: "none" }} />
+            <input
+              type="text"
+              placeholder="Search expenses (description, category, notes)..."
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  handleSearchSubmit(e)
+                }
+              }}
+              style={{
+                width: "100%",
+                padding: "7px 28px 7px 30px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                fontSize: 12.5,
+                background: "var(--panel)",
+                color: "var(--text)",
+                fontFamily: "inherit",
+                outline: "none"
+              }}
+            />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                title="Clear search"
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 2,
+                  color: "var(--muted)",
+                  display: "flex",
+                  alignItems: "center"
+                }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <Btn type="submit" small variant="primary" style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 32 }}>
+            <Search size={13} /> Search
+          </Btn>
+          {appliedSearch && (
+            <Btn type="button" small variant="ghost" onClick={handleClearSearch} style={{ height: 32 }}>
+              Reset
+            </Btn>
+          )}
+        </form>
+        {appliedSearch && (
+          <span style={{ fontSize: 12, color: "var(--gold)", fontWeight: 500 }}>
+            Filtered by: &ldquo;{appliedSearch}&rdquo; ({filtered.length} expense{filtered.length !== 1 ? "s" : ""})
+          </span>
+        )}
       </div>
 
       {/* New Expense Form */}

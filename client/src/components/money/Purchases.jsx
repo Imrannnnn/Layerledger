@@ -8,7 +8,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Card, SHead, TH, TR2, Spinner, Pagination, Modal } from "../common/ui.jsx"
 import { fmt, uid, DEFAULT_CATEGORIES, mapCategory, formatDateDMY, normalizeToIsoDate, isDateInMonth } from "../../lib/helpers.js"
 import { saveInventory, saveExpenses, loadLocal, saveLocal, savePurchases, fetchPaginatedPurchases, deletePurchaseFromServer, deletePurchasesFromServer, clearAllPurchasesFromServer, updatePurchaseOnServer } from "../../lib/data.js"
-import { Link, Receipt, Trash2, Check, Calendar, AlertCircle, Download, Pencil } from "lucide-react"
+import { Link, Receipt, Trash2, Check, Calendar, AlertCircle, Download, Pencil, Search, X } from "lucide-react"
 import { exportPurchasesPDF } from "../../lib/pdfReportGenerator.js"
 
 const formatMonthLabel = (m) => {
@@ -44,6 +44,8 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [loading, setLoading] = useState(false)
+  const [searchInput, setSearchInput] = useState("")
+  const [appliedSearch, setAppliedSearch] = useState("")
   const [selectedMonth, setSelectedMonth] = useState(() => {
     try {
       const active = sessionStorage.getItem("ll_active_purchases_month")
@@ -74,14 +76,16 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
   const [savingEdit, setSavingEdit] = useState(false)
 
   // Fetch paginated slice directly from server/database
-  const loadPage = async () => {
+  const loadPage = async (searchOverride) => {
     if (typeof fetchPaginatedPurchases !== "function") return
     setLoading(true)
+    const activeSearch = searchOverride !== undefined ? searchOverride : appliedSearch
     try {
       const res = await fetchPaginatedPurchases({
         page: currentPage,
         limit: pageSize,
-        month: selectedMonth
+        month: selectedMonth,
+        search: activeSearch
       })
       if (res && res.data) {
         setPurchases(res.data)
@@ -96,7 +100,16 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     } catch (err) {
       console.warn("fetchPaginatedPurchases failed, falling back to local:", err)
       const all = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
-      const filtered = selectedMonth ? all.filter(p => isDateInMonth(p.date, selectedMonth)) : all
+      let filtered = selectedMonth ? all.filter(p => isDateInMonth(p.date, selectedMonth)) : all
+      if (activeSearch) {
+        const s = activeSearch.toLowerCase()
+        filtered = filtered.filter(p =>
+          (p.item && p.item.toLowerCase().includes(s)) ||
+          (p.supplier && p.supplier.toLowerCase().includes(s)) ||
+          (p.notes && p.notes.toLowerCase().includes(s)) ||
+          (p.category && p.category.toLowerCase().includes(s))
+        )
+      }
       setPurchases(filtered)
       setTotalCount(filtered.length)
     } finally {
@@ -104,9 +117,21 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     }
   }
 
+  const handleSearchSubmit = (e) => {
+    if (e && e.preventDefault) e.preventDefault()
+    setAppliedSearch(searchInput.trim())
+    setCurrentPage(1)
+  }
+
+  const handleClearSearch = () => {
+    setSearchInput("")
+    setAppliedSearch("")
+    setCurrentPage(1)
+  }
+
   useEffect(() => {
     loadPage()
-  }, [currentPage, pageSize, selectedMonth])
+  }, [currentPage, pageSize, selectedMonth, appliedSearch])
 
   // Real-time listener for receipt scans and purchase updates
   useEffect(() => {
@@ -893,6 +918,70 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       </div>
     )}
 
+    {/* Search & Filter Toolbar */}
+    <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap", justifyContent: "space-between" }}>
+      <form onSubmit={handleSearchSubmit} style={{ display: "flex", gap: 6, alignItems: "center", flex: "1 1 280px", maxWidth: 460 }}>
+        <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+          <Search size={14} style={{ position: "absolute", left: 10, color: "var(--muted)", pointerEvents: "none" }} />
+          <input
+            type="text"
+            placeholder="Search purchases (item, supplier, notes)..."
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") {
+                handleSearchSubmit(e)
+              }
+            }}
+            style={{
+              width: "100%",
+              padding: "7px 28px 7px 30px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              fontSize: 12.5,
+              background: "var(--panel)",
+              color: "var(--text)",
+              fontFamily: "inherit",
+              outline: "none"
+            }}
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              title="Clear search"
+              style={{
+                position: "absolute",
+                right: 8,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 2,
+                color: "var(--muted)",
+                display: "flex",
+                alignItems: "center"
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <Btn type="submit" small variant="primary" style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 32 }}>
+          <Search size={13} /> Search
+        </Btn>
+        {appliedSearch && (
+          <Btn type="button" small variant="ghost" onClick={handleClearSearch} style={{ height: 32 }}>
+            Reset
+          </Btn>
+        )}
+      </form>
+      {appliedSearch && (
+        <span style={{ fontSize: 12, color: "var(--gold)", fontWeight: 500 }}>
+          Filtered by: &ldquo;{appliedSearch}&rdquo; ({totalCount} record{totalCount !== 1 ? "s" : ""})
+        </span>
+      )}
+    </div>
+
     <Card style={{ padding: 0, overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, opacity: loading ? 0.6 : 1, transition: "opacity 0.2s" }}>
         <TH cols={[
@@ -909,7 +998,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
           "Date", "Item", "Category", "Unit", "Pack size", "Qty", "Price/pack", "Total", "Cost/unit *", "Status",
           ...(isOwner ? ["Actions"] : [])
         ]} />
-        <tbody>{purchases.length === 0 ? <tr><td colSpan={isOwner ? 12 : 10} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>{loading ? "Loading purchases..." : `No purchases logged for ${formatMonthLabel(selectedMonth)}. Click + Log Purchase or scan a receipt to start.`}</td></tr> :
+        <tbody>{purchases.length === 0 ? <tr><td colSpan={isOwner ? 12 : 10} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>{loading ? "Loading purchases..." : appliedSearch ? `No purchases matched "${appliedSearch}".` : `No purchases logged for ${formatMonthLabel(selectedMonth)}. Click + Log Purchase or scan a receipt to start.`}</td></tr> :
           paginatedPurchases.map((p, i) => {
             const invItem = inventory.find(item => item.id === p.itemId)
             const displayCat = invItem?.cat || p.category || "—"

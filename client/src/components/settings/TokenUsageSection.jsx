@@ -1255,7 +1255,7 @@ export function TokenUsageSection({ company = {} }) {
             ))}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ position: "relative" }}>
               <Search size={14} color="var(--muted)" style={{ position: "absolute", left: 9, top: 8 }} />
               <input
@@ -1283,6 +1283,14 @@ export function TokenUsageSection({ company = {} }) {
                 />
               )}
             </div>
+            <Btn
+              small
+              variant="primary"
+              onClick={() => setCurrentPage(1)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 3, height: 30, padding: "0 8px" }}
+            >
+              <Search size={12} /> Search
+            </Btn>
           </div>
         </div>
 

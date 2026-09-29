@@ -8,7 +8,7 @@ import React, { useState, useEffect, useMemo } from "react"
 import { Btn, Card, Badge, SHead, Tabs, TH, TR2, iSt, Pagination } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { updateProdStatus } from "../../lib/data.js"
-import { Check, Download } from "lucide-react"
+import { Check, Download, Search, X } from "lucide-react"
 import { exportRecordsPDF } from "../../lib/pdfReportGenerator.js"
 
 export function Records({ productions, setProductions, setView, setPrefillProd, user, company = {} }) {
@@ -32,8 +32,16 @@ export function Records({ productions, setProductions, setView, setPrefillProd, 
     // Exclude cancelled quotes
     if ((p.status || "").toLowerCase() === "cancelled") return false
 
-    // Client name search
-    if (clientSearch && !p.client?.toLowerCase().includes(clientSearch.toLowerCase())) return false
+    // Search query
+    if (clientSearch) {
+      const q = clientSearch.toLowerCase()
+      const matchClient = p.client?.toLowerCase().includes(q)
+      const matchNotes = p.notes?.toLowerCase().includes(q)
+      const matchDesc = p.description?.toLowerCase().includes(q)
+      const matchFlavor = p.flavor?.toLowerCase().includes(q)
+      const matchInvoice = p.invoiceNumber?.toLowerCase().includes(q) || p.id?.toLowerCase().includes(q)
+      if (!matchClient && !matchNotes && !matchDesc && !matchFlavor && !matchInvoice) return false
+    }
 
     // Product type filter
     if (productType !== "all" && p.productType !== productType) return false
@@ -87,15 +95,33 @@ export function Records({ productions, setProductions, setView, setPrefillProd, 
       <Card style={{ marginBottom: 16, padding: "14px 16px" }}>
         <div style={{ fontSize: 11.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600, marginBottom: 10 }}>Filter Orders</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
-          {/* Client Search */}
-          <div>
-            <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4 }}>Client Name / Search</label>
-            <input
-              value={clientSearch}
-              onChange={e => setClientSearch(e.target.value)}
-              placeholder="Search client..."
-              style={{ ...iSt, padding: "6px 10px", fontSize: 12.5 }}
-            />
+          {/* Search */}
+          <div style={{ minWidth: 220 }}>
+            <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4 }}>Search Orders</label>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+                <Search size={14} style={{ position: "absolute", left: 8, color: "var(--muted)", pointerEvents: "none" }} />
+                <input
+                  value={clientSearch}
+                  onChange={e => setClientSearch(e.target.value)}
+                  placeholder="Search client, notes, ID..."
+                  style={{ ...iSt, width: "100%", padding: "6px 24px 6px 26px", fontSize: 12.5 }}
+                />
+                {clientSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setClientSearch("")}
+                    title="Clear search"
+                    style={{ position: "absolute", right: 6, background: "none", border: "none", cursor: "pointer", color: "var(--muted)", display: "flex", alignItems: "center" }}
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+              <Btn small variant="primary" style={{ display: "inline-flex", alignItems: "center", gap: 3, height: 32, padding: "0 8px" }} onClick={() => setCurrentPage(1)}>
+                <Search size={12} /> Search
+              </Btn>
+            </div>
           </div>
 
           {/* Product Type Dropdown */}

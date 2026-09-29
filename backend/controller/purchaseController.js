@@ -8,7 +8,7 @@ const { asyncHandler } = require('../middleware/custommiddleware');
  */
 const getPurchases = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { page, limit, month } = req.query;
+    const { page, limit, month, search } = req.query;
 
     const where = { tenantId };
     const monthStr = month ? month.trim() : '';
@@ -21,6 +21,21 @@ const getPurchases = asyncHandler(async (req, res) => {
             gte: startOfMonth,
             lt: endOfMonth
         };
+    }
+
+    if (search && search.trim()) {
+        const s = search.trim();
+        where.AND = [
+            ...(where.AND || []),
+            {
+                OR: [
+                    { supplier: { contains: s, mode: 'insensitive' } },
+                    { notes: { contains: s, mode: 'insensitive' } },
+                    { inventoryItem: { name: { contains: s, mode: 'insensitive' } } },
+                    { inventoryItem: { category: { contains: s, mode: 'insensitive' } } }
+                ]
+            }
+        ];
     }
 
     if (page || limit) {

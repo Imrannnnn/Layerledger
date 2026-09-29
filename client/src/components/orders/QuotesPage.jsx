@@ -12,7 +12,7 @@ import { fmt, uid, parseSpecialDate } from "../../lib/helpers.js"
 import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal, calculateOrderUsages, updateInventoryItemOnServer, deleteOrderOnServer } from "../../lib/data.js"
 import { DEFAULT_MULTS } from "../../constants.js"
 import { Invoices } from "./Invoices.jsx"
-import { ChevronUp, ChevronDown, Clock, Check, CreditCard, Pencil, Receipt, AlertTriangle, MessageSquare, Cake, Heart, Calendar } from "lucide-react"
+import { ChevronUp, ChevronDown, Clock, Check, CreditCard, Pencil, Receipt, AlertTriangle, MessageSquare, Cake, Heart, Calendar, Search, X } from "lucide-react"
 
 const QUOTE_STATUSES = [
   { v: "pending", l: "Pending", c: "#BA7517", bg: "#FAEEDA" },
@@ -330,13 +330,66 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
 
       {/* Search Input */}
       <div style={{ marginBottom: 16 }}>
-        <input
-          type="text"
-          placeholder="Search by client name or invoice number..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          style={{ ...iSt, width: "100%", padding: "10px 14px", borderRadius: 8, fontSize: 13.5 }}
-        />
+        <form
+          onSubmit={e => {
+            e.preventDefault()
+            setCurrentPage(1)
+          }}
+          style={{ display: "flex", gap: 8, alignItems: "center" }}
+        >
+          <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+            <Search size={15} style={{ position: "absolute", left: 12, color: "var(--muted)", pointerEvents: "none" }} />
+            <input
+              type="text"
+              placeholder="Search by client name or invoice number..."
+              value={searchQuery}
+              onChange={e => {
+                setSearchQuery(e.target.value)
+                setCurrentPage(1)
+              }}
+              style={{ ...iSt, width: "100%", padding: "10px 34px 10px 36px", borderRadius: 8, fontSize: 13.5 }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("")
+                  setCurrentPage(1)
+                }}
+                title="Clear search"
+                style={{
+                  position: "absolute",
+                  right: 10,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--muted)",
+                  padding: 2,
+                  display: "flex",
+                  alignItems: "center"
+                }}
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+          <Btn type="submit" variant="primary" style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 42, padding: "0 18px" }}>
+            <Search size={14} /> Search
+          </Btn>
+          {searchQuery && (
+            <Btn
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setSearchQuery("")
+                setCurrentPage(1)
+              }}
+              style={{ height: 42 }}
+            >
+              Reset
+            </Btn>
+          )}
+        </form>
       </div>
 
       {/* Filter Tabs & New Quote button */}

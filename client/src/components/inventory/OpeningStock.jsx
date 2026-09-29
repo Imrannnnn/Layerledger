@@ -666,33 +666,51 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
       <Card style={{ marginBottom: 16, padding: "14px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           {/* Search */}
-          <div style={{ flex: 1, minWidth: 220, maxWidth: 360, position: "relative" }}>
-            <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }} />
-            <input
-              type="text"
-              placeholder="Search opening stock items..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "8px 12px 8px 32px",
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--panel)",
-                color: "var(--text)",
-                fontSize: 13,
-                outline: "none"
-              }}
-            />
+          <form
+            onSubmit={e => {
+              e.preventDefault()
+              setCurrentPage(1)
+            }}
+            style={{ display: "flex", gap: 6, flex: 1, minWidth: 240, maxWidth: 440, alignItems: "center" }}
+          >
+            <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center" }}>
+              <Search size={15} style={{ position: "absolute", left: 10, color: "var(--muted)", pointerEvents: "none" }} />
+              <input
+                type="text"
+                placeholder="Search opening stock items..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px 28px 8px 32px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "var(--panel)",
+                  color: "var(--text)",
+                  fontSize: 13,
+                  outline: "none"
+                }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  title="Clear search"
+                  style={{ position: "absolute", right: 8, background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center" }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <Btn type="submit" small variant="primary" style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 35 }}>
+              <Search size={13} /> Search
+            </Btn>
             {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 13 }}
-              >
-                ✕
-              </button>
+              <Btn type="button" small variant="ghost" onClick={() => setSearchQuery("")} style={{ height: 35 }}>
+                Reset
+              </Btn>
             )}
-          </div>
+          </form>
 
           {/* Action buttons */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
