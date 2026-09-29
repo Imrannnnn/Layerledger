@@ -506,9 +506,8 @@ const syncInventoryItems = async (headers, localInv) => {
     ))
   }
 
-  // Create/Update
-  for (let i = 0; i < updatedLocalInv.length; i++) {
-    const item = updatedLocalInv[i]
+  // Create/Update in parallel
+  const itemTasks = updatedLocalInv.map(async (item, i) => {
     const sItem = serverItems.find(x => x.id === item.id)
     if (sItem) {
       const body = {
@@ -518,23 +517,27 @@ const syncInventoryItems = async (headers, localInv) => {
         unit: item.unit || "unit",
         minStock: Number(item.minStock || 0)
       }
-      const stockChanged = item.stock !== sItem.stock;
-      const costChanged = item.cost !== sItem.cost;
+      const stockChanged = item.stock !== sItem.stock
+      const costChanged = item.cost !== sItem.cost
 
       if (sItem.name !== body.name || sItem.category !== body.category || sItem.unit !== body.unit || sItem.minStock !== body.minStock || stockChanged || costChanged) {
-        const updateRes = await fetch(`${apiUrl}/api/inventory/${item.id}`, {
-          method: "PUT",
-          headers,
-          body: JSON.stringify({
-            ...body,
-            cost: Number(item.cost),
-            stock: Number(item.stock)
+        try {
+          const updateRes = await fetch(`${apiUrl}/api/inventory/${item.id}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify({
+              ...body,
+              cost: Number(item.cost),
+              stock: Number(item.stock)
+            })
           })
-        });
-        if (updateRes.ok) {
-          const updatedServerItem = await updateRes.json();
-          sItem.cost = updatedServerItem.cost;
-          sItem.stock = updatedServerItem.stock;
+          if (updateRes.ok) {
+            const updatedServerItem = await updateRes.json()
+            sItem.cost = updatedServerItem.cost
+            sItem.stock = updatedServerItem.stock
+          }
+        } catch (e) {
+          console.warn(`Error updating inventory item ${item.id}:`, e)
         }
       }
 
@@ -544,24 +547,30 @@ const syncInventoryItems = async (headers, localInv) => {
           cost: sItem.cost,
           stock: sItem.stock
         }
-        localChanged = true;
+        localChanged = true
       }
     } else {
-      await fetch(`${apiUrl}/api/inventory`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          id: item.id,
-          name: item.name || "Item",
-          category: item.cat || "Other",
-          unit: item.unit || "unit",
-          cost: Number(item.cost) || 0,
-          stock: Number(item.stock || 0),
-          minStock: Number(item.minStock || 0)
+      try {
+        await fetch(`${apiUrl}/api/inventory`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            id: item.id,
+            name: item.name || "Item",
+            category: item.cat || "Other",
+            unit: item.unit || "unit",
+            cost: Number(item.cost) || 0,
+            stock: Number(item.stock || 0),
+            minStock: Number(item.minStock || 0)
+          })
         })
-      })
+      } catch (e) {
+        console.warn(`Error creating inventory item ${item.id}:`, e)
+      }
     }
-  }
+  })
+
+  await Promise.all(itemTasks)
 
   if (localChanged) {
     cache["ll_inv"] = updatedLocalInv
@@ -569,46 +578,57 @@ const syncInventoryItems = async (headers, localInv) => {
 }
 
 const syncRecipesList = async (headers, localRecipes) => {
-  const apiUrl = import.meta.env.VITE_API_URL
-  const res = await fetch(`${apiUrl}/api/recipes`, { headers })
-  if (!res.ok) return
-  const serverRecs = await res.json()
+  try {
+    const apiUrl = import.meta.env.VITE_API_URL
+    if (!apiUrl) return
+    const res = await fetchWithTimeout(`${apiUrl}/api/recipes`, { headers })
+    if (!res.ok) return
+    const serverRecsRaw = await res.json()
+    const serverRecs = Array.isArray(serverRecsRaw) ? serverRecsRaw : []
 
-  // Delete
-  for (const sRec of serverRecs) {
-    if (!localRecipes.find(r => r.id === sRec.id)) {
-      await fetch(`${apiUrl}/api/recipes/${sRec.id}`, { method: "DELETE", headers })
+    // Delete removed recipes in parallel
+    const recsToDelete = serverRecs.filter(sRec => !localRecipes.find(r => r.id === sRec.id))
+    if (recsToDelete.length > 0) {
+      await Promise.allSettled(
+        recsToDelete.map(sRec => fetchWithTimeout(`${apiUrl}/api/recipes/${sRec.id}`, { method: "DELETE", headers }).catch(() => {}))
+      )
     }
-  }
 
-  // Create/Update
-  for (const rec of localRecipes) {
-    const sRec = serverRecs.find(r => r.id === rec.id)
-    const body = {
-      id: rec.id,
-      name: rec.name || "Recipe",
-      notes: rec.notes || "",
-      type: rec.type || "layer",
-      batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null ? Number(rec.batchWeight) : null,
-      batchSize: rec.batchSize !== undefined && rec.batchSize !== null ? Number(rec.batchSize) : null,
-      ingredients: (rec.ing || []).map(i => ({
-        item: i.iid || "item",
-        quantity: Number(i.qty) || 0
-      }))
+    // Create/Update in parallel
+    const recTasks = (localRecipes || []).map(async (rec) => {
+      const sRec = serverRecs.find(r => r.id === rec.id)
+      const body = {
+        id: rec.id,
+        name: rec.name || "Recipe",
+        notes: rec.notes || "",
+        type: rec.type || "layer",
+        batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null ? Number(rec.batchWeight) : null,
+        batchSize: rec.batchSize !== undefined && rec.batchSize !== null ? Number(rec.batchSize) : null,
+        ingredients: (rec.ing || []).map(i => ({
+          item: i.iid || "item",
+          quantity: Number(i.qty) || 0
+        }))
+      }
+      if (sRec) {
+        return fetchWithTimeout(`${apiUrl}/api/recipes/${rec.id}`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify(body)
+        }).catch(() => {})
+      } else {
+        return fetchWithTimeout(`${apiUrl}/api/recipes`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body)
+        }).catch(() => {})
+      }
+    })
+
+    if (recTasks.length > 0) {
+      await Promise.allSettled(recTasks)
     }
-    if (sRec) {
-      await fetch(`${apiUrl}/api/recipes/${rec.id}`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify(body)
-      })
-    } else {
-      await fetch(`${apiUrl}/api/recipes`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body)
-      })
-    }
+  } catch (err) {
+    console.warn("syncRecipesList error:", err)
   }
 }
 
@@ -630,9 +650,9 @@ const syncExpensesList = async (headers, localExpenses) => {
       )
     }
 
-    // Create/Update
-    for (const exp of localExpenses) {
-      const sExp = serverExps.find(e => e.id === exp.id)
+    // Create/Update in parallel
+    const expTasks = (localExpenses || []).map(async (exp) => {
+      const sExp = (Array.isArray(serverExps) ? serverExps : []).find(e => e.id === exp.id)
       let parsedDate = new Date().toISOString()
       try { if (exp.date) parsedDate = new Date(normalizeDateToIso(exp.date)).toISOString() } catch (e) { /* ignore invalid date */ }
 
@@ -647,19 +667,23 @@ const syncExpensesList = async (headers, localExpenses) => {
       if (sExp) {
         const sExpDate = new Date(sExp.date).toISOString()
         if (sExp.amount !== body.amount || sExp.category !== body.category || (sExp.description || "") !== body.description || sExpDate !== body.date) {
-          await fetchWithTimeout(`${apiUrl}/api/expenses/${exp.id}`, {
+          return fetchWithTimeout(`${apiUrl}/api/expenses/${exp.id}`, {
             method: "PUT",
             headers,
             body: JSON.stringify(body)
           }).catch(() => {})
         }
       } else {
-        await fetchWithTimeout(`${apiUrl}/api/expenses`, {
+        return fetchWithTimeout(`${apiUrl}/api/expenses`, {
           method: "POST",
           headers,
           body: JSON.stringify(body)
         }).catch(() => {})
       }
+    })
+
+    if (expTasks.length > 0) {
+      await Promise.allSettled(expTasks)
     }
   } catch (err) {
     console.warn("syncExpensesList error:", err)
@@ -921,11 +945,48 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
   return usages;
 };
 
+export const formatOrderPayload = (o, localInv = [], localRecipes = []) => {
+  const items = (o.tiers || []).map(t => ({
+    name: (t.covering && t.covering.trim()) || "Cake tier",
+    size: t.size ? String(t.size) : "6",
+    shape: t.shape || "round",
+    layers: Number(t.layers?.length) || 1,
+    price: isNaN(Number(o.salePrice)) ? 0 : Math.max(0, Number(o.salePrice / (o.tiers?.length || 1))),
+    cost: isNaN(Number(o.cost)) ? 0 : Math.max(0, Number(o.cost / (o.tiers?.length || 1)))
+  }))
+
+  const usages = calculateOrderUsages(o, localInv, localRecipes)
+
+  let parsedDue = null
+  try {
+    const d = o.deliveryDate || o.dueDate
+    if (d) {
+      const parsed = new Date(d)
+      if (!isNaN(parsed.getTime())) parsedDue = parsed.toISOString()
+    }
+  } catch (e) { /* ignore */ }
+
+  const rawSalePrice = Number(o.salePrice)
+  const rawCost = Number(o.cost)
+
+  return {
+    id: o.id,
+    status: o.isProd ? (o.status || "pending") : "quote",
+    dueDate: parsedDue,
+    totalPrice: isNaN(rawSalePrice) ? 0 : Math.max(0, rawSalePrice),
+    totalCost: isNaN(rawCost) ? 0 : Math.max(0, rawCost),
+    notes: o.notes || "",
+    items,
+    usages,
+    metadata: o
+  }
+}
+
 const syncOrdersList = async (headers, localProds, localQuotes, localInv, localRecipes) => {
   try {
     const apiUrl = import.meta.env.VITE_API_URL
     if (!apiUrl) return
-    const res = await fetchWithTimeout(`${apiUrl}/api/orders`, { headers })
+    const res = await fetchWithTimeout(`${apiUrl}/api/orders?summary=true`, { headers })
     if (!res.ok) return
     const serverOrders = await res.json()
 
@@ -937,47 +998,12 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
       ...safeQuotes.map(q => ({ ...q, isProd: false }))
     ]
 
-    // Create/Update only if changed (deletions are handled explicitly via direct database calls)
+    const syncTasks = []
 
-    // Create/Update only if changed
     for (const o of combinedLocal) {
       if (!o || !o.id) continue
       const sOrder = serverOrders.find(so => so.id === o.id)
-      
-      const items = (o.tiers || []).map(t => ({
-        name: (t.covering && t.covering.trim()) || "Cake tier",
-        size: t.size ? String(t.size) : "6",
-        shape: t.shape || "round",
-        layers: Number(t.layers?.length) || 1,
-        price: isNaN(Number(o.salePrice)) ? 0 : Math.max(0, Number(o.salePrice / (o.tiers?.length || 1))),
-        cost: isNaN(Number(o.cost)) ? 0 : Math.max(0, Number(o.cost / (o.tiers?.length || 1)))
-      }))
-
-      const usages = calculateOrderUsages(o, localInv, localRecipes)
-
-      let parsedDue = null
-      try {
-        const d = o.deliveryDate || o.dueDate
-        if (d) {
-          const parsed = new Date(d)
-          if (!isNaN(parsed.getTime())) parsedDue = parsed.toISOString()
-        }
-      } catch (e) { /* ignore */ }
-
-      const rawSalePrice = Number(o.salePrice)
-      const rawCost = Number(o.cost)
-
-      const body = {
-        id: o.id,
-        status: o.isProd ? (o.status || "pending") : "quote",
-        dueDate: parsedDue,
-        totalPrice: isNaN(rawSalePrice) ? 0 : Math.max(0, rawSalePrice),
-        totalCost: isNaN(rawCost) ? 0 : Math.max(0, rawCost),
-        notes: o.notes || "",
-        items,
-        usages,
-        metadata: o
-      }
+      const body = formatOrderPayload(o, localInv, localRecipes)
 
       if (sOrder) {
         const sDueDate = sOrder.dueDate ? new Date(sOrder.dueDate).toISOString() : null
@@ -994,39 +1020,47 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
           JSON.stringify(sMeta) !== JSON.stringify(bMeta)
 
         if (isDiff) {
-          const putRes = await fetchWithTimeout(`${apiUrl}/api/orders/${o.id}`, {
-            method: "PUT",
-            headers,
-            body: JSON.stringify(body)
-          }).catch(err => {
-            console.warn("syncOrdersList PUT network error:", err)
-            return null
-          })
-          if (putRes && !putRes.ok) {
-            const errData = await putRes.json().catch(() => ({}))
-            console.error(`syncOrdersList failed to update order ${o.id}:`, putRes.status, errData.message || putRes.statusText)
-            if (putRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
-              notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
-            }
-          }
+          syncTasks.push(
+            fetchWithTimeout(`${apiUrl}/api/orders/${o.id}`, {
+              method: "PUT",
+              headers,
+              body: JSON.stringify(body)
+            }).then(async putRes => {
+              if (putRes && !putRes.ok) {
+                const errData = await putRes.json().catch(() => ({}))
+                console.error(`syncOrdersList failed to update order ${o.id}:`, putRes.status, errData.message || putRes.statusText)
+                if (putRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
+                  notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
+                }
+              }
+            }).catch(err => {
+              console.warn("syncOrdersList PUT network error:", err)
+            })
+          )
         }
       } else {
-        const postRes = await fetchWithTimeout(`${apiUrl}/api/orders`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body)
-        }).catch(err => {
-          console.warn("syncOrdersList POST network error:", err)
-          return null
-        })
-        if (postRes && !postRes.ok) {
-          const errData = await postRes.json().catch(() => ({}))
-          console.error(`syncOrdersList failed to create order/quote ${o.id}:`, postRes.status, errData.message || postRes.statusText)
-          if (postRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
-            notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
-          }
-        }
+        syncTasks.push(
+          fetchWithTimeout(`${apiUrl}/api/orders`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body)
+          }).then(async postRes => {
+            if (postRes && !postRes.ok) {
+              const errData = await postRes.json().catch(() => ({}))
+              console.error(`syncOrdersList failed to create order/quote ${o.id}:`, postRes.status, errData.message || postRes.statusText)
+              if (postRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
+                notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
+              }
+            }
+          }).catch(err => {
+            console.warn("syncOrdersList POST network error:", err)
+          })
+        )
       }
+    }
+
+    if (syncTasks.length > 0) {
+      await Promise.all(syncTasks)
     }
   } catch (err) {
     console.warn("syncOrdersList error:", err)
@@ -1034,50 +1068,61 @@ const syncOrdersList = async (headers, localProds, localQuotes, localInv, localR
 }
 
 const syncInvoicesList = async (headers, localInvs) => {
-  const apiUrl = import.meta.env.VITE_API_URL
-  const res = await fetch(`${apiUrl}/api/invoices`, { headers })
-  if (!res.ok) return
-  const serverInvs = await res.json()
+  try {
+    const apiUrl = import.meta.env.VITE_API_URL
+    if (!apiUrl) return
+    const res = await fetchWithTimeout(`${apiUrl}/api/invoices`, { headers })
+    if (!res.ok) return
+    const serverInvsRaw = await res.json()
+    const serverInvs = Array.isArray(serverInvsRaw) ? serverInvsRaw : []
 
-  // Delete
-  for (const sInv of serverInvs) {
-    if (!localInvs.find(i => i.id === sInv.id)) {
-      await fetch(`${apiUrl}/api/invoices/${sInv.id}`, { method: "DELETE", headers })
+    // Delete removed invoices in parallel
+    const invsToDelete = serverInvs.filter(sInv => !localInvs.find(i => i.id === sInv.id))
+    if (invsToDelete.length > 0) {
+      await Promise.allSettled(
+        invsToDelete.map(sInv => fetchWithTimeout(`${apiUrl}/api/invoices/${sInv.id}`, { method: "DELETE", headers }).catch(() => {}))
+      )
     }
-  }
 
-  // Create/Update
-  for (const inv of localInvs) {
-    const sInv = serverInvs.find(si => si.id === inv.id)
-    let parsedIssue = new Date().toISOString()
-    let parsedDue = null
-    try { if (inv.date) parsedIssue = new Date(inv.date).toISOString() } catch (e) { /* ignore invalid date */ }
-    try { if (inv.deliveryDate) parsedDue = new Date(inv.deliveryDate).toISOString() } catch (e) { /* ignore invalid date */ }
+    // Create/Update in parallel
+    const invTasks = (localInvs || []).map(async (inv) => {
+      const sInv = serverInvs.find(si => si.id === inv.id)
+      let parsedIssue = new Date().toISOString()
+      let parsedDue = null
+      try { if (inv.date) parsedIssue = new Date(inv.date).toISOString() } catch (e) { /* ignore invalid date */ }
+      try { if (inv.deliveryDate) parsedDue = new Date(inv.deliveryDate).toISOString() } catch (e) { /* ignore invalid date */ }
 
-    const body = {
-      id: inv.id,
-      orderId: inv.quoteId || inv.id,
-      invoiceNumber: inv.id,
-      issueDate: parsedIssue,
-      dueDate: parsedDue,
-      status: inv.status || "unpaid",
-      notes: inv.notes || ""
-    }
-    if (sInv) {
-      if (sInv.status !== body.status || sInv.invoiceNumber !== body.invoiceNumber || (sInv.notes || "") !== body.notes) {
-        await fetch(`${apiUrl}/api/invoices/${inv.id}`, {
-          method: "PUT",
+      const body = {
+        id: inv.id,
+        orderId: inv.quoteId || inv.id,
+        invoiceNumber: inv.id,
+        issueDate: parsedIssue,
+        dueDate: parsedDue,
+        status: inv.status || "unpaid",
+        notes: inv.notes || ""
+      }
+      if (sInv) {
+        if (sInv.status !== body.status || sInv.invoiceNumber !== body.invoiceNumber || (sInv.notes || "") !== body.notes) {
+          return fetchWithTimeout(`${apiUrl}/api/invoices/${inv.id}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(body)
+          }).catch(() => {})
+        }
+      } else {
+        return fetchWithTimeout(`${apiUrl}/api/invoices`, {
+          method: "POST",
           headers,
           body: JSON.stringify(body)
-        })
+        }).catch(() => {})
       }
-    } else {
-      await fetch(`${apiUrl}/api/invoices`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body)
-      })
+    })
+
+    if (invTasks.length > 0) {
+      await Promise.allSettled(invTasks)
     }
+  } catch (err) {
+    console.warn("syncInvoicesList error:", err)
   }
 }
 
@@ -1102,8 +1147,8 @@ const syncPurchasesList = async (headers, localPurchases) => {
       }
     }
 
-    // Create/Update local purchases to server
-    for (const pur of localPurchases) {
+    // Create/Update local purchases to server in parallel
+    const purTasks = (localPurchases || []).map(async (pur) => {
       const sPur = Array.isArray(serverPurchases) ? serverPurchases.find(sp => sp.id === pur.id) : null
       let parsedDate = new Date().toISOString()
       try { if (pur.date) parsedDate = new Date(normalizeDateToIso(pur.date)).toISOString() } catch (e) { /* ignore invalid date */ }
@@ -1124,19 +1169,23 @@ const syncPurchasesList = async (headers, localPurchases) => {
       }
       if (sPur) {
         if (sPur.amount !== body.amount || sPur.supplier !== body.supplier || (sPur.notes || "") !== body.notes || sPur.itemId !== body.itemId || sPur.stockAdded !== body.stockAdded) {
-          await fetchWithTimeout(`${apiUrl}/api/purchases/${pur.id}`, {
+          return fetchWithTimeout(`${apiUrl}/api/purchases/${pur.id}`, {
             method: "PUT",
             headers,
             body: JSON.stringify(body)
           }).catch(() => {})
         }
       } else {
-        await fetchWithTimeout(`${apiUrl}/api/purchases`, {
+        return fetchWithTimeout(`${apiUrl}/api/purchases`, {
           method: "POST",
           headers,
           body: JSON.stringify(body)
         }).catch(() => {})
       }
+    })
+
+    if (purTasks.length > 0) {
+      await Promise.allSettled(purTasks)
     }
   } catch (err) {
     console.warn("syncPurchasesList error:", err)
@@ -1171,8 +1220,8 @@ const syncTransactionsList = async (headers, localTxns) => {
       )
     }
 
-    // Create/Update
-    for (const txn of localTxns) {
+    // Create/Update in parallel
+    const txnTasks = (localTxns || []).map(async (txn) => {
       const sTxn = serverTxns.find(st => st.id === txn.id)
       let parsedDate = new Date().toISOString()
       try { if (txn.date) parsedDate = new Date(txn.date).toISOString() } catch (e) { /* ignore invalid date format */ }
@@ -1189,19 +1238,23 @@ const syncTransactionsList = async (headers, localTxns) => {
 
       if (sTxn) {
         if (sTxn.amount !== body.amount || (sTxn.description || "") !== body.description || (sTxn.category || "") !== (body.category || "")) {
-          await fetchWithTimeout(`${apiUrl}/api/transactions/${txn.id}`, {
+          return fetchWithTimeout(`${apiUrl}/api/transactions/${txn.id}`, {
             method: "PUT",
             headers,
             body: JSON.stringify(body)
           }).catch(() => {})
         }
       } else {
-        await fetchWithTimeout(`${apiUrl}/api/transactions`, {
+        return fetchWithTimeout(`${apiUrl}/api/transactions`, {
           method: "POST",
           headers,
           body: JSON.stringify(body)
         }).catch(() => {})
       }
+    })
+
+    if (txnTasks.length > 0) {
+      await Promise.allSettled(txnTasks)
     }
   } catch (err) {
     console.warn("syncTransactionsList error:", err)
@@ -1209,60 +1262,68 @@ const syncTransactionsList = async (headers, localTxns) => {
 }
 
 const syncClientsList = async (headers, localClients) => {
-  const apiUrl = import.meta.env.VITE_API_URL
-  if (!apiUrl) return
-  const res = await fetch(`${apiUrl}/api/clients`, { headers })
-  if (!res.ok) return
-  const serverClientsRaw = await res.json()
-  const serverClients = Array.isArray(serverClientsRaw) ? serverClientsRaw : (serverClientsRaw.data || [])
+  try {
+    const apiUrl = import.meta.env.VITE_API_URL
+    if (!apiUrl) return
+    const res = await fetchWithTimeout(`${apiUrl}/api/clients`, { headers })
+    if (!res.ok) return
+    const serverClientsRaw = await res.json()
+    const serverClients = Array.isArray(serverClientsRaw) ? serverClientsRaw : (serverClientsRaw.data || [])
 
-  // Delete
-  for (const sClient of serverClients) {
-    if (!localClients.find(c => c.id === sClient.id)) {
-      await fetch(`${apiUrl}/api/clients/${sClient.id}`, { method: "DELETE", headers })
+    // Delete removed clients in parallel
+    const clientsToDelete = serverClients.filter(sClient => !localClients.find(c => c.id === sClient.id))
+    if (clientsToDelete.length > 0) {
+      await Promise.allSettled(
+        clientsToDelete.map(sc => fetchWithTimeout(`${apiUrl}/api/clients/${sc.id}`, { method: "DELETE", headers }).catch(() => {}))
+      )
     }
-  }
 
-  // Create / Update
-  for (let i = 0; i < localClients.length; i++) {
-    const c = localClients[i]
-    const sClient = serverClients.find(sc => sc.id === c.id)
-    const body = {
-      name: c.name,
-      phone: c.phone || "",
-      email: c.email || "",
-      address: c.address || "",
-      notes: c.notes || "",
-      birthday: c.birthday || ""
-    }
-    if (sClient) {
-      if (
-        sClient.name !== body.name ||
-        (sClient.phone || "") !== body.phone ||
-        (sClient.email || "") !== body.email ||
-        (sClient.address || "") !== body.address ||
-        (sClient.notes || "") !== body.notes ||
-        (sClient.birthday || "") !== body.birthday
-      ) {
-        await fetch(`${apiUrl}/api/clients/${c.id}`, {
-          method: "PUT",
+    // Create / Update in parallel
+    const clientTasks = (localClients || []).map(async (c) => {
+      const sClient = serverClients.find(sc => sc.id === c.id)
+      const body = {
+        name: c.name,
+        phone: c.phone || "",
+        email: c.email || "",
+        address: c.address || "",
+        notes: c.notes || "",
+        birthday: c.birthday || ""
+      }
+      if (sClient) {
+        if (
+          sClient.name !== body.name ||
+          (sClient.phone || "") !== body.phone ||
+          (sClient.email || "") !== body.email ||
+          (sClient.address || "") !== body.address ||
+          (sClient.notes || "") !== body.notes ||
+          (sClient.birthday || "") !== body.birthday
+        ) {
+          return fetchWithTimeout(`${apiUrl}/api/clients/${c.id}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(body)
+          }).catch(() => {})
+        }
+      } else {
+        const createRes = await fetchWithTimeout(`${apiUrl}/api/clients`, {
+          method: "POST",
           headers,
           body: JSON.stringify(body)
-        })
-      }
-    } else {
-      const createRes = await fetch(`${apiUrl}/api/clients`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body)
-      })
-      if (createRes.ok) {
-        const created = await createRes.json()
-        if (created && created.id) {
-          c.id = created.id
+        }).catch(() => {})
+        if (createRes && createRes.ok) {
+          const created = await createRes.json().catch(() => null)
+          if (created && created.id) {
+            c.id = created.id
+          }
         }
       }
+    })
+
+    if (clientTasks.length > 0) {
+      await Promise.allSettled(clientTasks)
     }
+  } catch (err) {
+    console.warn("syncClientsList error:", err)
   }
 }
 
@@ -2170,9 +2231,46 @@ export const lockOpeningStockMonthOnServer = async (month, locked = true) => {
     }
     const result = await res.json()
     const targetMonth = month || new Date().toISOString().slice(0, 7)
-    if (cache["ll_os_" + targetMonth]) {
-      cache["ll_os_" + targetMonth].locked = !!locked
+    
+    // Ensure all items in memory and storage have their locked status synchronized
+    const existingCache = cache["ll_os_" + targetMonth]
+    let currentItems = []
+    if (result && Array.isArray(result.items) && result.items.length > 0) {
+      currentItems = result.items.map(os => ({
+        id: os.id,
+        itemId: os.itemId,
+        name: os.name,
+        unit: os.unit || "kg",
+        cost: Number(os.cost) || 0,
+        openingQty: Number(os.openingQty) || 0,
+        locked: !!locked
+      }))
+    } else if (existingCache && Array.isArray(existingCache.items)) {
+      currentItems = existingCache.items.map(it => ({ ...it, locked: !!locked }))
+    } else if (Array.isArray(existingCache)) {
+      currentItems = existingCache.map(it => ({ ...it, locked: !!locked }))
     }
+
+    const payload = {
+      month: targetMonth,
+      items: currentItems,
+      locked: !!locked
+    }
+
+    cache["ll_os_" + targetMonth] = payload
+    if (targetMonth === new Date().toISOString().slice(0, 7)) {
+      cache["ll_opening_stock"] = payload
+    }
+
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        window.localStorage.setItem("ll_os_" + targetMonth, JSON.stringify(payload))
+        if (targetMonth === new Date().toISOString().slice(0, 7)) {
+          window.localStorage.setItem("ll_opening_stock", JSON.stringify(payload))
+        }
+      } catch { /* ignore storage error */ }
+    }
+
     return result
   } catch (e) {
     console.error("lockOpeningStockMonthOnServer error:", e)
@@ -2321,6 +2419,7 @@ export const saveInventory = async (data) => {
 // Productions
 export const loadProductions = (def = []) => load("ll_prods", def)
 export const saveProductionsList = async (data) => {
+  const currentProds = load("ll_prods", [])
   cache["ll_prods"] = data
   lastSyncedValues["ll_prods"] = JSON.stringify(data)
   if (typeof window !== "undefined" && window.localStorage) {
@@ -2328,6 +2427,67 @@ export const saveProductionsList = async (data) => {
   }
   const headers = getAuthHeaders()
   if (!headers) return
+
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (apiUrl) {
+    const newProds = Array.isArray(data) ? data.filter(p => p && p.id && !currentProds.some(cp => cp.id === p.id)) : []
+    const modifiedProds = Array.isArray(data) ? data.filter(p => {
+      const existing = currentProds.find(cp => cp.id === p.id)
+      return existing && JSON.stringify(existing) !== JSON.stringify(p)
+    }) : []
+
+    const inv = load("ll_inv", [])
+    const recipes = load("ll_recipes", [])
+
+    if (newProds.length > 0 || modifiedProds.length > 0) {
+      const directSyncTasks = [
+        ...newProds.map(async (p) => {
+          const body = formatOrderPayload({ ...p, isProd: true }, inv, recipes)
+          const postRes = await fetchWithTimeout(`${apiUrl}/api/orders`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body)
+          }).catch(err => {
+            console.warn("Direct production POST network error:", err)
+            throw new Error("Network error while creating production order. Please check your connection and try again.")
+          })
+          if (postRes && !postRes.ok) {
+            const errData = await postRes.json().catch(() => ({}))
+            if (postRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
+              notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
+              throw new Error(errData.message || "Free plan limit reached for orders/quotes.")
+            }
+            throw new Error(errData.message || `Failed to save production on server (${postRes.status})`)
+          }
+        }),
+        ...modifiedProds.map(async (p) => {
+          const body = formatOrderPayload({ ...p, isProd: true }, inv, recipes)
+          const putRes = await fetchWithTimeout(`${apiUrl}/api/orders/${p.id}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(body)
+          }).catch(err => {
+            console.warn("Direct production PUT network error:", err)
+            throw new Error("Network error while updating production. Please check your connection and try again.")
+          })
+          if (putRes && !putRes.ok) {
+            const errData = await putRes.json().catch(() => ({}))
+            if (putRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
+              notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
+              throw new Error(errData.message || "Free plan limit reached for orders/quotes.")
+            }
+            throw new Error(errData.message || `Failed to update production on server (${putRes.status})`)
+          }
+        })
+      ]
+
+      await Promise.all(directSyncTasks)
+      // Run background sync non-blocking to reconcile full list
+      syncOrdersList(headers, data, load("ll_quotes", []), inv, recipes).catch(() => {})
+      return
+    }
+  }
+
   await syncOrdersList(headers, data, load("ll_quotes", []), load("ll_inv", []), load("ll_recipes", []))
 }
 export const saveProduction = async (prod) => {
@@ -2401,6 +2561,67 @@ export const saveQuotes = async (data) => {
   }
   const headers = getAuthHeaders()
   if (!headers) return
+
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (apiUrl) {
+    const newQuotes = Array.isArray(data) ? data.filter(q => q && q.id && !currentQuotes.some(cq => cq.id === q.id)) : []
+    const modifiedQuotes = Array.isArray(data) ? data.filter(q => {
+      const existing = currentQuotes.find(cq => cq.id === q.id)
+      return existing && JSON.stringify(existing) !== JSON.stringify(q)
+    }) : []
+
+    const inv = load("ll_inv", [])
+    const recipes = load("ll_recipes", [])
+
+    if (newQuotes.length > 0 || modifiedQuotes.length > 0) {
+      const directSyncTasks = [
+        ...newQuotes.map(async (q) => {
+          const body = formatOrderPayload(q, inv, recipes)
+          const postRes = await fetchWithTimeout(`${apiUrl}/api/orders`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body)
+          }).catch(err => {
+            console.warn("Direct quote POST network error:", err)
+            throw new Error("Network error while creating quote. Please check your connection and try again.")
+          })
+          if (postRes && !postRes.ok) {
+            const errData = await postRes.json().catch(() => ({}))
+            if (postRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
+              notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
+              throw new Error(errData.message || "Free plan limit reached for orders/quotes.")
+            }
+            throw new Error(errData.message || `Failed to save quote on server (${postRes.status})`)
+          }
+        }),
+        ...modifiedQuotes.map(async (q) => {
+          const body = formatOrderPayload(q, inv, recipes)
+          const putRes = await fetchWithTimeout(`${apiUrl}/api/orders/${q.id}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(body)
+          }).catch(err => {
+            console.warn("Direct quote PUT network error:", err)
+            throw new Error("Network error while updating quote. Please check your connection and try again.")
+          })
+          if (putRes && !putRes.ok) {
+            const errData = await putRes.json().catch(() => ({}))
+            if (putRes.status === 403 || errData.code === "PLAN_LIMIT_REACHED" || (errData.message && errData.message.includes("limit reached"))) {
+              notifyPlanLimitReached({ limitType: "ordersPerMonth", ...errData })
+              throw new Error(errData.message || "Free plan limit reached for orders/quotes.")
+            }
+            throw new Error(errData.message || `Failed to update quote on server (${putRes.status})`)
+          }
+        })
+      ]
+
+      await Promise.all(directSyncTasks)
+      // Run background sync non-blocking to keep full list in sync
+      syncOrdersList(headers, load("ll_prods", []), data, inv, recipes).catch(() => {})
+      return
+    }
+  }
+
   await syncOrdersList(headers, load("ll_prods", []), data, load("ll_inv", []), load("ll_recipes", []))
 }
 
@@ -2778,21 +2999,83 @@ export const loadAliases = (def = {}) => load("ll_aliases", def)
 export const saveAliases = async (data) => await save("ll_aliases", data)
 
 // Opening Stock (PostgreSQL / Neon is Single Source of Truth)
-export const loadOpeningStock = (month) => {
+export const isOpeningStockLocked = (month) => {
   const currentMonthStr = month || new Date().toISOString().slice(0, 7)
   const cached = cache["ll_os_" + currentMonthStr]
+  if (cached && typeof cached.locked === "boolean") return cached.locked
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem("ll_os_" + currentMonthStr)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed.locked === "boolean") return parsed.locked
+      }
+      if (currentMonthStr === new Date().toISOString().slice(0, 7)) {
+        const rawDef = window.localStorage.getItem("ll_opening_stock")
+        if (rawDef) {
+          const parsedDef = JSON.parse(rawDef)
+          if (parsedDef && typeof parsedDef.locked === "boolean") return parsedDef.locked
+        }
+      }
+    } catch { /* ignore storage error */ }
+  }
+  const curCached = cache["ll_opening_stock"]
+  if (curCached && typeof curCached.locked === "boolean") return curCached.locked
+  return false
+}
+
+export const loadOpeningStock = (month) => {
+  const currentMonthStr = month || new Date().toISOString().slice(0, 7)
+  let cached = cache["ll_os_" + currentMonthStr]
+
+  // Fall back to localStorage if memory cache is empty
+  if (!cached && typeof window !== "undefined" && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem("ll_os_" + currentMonthStr) || (currentMonthStr === new Date().toISOString().slice(0, 7) ? window.localStorage.getItem("ll_opening_stock") : null)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed) {
+          cached = parsed
+          cache["ll_os_" + currentMonthStr] = parsed
+        }
+      }
+    } catch { /* ignore storage error */ }
+  }
+
+  const isLocked = isOpeningStockLocked(currentMonthStr)
+
   if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
+    if (isLocked || cached.locked) {
+      return cached.items.map(it => ({ ...it, locked: true }))
+    }
     return cached.items
   }
-  if (Array.isArray(cached) && cached.length > 0) return cached
+  if (Array.isArray(cached) && cached.length > 0) {
+    return isLocked ? cached.map(it => ({ ...it, locked: true })) : cached
+  }
 
   // Fall back to baseline opening stock
-  const curCached = cache["ll_opening_stock"]
+  let curCached = cache["ll_opening_stock"]
+  if (!curCached && typeof window !== "undefined" && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem("ll_opening_stock")
+      if (raw) {
+        curCached = JSON.parse(raw)
+        cache["ll_opening_stock"] = curCached
+      }
+    } catch { /* ignore storage error */ }
+  }
+
   if (curCached) {
     if (Array.isArray(curCached.items) && curCached.items.length > 0) {
+      if (isLocked || curCached.locked) {
+        return curCached.items.map(it => ({ ...it, locked: true }))
+      }
       return curCached.items
     }
-    if (Array.isArray(curCached) && curCached.length > 0) return curCached
+    if (Array.isArray(curCached) && curCached.length > 0) {
+      return isLocked ? curCached.map(it => ({ ...it, locked: true })) : curCached
+    }
   }
   return []
 }
@@ -2808,6 +3091,7 @@ export const fetchOpeningStockFromServer = async (month) => {
     if (!res.ok) return null
     const data = await res.json()
     if (Array.isArray(data)) {
+      const isLocked = data.some(d => d.locked) || isOpeningStockLocked(targetMonth)
       const items = data.map(os => ({
         id: os.id,
         itemId: os.itemId,
@@ -2815,13 +3099,20 @@ export const fetchOpeningStockFromServer = async (month) => {
         unit: os.unit || "kg",
         cost: Number(os.cost) || 0,
         openingQty: Number(os.openingQty) || 0,
-        locked: !!os.locked
+        locked: isLocked || !!os.locked
       }))
-      const isLocked = data.some(d => d.locked)
       const payload = { month: targetMonth, items, locked: isLocked }
       cache["ll_os_" + targetMonth] = payload
       if (targetMonth === new Date().toISOString().slice(0, 7) || !cache["ll_opening_stock"]) {
         cache["ll_opening_stock"] = payload
+      }
+      if (typeof window !== "undefined" && window.localStorage) {
+        try {
+          window.localStorage.setItem("ll_os_" + targetMonth, JSON.stringify(payload))
+          if (targetMonth === new Date().toISOString().slice(0, 7)) {
+            window.localStorage.setItem("ll_opening_stock", JSON.stringify(payload))
+          }
+        } catch { /* ignore storage error */ }
       }
       return items
     }
@@ -2831,11 +3122,23 @@ export const fetchOpeningStockFromServer = async (month) => {
   return null
 }
 
-export const saveOpeningStock = async (items, month, locked = false) => {
+export const saveOpeningStock = async (items, month, locked) => {
   const currentMonthStr = month || new Date().toISOString().slice(0, 7)
-  const payload = { month: currentMonthStr, items, locked: !!locked }
+  const currentlyLocked = isOpeningStockLocked(currentMonthStr)
+  const isLocked = locked !== undefined ? !!locked : currentlyLocked
+  const safeItems = Array.isArray(items) ? items.map(it => ({ ...it, locked: isLocked ? true : !!it.locked })) : []
+  const payload = { month: currentMonthStr, items: safeItems, locked: isLocked }
   cache["ll_os_" + currentMonthStr] = payload
   cache["ll_opening_stock"] = payload
+
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      window.localStorage.setItem("ll_os_" + currentMonthStr, JSON.stringify(payload))
+      if (currentMonthStr === new Date().toISOString().slice(0, 7)) {
+        window.localStorage.setItem("ll_opening_stock", JSON.stringify(payload))
+      }
+    } catch { /* ignore storage error */ }
+  }
 
   // Persist directly to PostgreSQL backend
   const headers = getAuthHeaders()
@@ -2847,8 +3150,8 @@ export const saveOpeningStock = async (items, month, locked = false) => {
         headers,
         body: JSON.stringify({
           month: currentMonthStr,
-          items,
-          locked: !!locked
+          items: safeItems,
+          locked: isLocked
         })
       })
     } catch (err) {

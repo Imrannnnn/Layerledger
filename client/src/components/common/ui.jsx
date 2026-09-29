@@ -20,12 +20,131 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Check, ChevronRight, X, Cake } from "lucide-react"
 
-export function Btn({children,onClick,variant="primary",small,full,disabled,loading,loadingText,style={}}){
-  const v={primary:{background:"var(--gold)",color:"#fff",border:"none"},ghost:{background:"transparent",color:"var(--muted)",border:"1px solid var(--border)"},success:{background:"#357A52",color:"#fff",border:"none"},danger:{background:"#B03A2E",color:"#fff",border:"none"},outline:{background:"transparent",color:"var(--gold)",border:"1px solid var(--gold)"},dark:{background:"var(--sidebar)",color:"var(--gold)",border:"none"}}[variant]||{}
-  return <button onClick={onClick} disabled={disabled || loading} style={{...v,borderRadius:8,padding:small?"5px 11px":"8px 16px",fontSize:small?12:13.5,fontWeight:500,cursor:(disabled || loading)?"not-allowed":"pointer",width:full?"100%":"auto",opacity:(disabled || loading)?0.65:1,fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,...style}}>
-    {loading && <div style={{width:12,height:12,border:"2px solid currentColor",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>}
-    {loadingText && loading ? loadingText : children}
-  </button>
+export function Btn({
+  children,
+  onClick,
+  variant = "primary",
+  small,
+  full,
+  disabled,
+  loading: controlledLoading,
+  loadingText,
+  style = {},
+  ...props
+}) {
+  const [internalLoading, setInternalLoading] = useState(false)
+  const isPendingRef = useRef(false)
+
+  const isLoading = controlledLoading !== undefined ? controlledLoading : internalLoading
+  const isDisabled = disabled || isLoading
+
+  const handleClick = useCallback((e) => {
+    if (isPendingRef.current || isDisabled) {
+      if (e && e.preventDefault) e.preventDefault()
+      return
+    }
+
+    if (typeof onClick === "function") {
+      try {
+        const result = onClick(e)
+        if (result && typeof result.then === "function") {
+          isPendingRef.current = true
+          setInternalLoading(true)
+          result.finally(() => {
+            isPendingRef.current = false
+            setInternalLoading(false)
+          })
+        }
+      } catch (err) {
+        isPendingRef.current = false
+        setInternalLoading(false)
+        throw err
+      }
+    }
+  }, [onClick, isDisabled])
+
+  const v = {
+    primary: { background: "var(--gold)", color: "#fff", border: "none" },
+    ghost: { background: "transparent", color: "var(--muted)", border: "1px solid var(--border)" },
+    success: { background: "#357A52", color: "#fff", border: "none" },
+    danger: { background: "#B03A2E", color: "#fff", border: "none" },
+    outline: { background: "transparent", color: "var(--gold)", border: "1px solid var(--gold)" },
+    dark: { background: "var(--sidebar)", color: "var(--gold)", border: "none" }
+  }[variant] || {}
+
+  return (
+    <button
+      {...props}
+      onClick={handleClick}
+      disabled={isDisabled}
+      style={{
+        ...v,
+        borderRadius: 8,
+        padding: small ? "5px 11px" : "8px 16px",
+        fontSize: small ? 12 : 13.5,
+        fontWeight: 500,
+        cursor: isDisabled ? "not-allowed" : "pointer",
+        width: full ? "100%" : "auto",
+        opacity: isDisabled ? 0.65 : 1,
+        fontFamily: "inherit",
+        whiteSpace: "nowrap",
+        flexShrink: 0,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        ...style
+      }}
+    >
+      {isLoading && (
+        <div
+          style={{
+            width: 12,
+            height: 12,
+            border: "2px solid currentColor",
+            borderTopColor: "transparent",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite"
+          }}
+        />
+      )}
+      {loadingText && isLoading ? loadingText : children}
+    </button>
+  )
+}
+
+export function useAsyncAction(actionFn, { onSuccess, onError } = {}) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const isPendingRef = useRef(false)
+
+  const execute = useCallback(async (...args) => {
+    if (isPendingRef.current) return
+    isPendingRef.current = true
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await actionFn(...args)
+      if (typeof onSuccess === "function") onSuccess(result)
+      return result
+    } catch (err) {
+      const msg = err?.message || "An unexpected error occurred"
+      setError(msg)
+      if (typeof onError === "function") onError(err)
+      throw err
+    } finally {
+      isPendingRef.current = false
+      setLoading(false)
+    }
+  }, [actionFn, onSuccess, onError])
+
+  const reset = useCallback(() => {
+    setError(null)
+    setLoading(false)
+    isPendingRef.current = false
+  }, [])
+
+  return { execute, loading, error, setError, reset }
 }
 export const iSt={width:"100%",padding:"8px 11px",borderRadius:7,border:"1px solid var(--border)",fontSize:13,background:"var(--panel)",color:"var(--text)",outline:"none",boxSizing:"border-box",fontFamily:"inherit"}
 export function Inp({label,type="text",value,onChange,placeholder,hint,disabled,step,min,max,style={},...props}){

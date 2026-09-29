@@ -10,6 +10,7 @@ import {
   lockOpeningStockMonthOnServer,
   syncFromBackend,
   loadOpeningStock,
+  isOpeningStockLocked,
   saveOpeningStock,
   fetchOpeningStockFromServer,
   migrateLocalStorageOpeningStockToDatabase,
@@ -31,7 +32,10 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const isAlreadySynced = sessionSyncedMonths.has(currentMonthStr)
 
   const [items, setItems] = useState(() => (hasCachedData ? initialCached : []))
-  const [saved, setSaved] = useState(() => Array.isArray(initialCached) && initialCached.some(it => it.locked))
+  const [saved, setSaved] = useState(() => {
+    if (typeof isOpeningStockLocked === "function" && isOpeningStockLocked(currentMonthStr)) return true
+    return Array.isArray(initialCached) && initialCached.some(it => it.locked)
+  })
   const [loading, setLoading] = useState(() => !isAlreadySynced && !hasCachedData)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
@@ -62,6 +66,9 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const syncAndRefresh = useCallback(async (force = false) => {
     // If already loaded in this session and not forced, keep loaded data instantly without loading again
     if (!force && sessionSyncedMonths.has(currentMonthStr)) {
+      if (typeof isOpeningStockLocked === "function" && isOpeningStockLocked(currentMonthStr)) {
+        setSaved(true)
+      }
       return
     }
 
@@ -82,11 +89,13 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
       const serverItems = await fetchOpeningStockFromServer(currentMonthStr)
       if (serverItems) {
         setItems(serverItems)
-        setSaved(serverItems.some(it => it.locked))
+        const isLocked = serverItems.some(it => it.locked) || (typeof isOpeningStockLocked === "function" && isOpeningStockLocked(currentMonthStr))
+        setSaved(isLocked)
       } else if (!hasCache) {
         const cached = loadOpeningStock(currentMonthStr)
         setItems(cached)
-        setSaved(cached.some(it => it.locked))
+        const isLocked = cached.some(it => it.locked) || (typeof isOpeningStockLocked === "function" && isOpeningStockLocked(currentMonthStr))
+        setSaved(isLocked)
       }
       sessionSyncedMonths.add(currentMonthStr)
     } catch (err) {

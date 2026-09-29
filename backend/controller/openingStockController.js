@@ -18,6 +18,13 @@ const getOpeningStock = asyncHandler(async (req, res) => {
         where.name = { contains: search.trim(), mode: 'insensitive' };
     }
 
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const settings = (tenant && tenant.settings && typeof tenant.settings === 'object') ? tenant.settings : {};
+    const lockedMonths = settings.lockedMonths || {};
+
     if (page || limit) {
         const pageNum = Math.max(1, parseInt(page) || 1);
         const limitNum = Math.max(1, parseInt(limit) || 20);
@@ -33,8 +40,13 @@ const getOpeningStock = asyncHandler(async (req, res) => {
             prisma.openingStock.count({ where })
         ]);
 
+        const enrichedItems = items.map(it => {
+            const isMonthLocked = it.month ? !!lockedMonths[it.month] : false;
+            return isMonthLocked ? { ...it, locked: true } : it;
+        });
+
         return res.json({
-            items,
+            items: enrichedItems,
             pagination: {
                 total,
                 page: pageNum,
@@ -48,7 +60,13 @@ const getOpeningStock = asyncHandler(async (req, res) => {
         where,
         orderBy: { name: 'asc' }
     });
-    res.json(items);
+
+    const enrichedItems = items.map(it => {
+        const isMonthLocked = it.month ? !!lockedMonths[it.month] : false;
+        return isMonthLocked ? { ...it, locked: true } : it;
+    });
+
+    res.json(enrichedItems);
 });
 
 /**
@@ -115,6 +133,14 @@ const createOpeningStock = asyncHandler(async (req, res) => {
         });
         linkedItemId = newInvItem.id;
     }
+    const targetMonth = month || new Date().toISOString().slice(0, 7);
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const settings = (tenant && tenant.settings && typeof tenant.settings === 'object') ? tenant.settings : {};
+    const isTargetMonthLocked = !!(settings.lockedMonths && settings.lockedMonths[targetMonth]);
+    const effectiveLocked = isTargetMonthLocked ? true : !!locked;
 
     const item = await prisma.openingStock.create({
         data: {
@@ -125,8 +151,8 @@ const createOpeningStock = asyncHandler(async (req, res) => {
             cost: numCost,
             openingQty: numQty,
             totalValue,
-            month: month || new Date().toISOString().slice(0, 7),
-            locked: !!locked
+            month: targetMonth,
+            locked: effectiveLocked
         }
     });
 
@@ -148,6 +174,20 @@ const bulkSyncOpeningStock = asyncHandler(async (req, res) => {
     }
 
     const targetMonth = month || new Date().toISOString().slice(0, 7);
+
+    // Check if the month is currently locked in tenant settings or existing records
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const settings = (tenant && tenant.settings && typeof tenant.settings === 'object') ? tenant.settings : {};
+    const isMonthLockedInSettings = !!(settings.lockedMonths && settings.lockedMonths[targetMonth]);
+
+    const existingLockedCount = await prisma.openingStock.count({
+        where: { tenantId, month: targetMonth, locked: true }
+    });
+    const isCurrentlyLocked = isMonthLockedInSettings || existingLockedCount > 0;
+    const effectiveLocked = isCurrentlyLocked ? true : (locked !== undefined ? !!locked : false);
 
     // Fetch existing inventory items for this tenant to feed/link
     const existingInvItems = await prisma.inventoryItem.findMany({
@@ -222,7 +262,7 @@ const bulkSyncOpeningStock = asyncHandler(async (req, res) => {
                     openingQty: numQty,
                     totalValue: numCost * numQty,
                     month: targetMonth,
-                    locked: locked !== undefined ? !!locked : (it.locked !== undefined ? !!it.locked : false)
+                    locked: effectiveLocked ? true : (it.locked !== undefined ? !!it.locked : false)
                 });
             }
 
@@ -313,6 +353,15 @@ const updateOpeningStock = asyncHandler(async (req, res) => {
         linkedItemId = newInv.id;
     }
 
+    const targetMonth = month !== undefined ? month : existing.month;
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const settings = (tenant && tenant.settings && typeof tenant.settings === 'object') ? tenant.settings : {};
+    const isTargetMonthLocked = !!(targetMonth && settings.lockedMonths && settings.lockedMonths[targetMonth]);
+    const effectiveLocked = isTargetMonthLocked ? true : (locked !== undefined ? !!locked : existing.locked);
+
     const updated = await prisma.openingStock.update({
         where: { id },
         data: {
@@ -322,8 +371,8 @@ const updateOpeningStock = asyncHandler(async (req, res) => {
             cost: numCost,
             openingQty: numQty,
             totalValue,
-            month: month !== undefined ? month : existing.month,
-            locked: locked !== undefined ? !!locked : existing.locked
+            month: targetMonth,
+            locked: effectiveLocked
         }
     });
 
@@ -371,6 +420,17 @@ const lockMonthOpeningStock = asyncHandler(async (req, res) => {
     await prisma.openingStock.updateMany({
         where: { tenantId, month: targetMonth },
         data: { locked: isLocked }
+    });
+
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true }
+    });
+    const settings = (tenant && tenant.settings && typeof tenant.settings === 'object') ? tenant.settings : {};
+    const lockedMonths = { ...(settings.lockedMonths || {}), [targetMonth]: isLocked };
+    await prisma.tenant.update({
+        where: { id: tenantId },
+        data: { settings: { ...settings, lockedMonths } }
     });
 
     const items = await prisma.openingStock.findMany({

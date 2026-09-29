@@ -44,7 +44,9 @@ const getPurchases = asyncHandler(async (req, res) => {
             prisma.purchase.findMany({
                 where: { tenantId },
                 select: { date: true },
-                orderBy: { date: 'desc' }
+                distinct: ['date'],
+                orderBy: { date: 'desc' },
+                take: 120
             })
         ]);
 

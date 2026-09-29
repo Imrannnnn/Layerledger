@@ -47,6 +47,27 @@ const getOrders = asyncHandler(async (req, res) => {
         });
     }
 
+    if (req.query.summary === 'true') {
+        const orders = await prisma.order.findMany({
+            where,
+            select: {
+                id: true,
+                status: true,
+                totalPrice: true,
+                totalCost: true,
+                dueDate: true,
+                notes: true,
+                metadata: true,
+                tenantId: true,
+                clientId: true,
+                createdAt: true,
+                updatedAt: true
+            },
+            orderBy: { orderDate: 'desc' }
+        });
+        return res.json(orders);
+    }
+
     const orders = await prisma.order.findMany({
         where,
         include: {

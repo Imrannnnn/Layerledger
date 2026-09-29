@@ -144,6 +144,56 @@ describe('Opening Stock Dedicated Table Integration Tests', () => {
         expect(unlockRes.items.every(i => i.locked === false)).toBe(true);
     });
 
+    test('Locked status is persisted and cannot be accidentally reset by bulkSyncOpeningStock', async () => {
+        // 1. Lock the month
+        const lockRes = await callController(lockMonthOpeningStock, {
+            user: { tenantId, role: 'owner' },
+            body: { month: testMonth, locked: true }
+        }, {});
+        expect(lockRes.locked).toBe(true);
+
+        // 2. Fetch confirms it is locked
+        const fetchedAfterLock = await callController(getOpeningStock, {
+            user: { tenantId, role: 'owner' },
+            query: { month: testMonth }
+        }, {});
+        expect(fetchedAfterLock.every(i => i.locked === true)).toBe(true);
+
+        // 3. Inadvertent bulkSync with locked: false (e.g. from page reload, auto-save, or stale client)
+        const bulkRes = await callController(bulkSyncOpeningStock, {
+            user: { tenantId, role: 'owner' },
+            body: {
+                month: testMonth,
+                locked: false,
+                items: [
+                    { name: 'Flour Premium', unit: 'kg', cost: 1500, openingQty: 25 },
+                    { name: 'Caster Sugar', unit: 'kg', cost: 2200, openingQty: 10 }
+                ]
+            }
+        }, {});
+        expect(bulkRes.every(i => i.locked === true)).toBe(true);
+
+        // 4. Fetch again to confirm database records remain locked
+        const fetchedAfterBulk = await callController(getOpeningStock, {
+            user: { tenantId, role: 'owner' },
+            query: { month: testMonth }
+        }, {});
+        expect(fetchedAfterBulk.every(i => i.locked === true)).toBe(true);
+
+        // 5. Only explicit unlock can unlock it
+        const unlockRes = await callController(lockMonthOpeningStock, {
+            user: { tenantId, role: 'owner' },
+            body: { month: testMonth, locked: false }
+        }, {});
+        expect(unlockRes.locked).toBe(false);
+
+        const fetchedAfterUnlock = await callController(getOpeningStock, {
+            user: { tenantId, role: 'owner' },
+            query: { month: testMonth }
+        }, {});
+        expect(fetchedAfterUnlock.every(i => i.locked === false)).toBe(true);
+    });
+
     test('PUT /api/opening-stock/:id updates an individual opening stock entry', async () => {
         const fetchReq = {
             user: { tenantId, role: 'owner' },

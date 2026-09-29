@@ -5,7 +5,7 @@
  * Logs Utilities, Salary, Delivery, Transport, etc. Excludes ingredient purchases.
  * ----------------------------------------------------------------------------
  */
-import React, { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo, useRef } from "react"
 import { Btn, Inp, Sel, Card, Badge, SHead, Tabs, TH, TR2, iSt, Spinner, Pagination } from "../common/ui.jsx"
 import { fmt, uid, today, formatDateDMY, isDateInMonth } from "../../lib/helpers.js"
 import { EXP_CATS } from "../../constants.js"
@@ -23,6 +23,8 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [saving, setSaving] = useState(false)
+  const [savingEditId, setSavingEditId] = useState(null)
+  const isSavingEditRef = useRef(false)
 
 
   const [draftExpenses, setDraftExpenses] = useState([
@@ -110,19 +112,30 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
   }
 
   const saveEdit = async (id) => {
+    if (isSavingEditRef.current || savingEditId) return
     const editRowData = editingRows[id]
     if (!editRowData.description?.trim() || !editRowData.amount) {
       alert("Description and Amount are required")
       return
     }
-    const updated = expenses.map(e => e.id === id ? { ...editRowData, amount: Number(editRowData.amount) } : e)
-    setExpenses(updated)
-    await saveExpenses(updated)
-    setEditingRows(p => {
-      const copy = { ...p }
-      delete copy[id]
-      return copy
-    })
+    isSavingEditRef.current = true
+    setSavingEditId(id)
+    try {
+      const updated = expenses.map(e => e.id === id ? { ...editRowData, amount: Number(editRowData.amount) } : e)
+      setExpenses(updated)
+      await saveExpenses(updated)
+      setEditingRows(p => {
+        const copy = { ...p }
+        delete copy[id]
+        return copy
+      })
+    } catch (err) {
+      console.error("Failed to save expense edit:", err)
+      alert("Error saving expense edit: " + (err.message || "Unknown error"))
+    } finally {
+      isSavingEditRef.current = false
+      setSavingEditId(null)
+    }
   }
 
   const cancelEdit = (id) => {
@@ -628,8 +641,8 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
                   </td>
                   <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                     <div style={{ display: "flex", gap: 4 }}>
-                      <Btn small variant="success" onClick={() => saveEdit(e.id)}><Check size={12} /></Btn>
-                      <Btn small variant="ghost" onClick={() => cancelEdit(e.id)}><X size={12} /></Btn>
+                      <Btn small variant="success" onClick={() => saveEdit(e.id)} loading={savingEditId === e.id} disabled={savingEditId !== null}><Check size={12} /></Btn>
+                      <Btn small variant="ghost" onClick={() => cancelEdit(e.id)} disabled={savingEditId !== null}><X size={12} /></Btn>
                     </div>
                   </td>
                 </tr>

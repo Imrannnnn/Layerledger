@@ -13,6 +13,7 @@ jest.mock("../../lib/data.js", () => ({
     { id: "item-2", name: "Granulated Sugar", unit: "kg", cost: 2000, openingQty: 30 }
   ]),
   saveOpeningStock: jest.fn(),
+  isOpeningStockLocked: jest.fn(() => false),
   loadLocal: jest.fn(() => null),
   saveLocal: jest.fn(),
   saveInventory: jest.fn(),
@@ -90,6 +91,7 @@ describe("OpeningStock Component Tests", () => {
     container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
+    dataLib.isOpeningStockLocked.mockReturnValue(false)
     dataLib.loadOpeningStock.mockReturnValue([
       { id: "item-1", name: "Premium Flour", unit: "kg", cost: 1500, openingQty: 50, locked: false },
       { id: "item-2", name: "Granulated Sugar", unit: "kg", cost: 2000, openingQty: 30, locked: false }
@@ -288,6 +290,109 @@ describe("OpeningStock Component Tests", () => {
 
     const currentMonthStr = new Date().toISOString().slice(0, 7)
     expect(dataLib.lockOpeningStockMonthOnServer).toHaveBeenCalledWith(currentMonthStr, true)
+  })
+
+  test("locking stock persists across navigation away and returning", async () => {
+    const currentMonthStr = new Date().toISOString().slice(0, 7)
+    dataLib.lockOpeningStockMonthOnServer.mockResolvedValue({ locked: true })
+
+    // Step 1: Render OpeningStock initially
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={[]}
+          setInventory={jest.fn()}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+
+    const lockBtn = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Lock Month"))
+    expect(lockBtn).toBeTruthy()
+
+    // Step 2: Lock the month
+    await act(async () => {
+      lockBtn.click()
+    })
+
+    // Once locked, button displays "Unlock"
+    expect(container.textContent).toContain("Unlock")
+
+    // Step 3: Navigate away (unmount component)
+    await act(async () => {
+      root.unmount()
+    })
+    expect(container.textContent).toBe("")
+
+    // Configure mock to reflect that the data layer persisted locked: true
+    dataLib.isOpeningStockLocked.mockReturnValue(true)
+    dataLib.loadOpeningStock.mockReturnValue([
+      { id: "item-1", name: "Premium Flour", unit: "kg", cost: 1500, openingQty: 50, locked: true },
+      { id: "item-2", name: "Granulated Sugar", unit: "kg", cost: 2000, openingQty: 30, locked: true }
+    ])
+
+    // Step 4: Return to Opening Stock page (remount component)
+    root = createRoot(container)
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={[]}
+          setInventory={jest.fn()}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+
+    // Returning to Opening Stock MUST preserve the locked state
+    expect(container.textContent).toContain("Unlock")
+    expect(container.textContent).not.toContain("Lock Month")
+    // In locked mode, editable quantity inputs are replaced with read-only static text
+    const qtyInputs = container.querySelectorAll('tbody input[type="number"]')
+    expect(qtyInputs.length).toBe(0)
+    expect(container.textContent).toContain("50 kg")
+    expect(container.textContent).toContain("30 kg")
+  })
+
+  test("page load / refresh with locked items from server initializes UI as locked", async () => {
+    const currentMonthStr = new Date().toISOString().slice(0, 7)
+    dataLib.isOpeningStockLocked.mockReturnValue(true)
+    dataLib.loadOpeningStock.mockReturnValue([
+      { id: "item-1", name: "Premium Flour", unit: "kg", cost: 1500, openingQty: 50, locked: true },
+      { id: "item-2", name: "Granulated Sugar", unit: "kg", cost: 2000, openingQty: 30, locked: true }
+    ])
+    dataLib.fetchOpeningStockFromServer.mockResolvedValue([
+      { id: "item-1", name: "Premium Flour", unit: "kg", cost: 1500, openingQty: 50, locked: true },
+      { id: "item-2", name: "Granulated Sugar", unit: "kg", cost: 2000, openingQty: 30, locked: true }
+    ])
+
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={[]}
+          setInventory={jest.fn()}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+
+    // Sourced from database as locked: UI shows "Unlock" and renders read-only text for quantities
+    expect(container.textContent).toContain("Unlock")
+    const qtyInputs = container.querySelectorAll('tbody input[type="number"]')
+    expect(qtyInputs.length).toBe(0)
+    expect(container.textContent).toContain("50 kg")
+    expect(container.textContent).toContain("30 kg")
+
+    // Clicking Unlock unlocks it
+    dataLib.lockOpeningStockMonthOnServer.mockResolvedValue({ locked: false })
+    const unlockBtn = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Unlock"))
+    expect(unlockBtn).toBeTruthy()
+
+    await act(async () => {
+      unlockBtn.click()
+    })
+
+    expect(dataLib.lockOpeningStockMonthOnServer).toHaveBeenCalledWith(currentMonthStr, false)
+    expect(container.textContent).toContain("Lock Month")
   })
 
   test("does not show loading spinner again on remount when data is already loaded in session", async () => {

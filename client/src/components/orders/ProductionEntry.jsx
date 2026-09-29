@@ -183,7 +183,10 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
 
   const toggleDecor = (id) => setDecorIds(prev => prev.includes(id) ? prev.filter(d=>d!==id) : [...prev,id])
 
+  const isSavingRef = useRef(false)
+
   const doSave = async () => {
+    if (isSavingRef.current || saving) return
     const limitCheck = typeof checkPlanLimit === "function" ? checkPlanLimit("ordersPerMonth") : { exceeded: false }
     if (limitCheck.exceeded) {
       if (typeof notifyPlanLimitReached === "function") {
@@ -191,28 +194,48 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
       }
       return
     }
+
+    isSavingRef.current = true
     setSaving(true)
-    const tierSummary=tiers.map(t=>`${t.size}" ${t.shape} ${t.covering} (${t.layers.map(l=>(l.qty > 1 ? l.qty + "×" : "") + (l.flavour||"—")).join("/")})`).join(" + ")
-    const flavourSummary=tiers.flatMap(t=>t.layers.map(l=>l.flavour)).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(", ")
-    const prod={id:uid(),client,clientPhone,clientEmail,orderDate,deliveryDate:delivDate,cost:newTotalCost,deliveryCost:delivCost,salePrice:Math.round(effectiveSale),status:"confirmed",confirmedAt:new Date().toISOString(),isProd:true,fromQuote:false,size:tiers[0]?.size+'"',covering:tiers[0]?.covering,flavors:flavourSummary,tiers,topper,decorations:decorIds.join(","),layers:tiers.reduce((s,t)=>s+t.layers.reduce((sum,l)=>sum+(l.qty||1),0),0),accessoryPct:settings.accessoryPct,profitPct:settings.profitPct,paymentType,discountPct:+discountPct,notes,tierSummary}
-    // Deduct inventory
-    if(matchedRecipe){
-      const layerCount=+layers||1
-      const deductions=[...matchedRecipe.ing.map(i=>({...i,qty:+(i.qty)*layerCount}))]
-      const fl=(flavors||"").toLowerCase().split(/[,+&]/).map(f=>f.trim()).filter(Boolean)
-      fl.forEach(f=>(FLAVOR_EXTRAS[f]||[]).forEach(e=>{const ex=deductions.find(d=>d.iid===e.iid);if(ex)ex.qty=parseFloat((ex.qty+e.qty).toFixed(3));else deductions.push({iid:e.iid,qty:e.qty})}))
-      decorIds.forEach(did=>{const decor=allDecorations.find(d=>d.id===did);if(decor){const ex=deductions.find(d=>d.iid===decor.iid);if(ex)ex.qty=parseFloat((ex.qty+decor.qty).toFixed(3));else deductions.push({iid:decor.iid,qty:decor.qty})}})
-      const updInv=inventory.map(item=>{const ing=deductions.find(i=>i.iid===item.id);return ing?{...item,stock:Math.max(0,parseFloat((item.stock-ing.qty).toFixed(3)))}:item})
-      setInventory(updInv);await saveInventory(updInv)
+
+    try {
+      const tierSummary=tiers.map(t=>`${t.size}" ${t.shape} ${t.covering} (${t.layers.map(l=>(l.qty > 1 ? l.qty + "×" : "") + (l.flavour||"—")).join("/")})`).join(" + ")
+      const flavourSummary=tiers.flatMap(t=>t.layers.map(l=>l.flavour)).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(", ")
+      const prod={id:uid(),client,clientPhone,clientEmail,orderDate,deliveryDate:delivDate,cost:newTotalCost,deliveryCost:delivCost,salePrice:Math.round(effectiveSale),status:"confirmed",confirmedAt:new Date().toISOString(),isProd:true,fromQuote:false,size:tiers[0]?.size+'"',covering:tiers[0]?.covering,flavors:flavourSummary,tiers,topper,decorations:decorIds.join(","),layers:tiers.reduce((s,t)=>s+t.layers.reduce((sum,l)=>sum+(l.qty||1),0),0),accessoryPct:settings.accessoryPct,profitPct:settings.profitPct,paymentType,discountPct:+discountPct,notes,tierSummary}
+
+      let updInv = null
+      // Deduct inventory
+      if(matchedRecipe){
+        const layerCount=+layers||1
+        const deductions=[...matchedRecipe.ing.map(i=>({...i,qty:+(i.qty)*layerCount}))]
+        const fl=(flavors||"").toLowerCase().split(/[,+&]/).map(f=>f.trim()).filter(Boolean)
+        fl.forEach(f=>(FLAVOR_EXTRAS[f]||[]).forEach(e=>{const ex=deductions.find(d=>d.iid===e.iid);if(ex)ex.qty=parseFloat((ex.qty+e.qty).toFixed(3));else deductions.push({iid:e.iid,qty:e.qty})}))
+        decorIds.forEach(did=>{const decor=allDecorations.find(d=>d.id===did);if(decor){const ex=deductions.find(d=>d.iid===decor.iid);if(ex)ex.qty=parseFloat((ex.qty+decor.qty).toFixed(3));else deductions.push({iid:decor.iid,qty:decor.qty})}})
+        updInv=inventory.map(item=>{const ing=deductions.find(i=>i.iid===item.id);return ing?{...item,stock:Math.max(0,parseFloat((item.stock-ing.qty).toFixed(3)))}:item})
+        setInventory(updInv)
+      }
+
+      setProductions(prev=>[prod,...prev])
+
+      await Promise.all([
+        updInv ? saveInventory(updInv) : Promise.resolve(),
+        saveProduction(prod)
+      ])
+
+      if(client && client.trim()){
+        upsertClient(client, clientPhone, clientEmail, "", notes).catch(console.error)
+      }
+
+      // Reset
+      setStep(1);setPhoto(null);setPhotoB64(null);setAiObs(null);setAiMsg("");setRecipeId("");setLayers("1");setSize("");setCovering("");setFlavors("");setDecorIds([]);setClient("");setClientPhone("");setClientEmail("");setOrderDate(today());setDelivDate("");setSalePrice("");setDeliveryCost("0");setPaymentType("full");setDiscountPct("0");setNotes("")
+      setView("records")
+    } catch (e) {
+      console.error("Failed to save production record:", e)
+      alert("Failed to save production record: " + (e.message || "Unknown error"))
+    } finally {
+      isSavingRef.current = false
+      setSaving(false)
     }
-    setProductions(prev=>[prod,...prev]);await saveProduction(prod)
-    if(client && client.trim()){
-      upsertClient(client, clientPhone, clientEmail, "", notes).catch(console.error)
-    }
-    setSaving(false)
-    // Reset
-    setStep(1);setPhoto(null);setPhotoB64(null);setAiObs(null);setAiMsg("");setRecipeId("");setLayers("1");setSize("");setCovering("");setFlavors("");setDecorIds([]);setClient("");setClientPhone("");setClientEmail("");setOrderDate(today());setDelivDate("");setSalePrice("");setDeliveryCost("0");setPaymentType("full");setDiscountPct("0");setNotes("")
-    setView("records")
   }
 
   const orderLimitCheck = useMemo(() => {
@@ -490,16 +513,17 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
           {[["Prod. Cost",fmt(totalProdCost)],["Sale Price",fmt(effectiveSale)],["Gross Profit",fmt(effectiveSale-totalProdCost)]].map(([k,v])=><div key={k} style={{background:"var(--panel)",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:0.8}}>{k}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:700,color:"var(--gold)",marginTop:3}}>{v}</div></div>)}
         </div>
         <div style={{display:"flex",gap:8,marginTop:4}}>
-          {saving?<Spinner/>:<>
-            <Btn
-              variant={orderLimitCheck?.exceeded ? "primary" : "success"}
-              onClick={doSave}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, ...(orderLimitCheck?.exceeded ? { background: "#B8860B", color: "#FFFFFF" } : {}) }}
-            >
-              {orderLimitCheck?.exceeded ? "🔒 Upgrade to Save Production" : <><Check size={14} /> Save Production Record</>}
-            </Btn>
-            <Btn variant="ghost" onClick={()=>setStep(2)}>← Back</Btn>
-          </>}
+          <Btn
+            variant={orderLimitCheck?.exceeded ? "primary" : "success"}
+            onClick={doSave}
+            loading={saving}
+            loadingText="Saving Production Record..."
+            disabled={saving || orderLimitCheck?.exceeded}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, ...(orderLimitCheck?.exceeded ? { background: "#B8860B", color: "#FFFFFF" } : {}) }}
+          >
+            {orderLimitCheck?.exceeded ? "🔒 Upgrade to Save Production" : <><Check size={14} /> Save Production Record</>}
+          </Btn>
+          <Btn variant="ghost" onClick={()=>setStep(2)} disabled={saving}>← Back</Btn>
         </div>
       </Card>
     </div>}

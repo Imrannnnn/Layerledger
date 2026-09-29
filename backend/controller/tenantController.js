@@ -152,26 +152,31 @@ const clearAllTenantData = asyncHandler(async (req, res) => {
 const getTenantBootstrap = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
 
-    // Run queries sequentially reusing a single connection pool socket to prevent Neon pool exhaustion & 10s timeout
+    // Run queries in 2 safe concurrent batches to balance pool socket usage and halve roundtrip latency
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) {
         res.status(404);
         throw new Error('Tenant not found');
     }
 
-    const inventory = await prisma.inventoryItem.findMany({ where: { tenantId }, orderBy: [{ category: 'asc' }, { name: 'asc' }] });
-    const openingStock = await prisma.openingStock.findMany({ where: { tenantId }, orderBy: { name: 'asc' } });
-    const recipes = await prisma.recipe.findMany({ where: { tenantId }, include: { ingredients: true } });
-    const orders = await prisma.order.findMany({
-        where: { tenantId },
-        include: { client: { select: { name: true, phone: true } } },
-        orderBy: { orderDate: 'desc' }
-    });
-    const expenses = await prisma.expense.findMany({ where: { tenantId }, orderBy: { date: 'desc' } });
-    const purchases = await prisma.purchase.findMany({ where: { tenantId }, orderBy: { date: 'desc' } });
-    const invoices = await prisma.invoice.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } });
-    const transactions = await prisma.transaction.findMany({ where: { tenantId }, orderBy: { date: 'desc' } });
-    const clients = await prisma.client.findMany({ where: { tenantId }, include: { _count: { select: { orders: true } } }, orderBy: { name: 'asc' } });
+    const [inventory, openingStock, recipes, orders] = await Promise.all([
+        prisma.inventoryItem.findMany({ where: { tenantId }, orderBy: [{ category: 'asc' }, { name: 'asc' }] }),
+        prisma.openingStock.findMany({ where: { tenantId }, orderBy: { name: 'asc' } }),
+        prisma.recipe.findMany({ where: { tenantId }, include: { ingredients: true } }),
+        prisma.order.findMany({
+            where: { tenantId },
+            include: { client: { select: { name: true, phone: true } } },
+            orderBy: { orderDate: 'desc' }
+        })
+    ]);
+
+    const [expenses, purchases, invoices, transactions, clients] = await Promise.all([
+        prisma.expense.findMany({ where: { tenantId }, orderBy: { date: 'desc' } }),
+        prisma.purchase.findMany({ where: { tenantId }, orderBy: { date: 'desc' } }),
+        prisma.invoice.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } }),
+        prisma.transaction.findMany({ where: { tenantId }, orderBy: { date: 'desc' } }),
+        prisma.client.findMany({ where: { tenantId }, include: { _count: { select: { orders: true } } }, orderBy: { name: 'asc' } })
+    ]);
 
 
     res.json({

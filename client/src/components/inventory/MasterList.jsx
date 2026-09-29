@@ -1621,14 +1621,8 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
         <Inp label="Standard Qty Used *" type="number" value={newItem.qty} onChange={v=>setNewItem(p=>({...p,qty:v}))} placeholder="e.g. 0.15"/>
       </div>
       <div style={{display:"flex", gap:8}}>
-        {saving ? (
-          <Spinner />
-        ) : (
-          <>
-            <Btn onClick={addItem}>Save</Btn>
-            <Btn variant="ghost" onClick={()=>setAdding(false)}>Cancel</Btn>
-          </>
-        )}
+        <Btn onClick={addItem} loading={saving} loadingText="Saving..." disabled={saving}>Save</Btn>
+        <Btn variant="ghost" onClick={()=>setAdding(false)} disabled={saving}>Cancel</Btn>
       </div>
     </Card>}
 
@@ -2070,9 +2064,12 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
 
 
   // ── Recipes ──
+  const isSavingRecipeRef = useRef(false)
   const openRecipe = (r) => setRecipeModal(r ? {...r} : {id:uid(),name:"",size:"6",tiers:1,covering:"buttercream",ing:[]})
   const saveRecipe = async () => {
+    if (isSavingRecipeRef.current || saving) return
     if(!recipeModal.name)return showMsg("Recipe name is required")
+    isSavingRecipeRef.current = true
     setSaving(true)
     try {
       const isExisting = recipes.some(r => r.id === recipeModal.id)
@@ -2091,6 +2088,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     } catch (e) {
       showMsg("Failed to save recipe: " + e.message, "red")
     } finally {
+      isSavingRecipeRef.current = false
       setSaving(false)
     }
   }
@@ -2250,14 +2248,10 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
             :<>Cost per {recipeModal.type==="covering"?"batch":"layer"}: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory))}</strong></>}
         </div>}
         <div style={{marginTop:12,display:"flex",gap:8}}>
-          {saving ? (
-            <Spinner />
-          ) : (
-            <>
-              <Btn variant="success" onClick={saveRecipe} style={{display:"inline-flex",alignItems:"center",gap:5}}><Check size={13}/> Save Recipe</Btn>
-              <Btn variant="ghost" onClick={()=>setRecipeModal(null)}>Cancel</Btn>
-            </>
-          )}
+          <Btn variant="success" onClick={saveRecipe} loading={saving} loadingText="Saving Recipe..." disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:5}}>
+            <Check size={13}/> Save Recipe
+          </Btn>
+          <Btn variant="ghost" onClick={()=>setRecipeModal(null)} disabled={saving}>Cancel</Btn>
         </div>
       </Modal>}
 

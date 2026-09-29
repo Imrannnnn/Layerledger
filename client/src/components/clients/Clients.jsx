@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react"
+import React, { useState, useMemo, useEffect, useRef } from "react"
 import { Btn, Inp, Card, SHead, Modal, Pagination, Spinner } from "../common/ui.jsx"
 import {
   loadClients,
@@ -8,7 +8,8 @@ import {
   createClientOnServer,
   updateClientOnServer,
   checkPlanLimit,
-  notifyPlanLimitReached
+  notifyPlanLimitReached,
+  saveLocal
 } from "../../lib/data.js"
 import { Users, Search, MessageCircle, MapPin, Calculator, Pencil, Trash2, AlertTriangle, Plus, Cake, Heart, CalendarHeart, Download } from "lucide-react"
 import { exportClientsPDF } from "../../lib/pdfReportGenerator.js"
@@ -45,6 +46,7 @@ export function Clients({ setView, company = {} }) {
   })
   const [errorMsg, setErrorMsg] = useState("")
   const [saving, setSaving] = useState(false)
+  const isSavingRef = useRef(false)
 
   // Debounce search input to avoid spamming the backend
   useEffect(() => {
@@ -117,10 +119,12 @@ export function Clients({ setView, company = {} }) {
   }
 
   const handleSave = async () => {
+    if (isSavingRef.current || saving) return
     if (!formData.name.trim()) {
       setErrorMsg("Client name is required")
       return
     }
+    isSavingRef.current = true
     setSaving(true)
     setErrorMsg("")
     try {
@@ -128,6 +132,7 @@ export function Clients({ setView, company = {} }) {
       const cleanBirthday = spec.formatted ? `${spec.type}: ${spec.formatted}` : ""
 
       if (editingClient) {
+        let directUpdated = false
         if (typeof updateClientOnServer === "function" && editingClient.id && !editingClient.id.startsWith("cl_")) {
           try {
             await updateClientOnServer(editingClient.id, {
@@ -138,6 +143,7 @@ export function Clients({ setView, company = {} }) {
               birthday: cleanBirthday,
               notes: formData.notes || ""
             })
+            directUpdated = true
           } catch {}
         }
         const updated = clients.map(c =>
@@ -146,7 +152,11 @@ export function Clients({ setView, company = {} }) {
             : c
         )
         setClients(updated)
-        await saveClients(updated)
+        if (!directUpdated) {
+          await saveClients(updated)
+        } else {
+          saveLocal("ll_clients", updated)
+        }
       } else {
         const limitCheck = typeof checkPlanLimit === "function" ? checkPlanLimit("clients") : { exceeded: false }
         if (limitCheck.exceeded) {
@@ -154,7 +164,6 @@ export function Clients({ setView, company = {} }) {
             notifyPlanLimitReached(limitCheck)
           }
           setErrorMsg(limitCheck.message)
-          setSaving(false)
           return
         }
 
@@ -171,7 +180,6 @@ export function Clients({ setView, company = {} }) {
             })
           } catch (serverErr) {
             setErrorMsg(serverErr.message || "Failed to create client on server")
-            setSaving(false)
             return
           }
         }
@@ -186,13 +194,18 @@ export function Clients({ setView, company = {} }) {
         }
         const updated = [newClient, ...clients]
         setClients(updated)
-        await saveClients(updated)
+        if (!created) {
+          await saveClients(updated)
+        } else {
+          saveLocal("ll_clients", updated)
+        }
       }
       setModalOpen(false)
       await loadPage()
     } catch (err) {
       setErrorMsg("Failed to save client: " + err.message)
     } finally {
+      isSavingRef.current = false
       setSaving(false)
     }
   }
@@ -705,9 +718,14 @@ export function Clients({ setView, company = {} }) {
             )}
 
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
-              <Btn variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Btn>
-              <Btn onClick={handleSave} disabled={saving}>
-                {saving ? "Saving..." : (editingClient ? "Save Changes" : "Create Client")}
+              <Btn variant="ghost" onClick={() => setModalOpen(false)} disabled={saving}>Cancel</Btn>
+              <Btn
+                onClick={handleSave}
+                loading={saving}
+                loadingText={editingClient ? "Saving Changes..." : "Creating Client..."}
+                disabled={saving}
+              >
+                {editingClient ? "Save Changes" : "Create Client"}
               </Btn>
             </div>
           </div>

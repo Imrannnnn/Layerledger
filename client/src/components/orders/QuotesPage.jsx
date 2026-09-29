@@ -6,7 +6,7 @@
  * Gift/sample orders are logged as a write-off with no revenue.
  * ----------------------------------------------------------------------------
  */
-import React, { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo, useRef } from "react"
 import { Btn, Card, SHead, iSt, Pagination } from "../common/ui.jsx"
 import { fmt, uid, parseSpecialDate } from "../../lib/helpers.js"
 import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal, calculateOrderUsages, updateInventoryItemOnServer, deleteOrderOnServer } from "../../lib/data.js"
@@ -29,6 +29,8 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
   const [pageSize, setPageSize] = useState(10)
   const [expanded, setExpanded] = useState(null)
   const [confirming, setConfirming] = useState(false)
+  const [confirmingId, setConfirmingId] = useState(null)
+  const isConfirmingRef = useRef(false)
 
   const checkIsConfirmed = (q) => {
     if (!q) return false
@@ -118,13 +120,16 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
   }
 
   const confirmOrder = async (q) => {
-    // Block if already confirmed
+    // Block if already confirmed or in-flight
     if (checkIsConfirmed(q)) {
       alert("This quote is already confirmed and locked.")
       return
     }
-
+    if (isConfirmingRef.current || confirmingId) return
+    isConfirmingRef.current = true
+    setConfirmingId(q.id)
     setConfirming(true)
+
     try {
       const usages = calculateOrderUsages(q, inventory, recipes)
       const outOfStock = []
@@ -160,21 +165,15 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
       try {
         if (usages.length > 0) {
           let updInv = [...inventory]
-          const changedItems = []
           usages.forEach(u => {
             const idx = updInv.findIndex(i => i.id === u.itemId)
             if (idx >= 0) {
               const newStock = Math.max(0, parseFloat((updInv[idx].stock - u.qty).toFixed(3)))
               updInv[idx] = { ...updInv[idx], stock: newStock }
-              changedItems.push(updInv[idx])
             }
           })
           setInventory(updInv)
           await saveInventory(updInv)
-          // Also sync changed items directly to server database if logged in
-          for (const item of changedItems) {
-            updateInventoryItemOnServer(item.id, item).catch(err => console.warn("Failed direct DB update for item stock:", err))
-          }
         }
       } catch (e) {
         console.error("Ingredient deduction error", e)
@@ -265,11 +264,13 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
         isProd: false
       } : x)
       setQuotes(updated)
-      await saveQuotes(updated)
 
-      // Add to production and save production
+      // Add to production and save quote & production concurrently
       setProductions(prev => [prod, ...prev])
-      await saveProduction(prod)
+      await Promise.all([
+        saveQuotes(updated),
+        saveProduction(prod)
+      ])
 
       window.dispatchEvent(new CustomEvent("layerledger:quotes-updated", { detail: { source: "QuotesPage" } }))
       window.dispatchEvent(new CustomEvent("layerledger:productions-updated", { detail: { source: "QuotesPage" } }))
@@ -282,6 +283,8 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
       console.error(e)
       alert("Confirmation failed: " + e.message)
     } finally {
+      isConfirmingRef.current = false
+      setConfirmingId(null)
       setConfirming(false)
     }
   }
@@ -715,10 +718,18 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                         {isConfirmed ? null : (
                           <>
-                             <Btn small variant="success" onClick={() => confirmOrder(q)} disabled={confirming} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                               {confirming ? <Clock size={12} /> : <Check size={12} />} {confirming ? "Confirming..." : "Confirm order"}
+                             <Btn
+                               small
+                               variant="success"
+                               onClick={() => confirmOrder(q)}
+                               loading={confirmingId === q.id}
+                               loadingText="Confirming..."
+                               disabled={confirming}
+                               style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                             >
+                               <Check size={12} /> Confirm order
                              </Btn>
-                             <Btn small variant="ghost" onClick={async () => { await saveLocal("ll_calc_edit", q); setView("calculator") }} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                             <Btn small variant="ghost" disabled={confirming} onClick={async () => { await saveLocal("ll_calc_edit", q); setView("calculator") }} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                                <Pencil size={12} /> Edit quote
                              </Btn>
                           </>

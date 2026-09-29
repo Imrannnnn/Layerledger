@@ -897,6 +897,9 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   const [vatRate, setVatRate] = useState(() => saved?.vatRate || 7.5)
   const [quoteSaved, setQuoteSaved] = useState(false)
   const [lastSavedQuote, setLastSavedQuote] = useState(null)
+  const [isSavingQuote, setIsSavingQuote] = useState(false)
+  const isSavingQuoteRef = useRef(false)
+  const [saveQuoteError, setSaveQuoteError] = useState(null)
   const [isEdit, setIsEdit] = useState(() => !!saved?.isEdit)
   const [editId, setEditId] = useState(() => saved?.editId || null)
 
@@ -2231,6 +2234,8 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
 
   // Handle Save Quote
   const handleSaveQuote = async () => {
+    if (isSavingQuoteRef.current || isSavingQuote) return
+
     if (!isEdit) {
       const limitCheck = typeof checkPlanLimit === "function" ? checkPlanLimit("ordersPerMonth") : { exceeded: false }
       if (limitCheck.exceeded) {
@@ -2258,128 +2263,137 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       return
     }
 
-    // Derived summaries
-    const cakeTiers = items.filter(it => it.type === "cake").flatMap(it => it.tiers || [])
-    const allPastryItems = items.filter(it => it.type === "pastry").flatMap(it => it.pastryItems || [])
-    const allDecQty = items.reduce((acc, it) => ({ ...acc, ...(it.decQty || {}) }), {})
-    const allAccRows = items.flatMap(it => it.accRows || [])
-    const activeTopper = items.find(it => it.topper?.enabled)?.topper || { enabled: false, make: "", deliver: "", description: "" }
+    // Immediately provide visual feedback and disable further clicks synchronously
+    isSavingQuoteRef.current = true
+    setIsSavingQuote(true)
+    setSaveQuoteError(null)
 
-    const itemSummaries = items.map((it, idx) => {
-      if (it.type === "cake") {
-        const tSum = (it.tiers || []).map(t => `${t.size}" ${t.shape} (${t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + (l.flavour || "?")).join("/")})`).join(" + ")
-        return `${it.name || `Item ${idx + 1}`}: ${tSum || "Cake"}`
-      } else {
-        const pSum = (it.pastryItems || []).map(p => `${p.qty || 0}× ${p.flavour || "Pastry"}`).join(", ")
-        return `${it.name || `Item ${idx + 1}`}: ${pSum || "Pastry"}`
-      }
-    })
-
-    const allFlavours = [
-      ...new Set([
-        ...cakeTiers.flatMap(t => t.layers?.map(l => l.flavour)).filter(Boolean),
-        ...allPastryItems.map(p => p.flavour).filter(Boolean)
-      ])
-    ]
-
-    const co = loadCompany()
-    const primaryDeliveryDate = items[0]?.deliveryDate || (isGS ? new Date().toISOString().slice(0, 10) : "")
-    const primaryCollectionTime = items[0]?.collectionTime || ""
-
-    // Format items with resolved delivery dates and photo arrays
-    const formattedItems = items.map((it, idx) => {
-      const deliv = getDeliveryDetails(it, idx)
-      return {
-        ...it,
-        price: getItemPrice(it),
-        deliveryDate: deliv.date,
-        collectionTime: deliv.time,
-        deliveryDetailsText: deliv.text,
-        sameDeliveryAsFirst: idx > 0 ? !!it.sameDeliveryAsFirst : false,
-        photos: it.photos || (it.photo ? [it.photo] : []),
-        photo: it.photos?.[0] || it.photo || null
-      }
-    })
-
-    const hasMultiDeliveryDates = items.some((it, idx) => idx > 0 && !it.sameDeliveryAsFirst && it.deliveryDate && it.deliveryDate !== items[0]?.deliveryDate)
-
-    const quote = {
-      id: isEdit && editId ? editId : uid(),
-      clientName: clientName.trim() || (isGS ? (orderPurpose === "gift" ? "Gift" : "Sample/Tasting") : "Walk-in"),
-      clientPhone,
-      clientBirthday: hasSpecialEvent ? clientBirthday : "",
-      hasSpecialEvent: !!hasSpecialEvent,
-      date: new Date().toISOString().slice(0, 10),
-      items: formattedItems,
-      hasMultiDeliveryDates,
-      deliveryDates: formattedItems.map(it => it.deliveryDate).filter(Boolean),
-      // Backward compatibility fields for QuotesPage, Invoices, ProductionList, and sync:
-      productType: items.some(i => i.type === "cake") && items.some(i => i.type === "pastry") ? "Cake & Pastry" : (items.some(i => i.type === "cake") ? "Cake" : "Pastry"),
-      tiers: cakeTiers,
-      pastryItems: allPastryItems,
-      donutGroups: allPastryItems.map(p => ({ flavour: p.flavour, qty: p.qty, filling: p.filling, fillingGrams: p.fillingGrams })),
-      loaves: allPastryItems.map(p => ({ id: p.id, flavour: p.flavour })),
-      tartQty: allPastryItems.reduce((sum, p) => sum + (p.qty || 0), 0),
-      tartFillings: allPastryItems.map(p => ({ type: p.filling, grams: p.fillingGrams })),
-      decQty: allDecQty,
-      accRows: allAccRows,
-      topper: activeTopper,
-      cakePhoto: items.find(it => (it.photos && it.photos.length > 0) || it.photo || it.tiers?.some(t => t.photo || t.photos?.length))?.photo ||
-        items.flatMap(it => it.tiers || []).find(t => (t.photos && t.photos.length > 0) || t.photo)?.photos?.[0] || null,
-      cakePhotos: [
-        ...items.flatMap(it => (it.photos && it.photos.length > 0) ? it.photos : (it.photo ? [it.photo] : [])),
-        ...items.flatMap(it => (it.tiers || []).flatMap(t => (t.photos && t.photos.length > 0) ? t.photos : (t.photo ? [t.photo] : [])))
-      ],
-      cakeSummary: itemSummaries.join(" | "),
-      flavourSummary: allFlavours.join(", "),
-      deliveryDate: primaryDeliveryDate,
-      collectionTime: primaryCollectionTime,
-      notes: [generalNote, ...items.map((it, idx) => it.itemNote ? `[${it.name || `Item ${idx + 1}`}]: ${it.itemNote}` : "").filter(Boolean)].join("\n\n"),
-      generalNote,
-      eventType,
-      totalCost,
-      quotePrice: suggestedPrice,
-      salePrice: isGS ? 0 : (+salePrice || suggestedPrice),
-      orderPurpose,
-      deliveryCharge: delivCharge,
-      vatEnabled,
-      vatRate,
-      vatAmount,
-      grandTotal,
-      margin,
-      status: "pending",
-      isProd: false,
-      fromQuote: false,
-      quoteId: null,
-      confirmedAt: null,
-      bankName: co.bankName || "",
-      bankAccount: co.bankAccount || "",
-      bankAccountName: co.bankAccountName || "",
-      businessName: co.name || "Bakery"
-    }
-
-    const existing = loadQuotes()
-    const updated = isEdit && editId
-      ? existing.map(q => q.id === editId ? { ...quote, id: editId, status: q.status || "pending", confirmedAt: q.confirmedAt || null, isProd: false } : q)
-      : [quote, ...existing]
-    
     try {
+      // Derived summaries
+      const cakeTiers = items.filter(it => it.type === "cake").flatMap(it => it.tiers || [])
+      const allPastryItems = items.filter(it => it.type === "pastry").flatMap(it => it.pastryItems || [])
+      const allDecQty = items.reduce((acc, it) => ({ ...acc, ...(it.decQty || {}) }), {})
+      const allAccRows = items.flatMap(it => it.accRows || [])
+      const activeTopper = items.find(it => it.topper?.enabled)?.topper || { enabled: false, make: "", deliver: "", description: "" }
+
+      const itemSummaries = items.map((it, idx) => {
+        if (it.type === "cake") {
+          const tSum = (it.tiers || []).map(t => `${t.size}" ${t.shape} (${t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + (l.flavour || "?")).join("/")})`).join(" + ")
+          return `${it.name || `Item ${idx + 1}`}: ${tSum || "Cake"}`
+        } else {
+          const pSum = (it.pastryItems || []).map(p => `${p.qty || 0}× ${p.flavour || "Pastry"}`).join(", ")
+          return `${it.name || `Item ${idx + 1}`}: ${pSum || "Pastry"}`
+        }
+      })
+
+      const allFlavours = [
+        ...new Set([
+          ...cakeTiers.flatMap(t => t.layers?.map(l => l.flavour)).filter(Boolean),
+          ...allPastryItems.map(p => p.flavour).filter(Boolean)
+        ])
+      ]
+
+      const co = loadCompany()
+      const primaryDeliveryDate = items[0]?.deliveryDate || (isGS ? new Date().toISOString().slice(0, 10) : "")
+      const primaryCollectionTime = items[0]?.collectionTime || ""
+
+      // Format items with resolved delivery dates and photo arrays
+      const formattedItems = items.map((it, idx) => {
+        const deliv = getDeliveryDetails(it, idx)
+        return {
+          ...it,
+          price: getItemPrice(it),
+          deliveryDate: deliv.date,
+          collectionTime: deliv.time,
+          deliveryDetailsText: deliv.text,
+          sameDeliveryAsFirst: idx > 0 ? !!it.sameDeliveryAsFirst : false,
+          photos: it.photos || (it.photo ? [it.photo] : []),
+          photo: it.photos?.[0] || it.photo || null
+        }
+      })
+
+      const hasMultiDeliveryDates = items.some((it, idx) => idx > 0 && !it.sameDeliveryAsFirst && it.deliveryDate && it.deliveryDate !== items[0]?.deliveryDate)
+
+      const quote = {
+        id: isEdit && editId ? editId : uid(),
+        clientName: clientName.trim() || (isGS ? (orderPurpose === "gift" ? "Gift" : "Sample/Tasting") : "Walk-in"),
+        clientPhone,
+        clientBirthday: hasSpecialEvent ? clientBirthday : "",
+        hasSpecialEvent: !!hasSpecialEvent,
+        date: new Date().toISOString().slice(0, 10),
+        items: formattedItems,
+        hasMultiDeliveryDates,
+        deliveryDates: formattedItems.map(it => it.deliveryDate).filter(Boolean),
+        // Backward compatibility fields for QuotesPage, Invoices, ProductionList, and sync:
+        productType: items.some(i => i.type === "cake") && items.some(i => i.type === "pastry") ? "Cake & Pastry" : (items.some(i => i.type === "cake") ? "Cake" : "Pastry"),
+        tiers: cakeTiers,
+        pastryItems: allPastryItems,
+        donutGroups: allPastryItems.map(p => ({ flavour: p.flavour, qty: p.qty, filling: p.filling, fillingGrams: p.fillingGrams })),
+        loaves: allPastryItems.map(p => ({ id: p.id, flavour: p.flavour })),
+        tartQty: allPastryItems.reduce((sum, p) => sum + (p.qty || 0), 0),
+        tartFillings: allPastryItems.map(p => ({ type: p.filling, grams: p.fillingGrams })),
+        decQty: allDecQty,
+        accRows: allAccRows,
+        topper: activeTopper,
+        cakePhoto: items.find(it => (it.photos && it.photos.length > 0) || it.photo || it.tiers?.some(t => t.photo || t.photos?.length))?.photo ||
+          items.flatMap(it => it.tiers || []).find(t => (t.photos && t.photos.length > 0) || t.photo)?.photos?.[0] || null,
+        cakePhotos: [
+          ...items.flatMap(it => (it.photos && it.photos.length > 0) ? it.photos : (it.photo ? [it.photo] : [])),
+          ...items.flatMap(it => (it.tiers || []).flatMap(t => (t.photos && t.photos.length > 0) ? t.photos : (t.photo ? [t.photo] : [])))
+        ],
+        cakeSummary: itemSummaries.join(" | "),
+        flavourSummary: allFlavours.join(", "),
+        deliveryDate: primaryDeliveryDate,
+        collectionTime: primaryCollectionTime,
+        notes: [generalNote, ...items.map((it, idx) => it.itemNote ? `[${it.name || `Item ${idx + 1}`}]: ${it.itemNote}` : "").filter(Boolean)].join("\n\n"),
+        generalNote,
+        eventType,
+        totalCost,
+        quotePrice: suggestedPrice,
+        salePrice: isGS ? 0 : (+salePrice || suggestedPrice),
+        orderPurpose,
+        deliveryCharge: delivCharge,
+        vatEnabled,
+        vatRate,
+        vatAmount,
+        grandTotal,
+        margin,
+        status: "pending",
+        isProd: false,
+        fromQuote: false,
+        quoteId: null,
+        confirmedAt: null,
+        bankName: co.bankName || "",
+        bankAccount: co.bankAccount || "",
+        bankAccountName: co.bankAccountName || "",
+        businessName: co.name || "Bakery"
+      }
+
+      const existing = loadQuotes()
+      const updated = isEdit && editId
+        ? existing.map(q => q.id === editId ? { ...quote, id: editId, status: q.status || "pending", confirmedAt: q.confirmedAt || null, isProd: false } : q)
+        : [quote, ...existing]
+      
       await saveQuotes(updated)
+
+      if (clientName && clientName.trim()) {
+        upsertClient(clientName, clientPhone, "", "", generalNote, hasSpecialEvent ? clientBirthday : "").catch(console.error)
+      }
+
+      // Keep snapshot of the saved quote so WhatsApp and Quotes links remain accessible
+      setLastSavedQuote(quote)
+      setQuoteSaved(true)
+
+      // Automatically clear the calculator so the user can insert fresh new details immediately
+      resetCalculator(false)
     } catch (saveErr) {
-      console.warn("Quote save prevented:", saveErr)
-      return
+      console.error("Quote save prevented:", saveErr)
+      setSaveQuoteError(saveErr.message || "Failed to save quote. Please try again.")
+      alert("Failed to save quote: " + (saveErr.message || "Please check your network and try again."))
+    } finally {
+      isSavingQuoteRef.current = false
+      setIsSavingQuote(false)
     }
-
-    if (clientName && clientName.trim()) {
-      upsertClient(clientName, clientPhone, "", "", generalNote, hasSpecialEvent ? clientBirthday : "").catch(console.error)
-    }
-
-    // Keep snapshot of the saved quote so WhatsApp and Quotes links remain accessible
-    setLastSavedQuote(quote)
-    setQuoteSaved(true)
-
-    // Automatically clear the calculator so the user can insert fresh new details immediately
-    resetCalculator(false)
   }
 
   // WhatsApp sender (uses saved quote snapshot if available, falling back to current form inputs)
@@ -3436,9 +3450,29 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 </Btn>
               </div>
             )}
+            {saveQuoteError && (
+              <div style={{
+                marginBottom: 10,
+                padding: "8px 12px",
+                background: "#FCE8E6",
+                border: "1px solid #F5C2C7",
+                borderRadius: 8,
+                color: "#C5221F",
+                fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }}>
+                <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                <span>{saveQuoteError}</span>
+              </div>
+            )}
             <Btn
               full
               onClick={handleSaveQuote}
+              loading={isSavingQuote}
+              loadingText={isEdit ? "Updating quote..." : "Saving quote..."}
+              disabled={isSavingQuote || (quoteLimitCheck?.exceeded && !isEdit)}
               style={quoteLimitCheck?.exceeded && !isEdit ? {
                 background: "#B8860B",
                 color: "#FFFFFF"
