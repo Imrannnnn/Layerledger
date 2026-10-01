@@ -9,7 +9,7 @@
  */
 import React, { useState, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, Modal, Alert } from "../common/ui.jsx"
-import { saveCompany, saveSetting, saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
+import { saveCompany, saveSetting, saveInventory, saveRecipes, saveLocal, loadLocal, saveOpeningStock } from "../../lib/data.js"
 import { uid, fmt, fmtCost, parseCSV, formatApiError } from "../../lib/helpers.js"
 import { AlertTriangle, Check, FileSpreadsheet, PenLine, Lock, Calculator, BookOpen, Receipt, Search, X } from "lucide-react"
 
@@ -59,7 +59,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   // Step 2: Manual Add State
   const [showManualAdd, setShowManualAdd] = useState(false)
   const [calcMode, setCalcMode] = useState("auto") // "auto" or "manual"
-  const [manualItem, setManualItem] = useState({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
+  const [manualItem, setManualItem] = useState({ name: "", unit: "g", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
 
   const co = (field, val) => {
     const u = { ...company, [field]: val }
@@ -109,7 +109,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
       return {
         id: uid(),
         name,
-        unit: us[i] || "kg",
+        unit: us[i] || "g",
         cost: parsedCost,
         stock: 0,
         minStock: 5,
@@ -129,6 +129,30 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
     const updated = [...inventory, ...approved.filter(ni => !inventory.find(i => i.name.toLowerCase() === ni.name.toLowerCase()))]
     setInventory(updated)
     await saveInventory(updated)
+
+    const updatedOS = { ...os }
+    approved.forEach(p => {
+      if (updatedOS[p.id] === undefined) {
+        updatedOS[p.id] = p.stock || 0
+      }
+    })
+    setOs(updatedOS)
+    await saveLocal("ll_opening_stock", updatedOS)
+
+    const currentMonthStr = new Date().toISOString().slice(0, 7)
+    const osList = updated.map(item => ({
+      id: "os_" + item.id,
+      itemId: item.id,
+      name: item.name,
+      unit: item.unit || "g",
+      cost: item.cost === "" || item.cost === undefined ? 0 : (parseFloat(item.cost) || 0),
+      openingQty: updatedOS[item.id] !== undefined && updatedOS[item.id] !== ""
+        ? (parseFloat(updatedOS[item.id]) || 0)
+        : (parseFloat(item.stock) || 0),
+      locked: false
+    }))
+    await saveOpeningStock(osList, currentMonthStr, false)
+
     setPasteN("")
     setPasteU("")
     setPasteC("")
@@ -171,6 +195,18 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
     )
     await saveLocal("ll_opening_stock", numericOS)
     setSavedOS(false)
+
+    const currentMonthStr = new Date().toISOString().slice(0, 7)
+    const osList = inventory.map(item => ({
+      id: "os_" + item.id,
+      itemId: item.id,
+      name: item.name,
+      unit: item.unit || "g",
+      cost: item.cost === "" || item.cost === undefined ? 0 : (parseFloat(item.cost) || 0),
+      openingQty: numericOS[item.id] !== undefined ? numericOS[item.id] : (parseFloat(item.stock) || 0),
+      locked: false
+    }))
+    await saveOpeningStock(osList, currentMonthStr, false)
   }
 
   const updateCost = async (id, val) => {
@@ -179,6 +215,21 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
     setInventory(updatedInv)
     const numericInv = updatedInv.map(item => ({ ...item, cost: item.cost === "" ? 0 : (parseFloat(item.cost) || 0) }))
     await saveInventory(numericInv)
+
+    const currentMonthStr = new Date().toISOString().slice(0, 7)
+    const numericOS = Object.fromEntries(
+      Object.entries(os).map(([k, v]) => [k, v === "" ? 0 : (parseFloat(v) || 0)])
+    )
+    const osList = numericInv.map(item => ({
+      id: "os_" + item.id,
+      itemId: item.id,
+      name: item.name,
+      unit: item.unit || "g",
+      cost: item.cost,
+      openingQty: numericOS[item.id] !== undefined ? numericOS[item.id] : (parseFloat(item.stock) || 0),
+      locked: false
+    }))
+    await saveOpeningStock(osList, currentMonthStr, false)
   }
 
   const lockOpeningStock = async () => {
@@ -200,21 +251,20 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
         }
       }
 
-      const monthKey = "ll_os_" + new Date().toISOString().slice(0, 7)
+      const monthStr = new Date().toISOString().slice(0, 7)
       const numericOS = Object.fromEntries(
         Object.entries(os).map(([k, v]) => [k, v === "" ? 0 : (parseFloat(v) || 0)])
       )
-      const snapshot = {
-        date: new Date().toISOString(),
-        items: inventory.map(i => ({
-          id: i.id,
-          name: i.name,
-          unit: i.unit,
-          openingQty: numericOS[i.id] !== undefined ? numericOS[i.id] : (parseFloat(i.stock) || 0),
-          cost: i.cost === "" ? 0 : (parseFloat(i.cost) || 0)
-        }))
-      }
-      await saveLocal(monthKey, snapshot)
+      const itemsToLock = inventory.map(i => ({
+        id: "os_" + i.id,
+        itemId: i.id,
+        name: i.name,
+        unit: i.unit || "g",
+        openingQty: numericOS[i.id] !== undefined ? numericOS[i.id] : (parseFloat(i.stock) || 0),
+        cost: i.cost === "" || i.cost === undefined ? 0 : (parseFloat(i.cost) || 0),
+        locked: true
+      }))
+      await saveOpeningStock(itemsToLock, monthStr, true)
       await saveLocal("ll_opening_stock", numericOS)
 
       // Set live inventory levels to match these opening stocks
@@ -283,7 +333,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
     const newItem = {
       id: uid(),
       name: manualItem.name.trim(),
-      unit: manualItem.unit || "kg",
+      unit: manualItem.unit || "g",
       cost: costNum,
       stock: qtyNum,
       minStock: 5,
@@ -300,7 +350,21 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
       setOs(updatedOS)
       await saveLocal("ll_opening_stock", updatedOS)
 
-      setManualItem({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
+      const currentMonthStr = new Date().toISOString().slice(0, 7)
+      const osList = updated.map(item => ({
+        id: "os_" + item.id,
+        itemId: item.id,
+        name: item.name,
+        unit: item.unit || "g",
+        cost: item.cost === "" || item.cost === undefined ? 0 : (parseFloat(item.cost) || 0),
+        openingQty: updatedOS[item.id] !== undefined && updatedOS[item.id] !== ""
+          ? (parseFloat(updatedOS[item.id]) || 0)
+          : (parseFloat(item.stock) || 0),
+        locked: false
+      }))
+      await saveOpeningStock(osList, currentMonthStr, false)
+
+      setManualItem({ name: "", unit: "g", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
       setCalcMode("auto")
       setShowManualAdd(false)
       setManualAddError(null)
@@ -811,7 +875,15 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                   label="Unit *" 
                   value={manualItem.unit} 
                   onChange={v => setManualItem(m => ({ ...m, unit: v }))} 
-                  options={["kg", "g", "L", "ml", "pcs", "pack"]} 
+                  options={[
+                    { value: "g", label: "g (grams)" },
+                    { value: "ml", label: "ml (milliliters)" },
+                    { value: "m", label: "m (millimeter / meter)" },
+                    { value: "kg", label: "kg (kilograms)" },
+                    { value: "L", label: "L (litres)" },
+                    { value: "pcs", label: "pcs (pieces)" },
+                    { value: "pack", label: "pack (packs)" }
+                  ]} 
                   placeholder="Select unit"
                 />
                 

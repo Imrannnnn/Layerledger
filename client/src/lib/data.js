@@ -1523,6 +1523,24 @@ const syncOpeningStockList = async (headers, val, key) => {
       items = val
     }
 
+    if (items.length === 0 && val && typeof val === "object" && !Array.isArray(val) && !val.items) {
+      // Map dictionary format { [id]: qty } using inventory
+      const inv = cache["ll_inv"] || []
+      if (Array.isArray(inv) && inv.length > 0) {
+        items = inv.map(i => ({
+          id: "os_" + i.id,
+          itemId: i.id,
+          name: i.name,
+          unit: i.unit || "g",
+          cost: Number(i.cost) || 0,
+          openingQty: val[i.id] !== undefined ? Number(val[i.id]) : (Number(i.stock) || 0),
+          locked
+        }))
+      }
+    }
+
+    if (items.length === 0) return
+
     await fetch(`${apiUrl}/api/opening-stock/bulk`, {
       method: "POST",
       headers,
@@ -3332,41 +3350,82 @@ export const loadOpeningStock = (month) => {
   }
 
   const isLocked = isOpeningStockLocked(currentMonthStr)
+  let baseItems = []
 
   if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
-    if (isLocked || cached.locked) {
-      return cached.items.map(it => ({ ...it, locked: true }))
+    baseItems = cached.items
+  } else if (Array.isArray(cached) && cached.length > 0) {
+    baseItems = cached
+  } else {
+    // Fall back to baseline opening stock
+    let curCached = cache["ll_opening_stock"]
+    if (!curCached && typeof window !== "undefined" && window.localStorage) {
+      try {
+        const raw = window.localStorage.getItem("ll_opening_stock")
+        if (raw) {
+          curCached = JSON.parse(raw)
+          cache["ll_opening_stock"] = curCached
+        }
+      } catch { /* ignore storage error */ }
     }
-    return cached.items
-  }
-  if (Array.isArray(cached) && cached.length > 0) {
-    return isLocked ? cached.map(it => ({ ...it, locked: true })) : cached
+
+    if (curCached) {
+      if (Array.isArray(curCached.items) && curCached.items.length > 0) {
+        baseItems = curCached.items
+      } else if (Array.isArray(curCached) && curCached.length > 0) {
+        baseItems = curCached
+      } else if (typeof curCached === "object") {
+        // If curCached is { [id]: qty } dictionary
+        const inv = cache["ll_inv"] || (typeof window !== "undefined" && window.localStorage ? JSON.parse(window.localStorage.getItem("ll_inv") || "[]") : [])
+        if (Array.isArray(inv) && inv.length > 0) {
+          baseItems = inv.map(i => ({
+            id: "os_" + i.id,
+            itemId: i.id,
+            name: i.name,
+            unit: i.unit || "g",
+            cost: Number(i.cost) || 0,
+            openingQty: curCached[i.id] !== undefined ? Number(curCached[i.id]) : (Number(i.stock) || 0),
+            locked: isLocked || Boolean(curCached.locked)
+          }))
+        }
+      }
+    }
   }
 
-  // Fall back to baseline opening stock
-  let curCached = cache["ll_opening_stock"]
-  if (!curCached && typeof window !== "undefined" && window.localStorage) {
-    try {
-      const raw = window.localStorage.getItem("ll_opening_stock")
-      if (raw) {
-        curCached = JSON.parse(raw)
-        cache["ll_opening_stock"] = curCached
+  // Ensure any item in inventory is present in opening stock items
+  const inv = cache["ll_inv"] || (typeof window !== "undefined" && window.localStorage ? JSON.parse(window.localStorage.getItem("ll_inv") || "[]") : [])
+  if (Array.isArray(inv) && inv.length > 0) {
+    const existingIds = new Set(baseItems.map(it => (it.itemId || it.id || "").toLowerCase()).filter(Boolean))
+    const existingNames = new Set(baseItems.map(it => (it.name || "").trim().toLowerCase()).filter(Boolean))
+    const merged = [...baseItems]
+    let addedAny = false
+    inv.forEach(i => {
+      if (!i || !i.name) return
+      const idMatch = i.id && (existingIds.has(i.id.toLowerCase()) || existingIds.has(("os_" + i.id).toLowerCase()))
+      const nameMatch = existingNames.has((i.name || "").trim().toLowerCase())
+      if (!idMatch && !nameMatch) {
+        merged.push({
+          id: "os_" + i.id,
+          itemId: i.id,
+          name: i.name,
+          unit: i.unit || "g",
+          cost: Number(i.cost) || 0,
+          openingQty: Number(i.stock) || 0,
+          locked: isLocked
+        })
+        addedAny = true
       }
-    } catch { /* ignore storage error */ }
+    })
+    if (addedAny) {
+      baseItems = merged
+      cache["ll_os_" + currentMonthStr] = { month: currentMonthStr, items: baseItems, locked: isLocked }
+    }
   }
 
-  if (curCached) {
-    if (Array.isArray(curCached.items) && curCached.items.length > 0) {
-      if (isLocked || curCached.locked) {
-        return curCached.items.map(it => ({ ...it, locked: true }))
-      }
-      return curCached.items
-    }
-    if (Array.isArray(curCached) && curCached.length > 0) {
-      return isLocked ? curCached.map(it => ({ ...it, locked: true })) : curCached
-    }
+  if (isLocked) {
+    return baseItems.map(it => ({ ...it, locked: true }))
   }
-  return []
+  return baseItems
 }
 
 export const fetchOpeningStockFromServer = async (month) => {
@@ -3381,15 +3440,48 @@ export const fetchOpeningStockFromServer = async (month) => {
     const data = await res.json()
     if (Array.isArray(data)) {
       const isLocked = data.some(d => d.locked) || isOpeningStockLocked(targetMonth)
-      const items = data.map(os => ({
+      let items = data.map(os => ({
         id: os.id,
         itemId: os.itemId,
         name: os.name,
-        unit: os.unit || "kg",
+        unit: os.unit || "g",
         cost: Number(os.cost) || 0,
         openingQty: Number(os.openingQty) || 0,
-        locked: isLocked || !!os.locked
+        locked: isLocked || Boolean(os.locked)
       }))
+
+      // Merge any items from inventory that aren't yet in server opening stock
+      const inv = cache["ll_inv"] || (typeof window !== "undefined" && window.localStorage ? JSON.parse(window.localStorage.getItem("ll_inv") || "[]") : [])
+      if (Array.isArray(inv) && inv.length > 0) {
+        const existingIds = new Set(items.map(it => (it.itemId || it.id || "").toLowerCase()).filter(Boolean))
+        const existingNames = new Set(items.map(it => (it.name || "").trim().toLowerCase()).filter(Boolean))
+        let mergedAny = false
+        inv.forEach(i => {
+          if (!i || !i.name) return
+          const idMatch = i.id && (existingIds.has(i.id.toLowerCase()) || existingIds.has(("os_" + i.id).toLowerCase()))
+          const nameMatch = existingNames.has((i.name || "").trim().toLowerCase())
+          if (!idMatch && !nameMatch) {
+            items.push({
+              id: "os_" + i.id,
+              itemId: i.id,
+              name: i.name,
+              unit: i.unit || "g",
+              cost: Number(i.cost) || 0,
+              openingQty: Number(i.stock) || 0,
+              locked: isLocked
+            })
+            mergedAny = true
+          }
+        })
+        if (mergedAny && headers && apiUrl) {
+          fetch(`${apiUrl}/api/opening-stock/bulk`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ month: targetMonth, items, locked: isLocked })
+          }).catch(e => console.warn("Auto-sync opening stock notice:", e))
+        }
+      }
+
       const payload = { month: targetMonth, items, locked: isLocked }
       cache["ll_os_" + targetMonth] = payload
       if (targetMonth === new Date().toISOString().slice(0, 7) || !cache["ll_opening_stock"]) {

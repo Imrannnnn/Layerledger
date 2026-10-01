@@ -42,7 +42,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const [showSavedMsg, setShowSavedMsg] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
   const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
-  const [newItem, setNewItem] = useState({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
+  const [newItem, setNewItem] = useState({ name: "", unit: "g", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
   const [editCosts, setEditCosts] = useState(false)
   const [loadingAction, setLoadingAction] = useState(null)
 
@@ -116,6 +116,36 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   useEffect(() => {
     setCurrentPage(1)
   }, [searchQuery])
+
+  // Keep opening stock items in sync with any items present in inventory
+  useEffect(() => {
+    if (!Array.isArray(inventory) || inventory.length === 0) return
+    setItems(prevItems => {
+      if (!Array.isArray(prevItems) || prevItems.length === 0) return prevItems
+      const existingIds = new Set(prevItems.map(it => (it.itemId || it.id || "").toLowerCase()).filter(Boolean))
+      const existingNames = new Set(prevItems.map(it => (it.name || "").trim().toLowerCase()).filter(Boolean))
+      let added = false
+      const merged = [...prevItems]
+      inventory.forEach(invItem => {
+        if (!invItem || !invItem.name) return
+        const idMatch = invItem.id && (existingIds.has(invItem.id.toLowerCase()) || existingIds.has(("os_" + invItem.id).toLowerCase()))
+        const nameMatch = existingNames.has((invItem.name || "").trim().toLowerCase())
+        if (!idMatch && !nameMatch) {
+          merged.push({
+            id: "os_" + invItem.id,
+            itemId: invItem.id,
+            name: invItem.name,
+            unit: invItem.unit || "g",
+            cost: invItem.cost === "" || invItem.cost === undefined ? 0 : (parseFloat(invItem.cost) || 0),
+            openingQty: invItem.stock === "" || invItem.stock === undefined ? 0 : (parseFloat(invItem.stock) || 0),
+            locked: saved
+          })
+          added = true
+        }
+      })
+      return added ? merged : prevItems
+    })
+  }, [inventory, saved])
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return items
@@ -487,7 +517,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
         await saveInventory(updatedInventory)
       }
 
-      setNewItem({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
+      setNewItem({ name: "", unit: "g", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
       setCalcMode("manual")
       setAddingItem(false)
     } finally {
@@ -945,10 +975,11 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                 value={newItem.unit}
                 onChange={v => setNewItem(p => ({ ...p, unit: v }))}
                 options={[
-                  { value: "kg", label: "Kilograms (kg)" },
                   { value: "g", label: "Grams (g)" },
-                  { value: "L", label: "Litres (L)" },
                   { value: "ml", label: "Millilitres (ml)" },
+                  { value: "m", label: "Millimeter / Metre (m)" },
+                  { value: "kg", label: "Kilograms (kg)" },
+                  { value: "L", label: "Litres (L)" },
                   { value: "pcs", label: "Pieces (pcs)" },
                   { value: "tub", label: "Tubs" },
                   { value: "pack", label: "Packs" }
