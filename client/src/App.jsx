@@ -458,7 +458,18 @@ export default function App() {
   }, [])
 
   const handleExitOnboarding = useCallback(async (targetView) => {
-    await completeOnboardingOnServer();
+    try {
+      await syncToBackend();
+    } catch (syncErr) {
+      console.error("Onboarding sync error:", syncErr);
+      throw syncErr;
+    }
+
+    const success = await completeOnboardingOnServer();
+    if (!success) {
+      throw new Error("Unable to complete onboarding on server. Please check your connection and try again.");
+    }
+
     await saveLocal("ll_onboarded", "1");
     try {
       sessionStorage.removeItem("ll_onboarding_skipped");

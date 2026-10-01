@@ -14,7 +14,14 @@ const validate = (schema) => (req, res, next) => {
         if (issues && Array.isArray(issues)) {
             const errorMessages = issues.map(err => `${err.path.join('.')}: ${err.message}`).join(', ');
             res.status(400);
-            return next(new Error(`Validation error: ${errorMessages}`));
+            const err = new Error(`Validation error: ${errorMessages}`);
+            err.code = 'VALIDATION_ERROR';
+            err.errors = issues.map(i => ({
+                path: i.path,
+                field: i.path.filter(p => p !== 'body' && p !== 'query' && p !== 'params').join('.'),
+                message: i.message
+            }));
+            return next(err);
         }
         next(error);
     }

@@ -8,6 +8,7 @@ const { logger, addTimeStamp } = require('./middleware/custommiddleware')
 const prisma = require("./prisma")
 
 const app = express()
+app.set('trust proxy', 1)
 
 // Response compression (reduces JSON payload size by 70-90%)
 app.use(compression())

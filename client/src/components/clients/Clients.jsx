@@ -13,7 +13,7 @@ import {
 } from "../../lib/data.js"
 import { Users, Search, MessageCircle, MapPin, Calculator, Pencil, Trash2, AlertTriangle, Plus, Cake, Heart, CalendarHeart, Download, X } from "lucide-react"
 import { exportClientsPDF } from "../../lib/pdfReportGenerator.js"
-import { MONTHS, SPECIAL_DATE_TYPES, parseSpecialDate, formatSpecialDate } from "../../lib/helpers.js"
+import { MONTHS, SPECIAL_DATE_TYPES, parseSpecialDate, formatSpecialDate, formatApiError } from "../../lib/helpers.js"
 
 export function Clients({ setView, company = {} }) {
   const initialData = (typeof loadClients === "function" ? loadClients() : []) || []
@@ -156,7 +156,11 @@ export function Clients({ setView, company = {} }) {
               notes: formData.notes || ""
             })
             directUpdated = true
-          } catch {}
+          } catch (updateErr) {
+            const formatted = formatApiError(updateErr, { title: "Failed to update client" })
+            setErrorMsg(formatted.displayMessage)
+            return
+          }
         }
         const updated = clients.map(c =>
           c.id === editingClient.id
@@ -191,7 +195,8 @@ export function Clients({ setView, company = {} }) {
               notes: formData.notes || ""
             })
           } catch (serverErr) {
-            setErrorMsg(serverErr.message || "Failed to create client on server")
+            const formatted = formatApiError(serverErr, { title: "Failed to create client" })
+            setErrorMsg(formatted.displayMessage)
             return
           }
         }
@@ -215,7 +220,8 @@ export function Clients({ setView, company = {} }) {
       setModalOpen(false)
       await loadPage()
     } catch (err) {
-      setErrorMsg("Failed to save client: " + err.message)
+      const formatted = formatApiError(err, { title: "Failed to save client" })
+      setErrorMsg(formatted.displayMessage)
     } finally {
       isSavingRef.current = false
       setSaving(false)

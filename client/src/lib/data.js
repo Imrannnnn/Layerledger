@@ -4,6 +4,7 @@
 
 const cache = {}
 const lastSyncedValues = {}
+import { formatApiError } from "./errorHandler.js"
 
 const fetchWithTimeout = async (url, options = {}, timeoutMs = 8000) => {
   const controller = new AbortController()
@@ -710,38 +711,60 @@ const syncRecipesList = async (headers, localRecipes) => {
     // Create/Update in parallel
     const recTasks = (localRecipes || []).map(async (rec) => {
       const sRec = serverRecs.find(r => r.id === rec.id)
+      const validIngredients = (rec.ing || [])
+        .filter(i => i && i.iid && typeof i.iid === "string" && i.iid.trim() !== "" && i.iid !== "item" && Number(i.qty) > 0)
+        .map(i => ({
+          item: i.iid.trim(),
+          quantity: Number(i.qty)
+        }))
+
       const body = {
         id: rec.id,
-        name: rec.name || "Recipe",
+        name: (rec.name && rec.name.trim()) ? rec.name.trim() : "Recipe",
         notes: rec.notes || "",
         type: rec.type || "layer",
-        batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null ? Number(rec.batchWeight) : null,
-        batchSize: rec.batchSize !== undefined && rec.batchSize !== null ? Number(rec.batchSize) : null,
-        ingredients: (rec.ing || []).map(i => ({
-          item: i.iid || "item",
-          quantity: Number(i.qty) || 0
-        }))
+        batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null && rec.batchWeight !== "" ? Number(rec.batchWeight) : null,
+        batchSize: rec.batchSize !== undefined && rec.batchSize !== null && rec.batchSize !== "" ? Number(rec.batchSize) : null,
+        ingredients: validIngredients
       }
-      if (sRec) {
-        return fetchWithTimeout(`${apiUrl}/api/recipes/${rec.id}`, {
-          method: "PUT",
-          headers,
-          body: JSON.stringify(body)
-        }).catch(() => {})
-      } else {
-        return fetchWithTimeout(`${apiUrl}/api/recipes`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body)
-        }).catch(() => {})
+
+      const resPromise = sRec
+        ? fetchWithTimeout(`${apiUrl}/api/recipes/${rec.id}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(body)
+          })
+        : fetchWithTimeout(`${apiUrl}/api/recipes`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body)
+          })
+
+      const apiRes = await resPromise
+      if (apiRes && !apiRes.ok) {
+        const errJson = await apiRes.json().catch(() => ({}))
+        const errorMsg = errJson.message || `Server rejected recipe "${rec.name}" (${apiRes.status})`
+        const formatted = formatApiError(errJson.message ? errJson : errorMsg, {
+          title: `Unable to save recipe "${rec.name}"`,
+          step: 3
+        })
+        const err = new Error(formatted.displayMessage)
+        err.formatted = formatted
+        throw err
       }
+      return apiRes
     })
 
     if (recTasks.length > 0) {
-      await Promise.allSettled(recTasks)
+      const results = await Promise.allSettled(recTasks)
+      const firstRejected = results.find(r => r.status === "rejected")
+      if (firstRejected) {
+        throw firstRejected.reason
+      }
     }
   } catch (err) {
-    console.warn("syncRecipesList error:", err)
+    console.error("syncRecipesList error:", err)
+    throw err
   }
 }
 
@@ -2052,9 +2075,9 @@ export const clearTempCalculatorState = () => {
 
 export const completeOnboardingOnServer = async () => {
   const headers = getAuthHeaders()
-  if (!headers) return false
+  if (!headers) throw new Error("You must be logged in to complete onboarding.")
   const apiUrl = import.meta.env.VITE_API_URL
-  if (!apiUrl) return false
+  if (!apiUrl) throw new Error("API URL is not configured.")
   try {
     const res = await fetch(`${apiUrl}/api/tenant/complete-onboarding`, {
       method: "POST",
@@ -2065,10 +2088,18 @@ export const completeOnboardingOnServer = async () => {
       await saveLocal("ll_onboarded", "1")
       return true
     }
+    const errJson = await res.json().catch(() => ({}))
+    const errorMsg = errJson.message || `Server failed to complete onboarding (${res.status})`
+    const formatted = formatApiError(errJson.message ? errJson : errorMsg, {
+      title: "Unable to complete onboarding"
+    })
+    const err = new Error(formatted.displayMessage)
+    err.formatted = formatted
+    throw err
   } catch (err) {
-    console.warn("Failed to complete onboarding on server:", err)
+    console.error("Failed to complete onboarding on server:", err)
+    throw err
   }
-  return false
 }
 
 export const fetchOnboardingStatusFromServer = async () => {
@@ -2531,7 +2562,11 @@ export const createInventoryItemOnServer = async (item) => {
     if (res.status === 403 || err.code === "PLAN_LIMIT_REACHED" || (err.message && err.message.includes("limit reached"))) {
       notifyPlanLimitReached({ limitType: "inventoryItems", ...err })
     }
-    throw new Error(err.message || `Database error creating inventory item (${res.status})`)
+    const formatted = formatApiError(err, { title: "Failed to create inventory item" })
+    const e = new Error(formatted.displayMessage)
+    e.details = formatted
+    e.apiError = err
+    throw e
   }
 
   const serverItem = await res.json()
@@ -2567,7 +2602,11 @@ export const updateInventoryItemOnServer = async (id, item) => {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.message || `Database error updating inventory item (${res.status})`)
+    const formatted = formatApiError(err, { title: "Failed to update inventory item" })
+    const e = new Error(formatted.displayMessage)
+    e.details = formatted
+    e.apiError = err
+    throw e
   }
 
   const serverItem = await res.json()
@@ -2890,13 +2929,13 @@ export const createRecipeOnServer = async (rec) => {
 
   const body = {
     id: rec.id || undefined,
-    name: rec.name || "Recipe",
+    name: (rec.name && rec.name.trim()) ? rec.name.trim() : "Recipe",
     notes: rec.notes || "",
     type: rec.type || "layer",
     batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null && rec.batchWeight !== "" ? Number(rec.batchWeight) : null,
     batchSize: rec.batchSize !== undefined && rec.batchSize !== null && rec.batchSize !== "" ? Number(rec.batchSize) : null,
-    ingredients: (rec.ing || []).filter(i => i.iid && Number(i.qty) > 0).map(i => ({
-      item: i.iid,
+    ingredients: (rec.ing || []).filter(i => i && i.iid && typeof i.iid === "string" && i.iid.trim() !== "" && i.iid !== "item" && Number(i.qty) > 0).map(i => ({
+      item: i.iid.trim(),
       quantity: Number(i.qty)
     }))
   }
@@ -2912,7 +2951,11 @@ export const createRecipeOnServer = async (rec) => {
     if (res.status === 403 || err.code === "PLAN_LIMIT_REACHED" || (err.message && err.message.includes("limit reached"))) {
       notifyPlanLimitReached({ limitType: "recipes", ...err })
     }
-    throw new Error(err.message || `Database error creating recipe (${res.status})`)
+    const formatted = formatApiError(err, { title: "Failed to create recipe" })
+    const e = new Error(formatted.displayMessage)
+    e.details = formatted
+    e.apiError = err
+    throw e
   }
 
   const serverRec = await res.json()
@@ -2931,13 +2974,13 @@ export const updateRecipeOnServer = async (id, rec) => {
   if (!apiUrl) throw new Error("API URL is not configured.")
 
   const body = {
-    name: rec.name,
+    name: (rec.name && rec.name.trim()) ? rec.name.trim() : "Recipe",
     notes: rec.notes || "",
     type: rec.type || "layer",
     batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null && rec.batchWeight !== "" ? Number(rec.batchWeight) : null,
     batchSize: rec.batchSize !== undefined && rec.batchSize !== null && rec.batchSize !== "" ? Number(rec.batchSize) : null,
-    ingredients: (rec.ing || []).filter(i => i.iid && Number(i.qty) > 0).map(i => ({
-      item: i.iid,
+    ingredients: (rec.ing || []).filter(i => i && i.iid && typeof i.iid === "string" && i.iid.trim() !== "" && i.iid !== "item" && Number(i.qty) > 0).map(i => ({
+      item: i.iid.trim(),
       quantity: Number(i.qty)
     }))
   }
@@ -2950,7 +2993,11 @@ export const updateRecipeOnServer = async (id, rec) => {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.message || `Database error updating recipe (${res.status})`)
+    const formatted = formatApiError(err, { title: "Failed to update recipe" })
+    const e = new Error(formatted.displayMessage)
+    e.details = formatted
+    e.apiError = err
+    throw e
   }
 
   const serverRec = await res.json()
@@ -3160,7 +3207,11 @@ export const createClientOnServer = async (clientData) => {
       if (res.status === 403 || err.code === "PLAN_LIMIT_REACHED" || (err.message && err.message.includes("limit reached"))) {
         notifyPlanLimitReached({ limitType: "clients", ...err })
       }
-      throw new Error(err.message || `Failed to create client on server (${res.status})`)
+      const formatted = formatApiError(err, { title: "Failed to create client" })
+      const e = new Error(formatted.displayMessage)
+      e.details = formatted
+      e.apiError = err
+      throw e
     }
   }
   return null
@@ -3170,17 +3221,20 @@ export const updateClientOnServer = async (id, clientData) => {
   const apiUrl = import.meta.env.VITE_API_URL
   const headers = getAuthHeaders()
   if (apiUrl && headers) {
-    try {
-      const res = await fetch(`${apiUrl}/api/clients/${id}`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify(clientData)
-      })
-      if (res.ok) {
-        return await res.json()
-      }
-    } catch (e) {
-      console.warn("updateClientOnServer error:", e)
+    const res = await fetch(`${apiUrl}/api/clients/${id}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(clientData)
+    })
+    if (res.ok) {
+      return await res.json()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      const formatted = formatApiError(err, { title: "Failed to update client" })
+      const e = new Error(formatted.displayMessage)
+      e.details = formatted
+      e.apiError = err
+      throw e
     }
   }
   return null

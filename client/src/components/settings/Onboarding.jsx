@@ -10,8 +10,8 @@
 import React, { useState, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, Modal, Alert } from "../common/ui.jsx"
 import { saveCompany, saveSetting, saveInventory, saveRecipes, saveLocal, loadLocal } from "../../lib/data.js"
-import { uid, fmt, fmtCost, parseCSV } from "../../lib/helpers.js"
-import { AlertTriangle, Check, FileSpreadsheet, PenLine, Lock, Calculator, BookOpen, Receipt, Search } from "lucide-react"
+import { uid, fmt, fmtCost, parseCSV, formatApiError } from "../../lib/helpers.js"
+import { AlertTriangle, Check, FileSpreadsheet, PenLine, Lock, Calculator, BookOpen, Receipt, Search, X } from "lucide-react"
 
 export function Onboarding({ gold, company, setCompany, inventory, setInventory, recipes, setRecipes, settings, setSettings, onComplete, onSkip, onBack, setView }) {
   const [step, setStep] = useState(1)
@@ -49,6 +49,12 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   const [pasteRecipeNames, setPasteRecipeNames] = useState("")
   const [prevRecipes, setPrevRecipes] = useState([])
   const [recipeImportMsg, setRecipeImportMsg] = useState("")
+
+  // Feedback & Error States
+  const [onboardingError, setOnboardingError] = useState(null)
+  const [recipeModalError, setRecipeModalError] = useState(null)
+  const [manualAddError, setManualAddError] = useState(null)
+  const [completing, setCompleting] = useState(false)
 
   // Step 2: Manual Add State
   const [showManualAdd, setShowManualAdd] = useState(false)
@@ -139,7 +145,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
       id: uid(),
       name,
       notes: "Cake layer recipe",
-      ing: [{ iid: "", qty: "" }],
+      ing: [],
       on: true
     }))
     setPrevRecipes(newRecs)
@@ -176,58 +182,101 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   }
 
   const lockOpeningStock = async () => {
-    const monthKey = "ll_os_" + new Date().toISOString().slice(0, 7)
-    const numericOS = Object.fromEntries(
-      Object.entries(os).map(([k, v]) => [k, v === "" ? 0 : (parseFloat(v) || 0)])
-    )
-    const snapshot = {
-      date: new Date().toISOString(),
-      items: inventory.map(i => ({
-        id: i.id,
-        name: i.name,
-        unit: i.unit,
-        openingQty: numericOS[i.id] !== undefined ? numericOS[i.id] : (parseFloat(i.stock) || 0),
-        cost: i.cost === "" ? 0 : (parseFloat(i.cost) || 0)
+    setOnboardingError(null)
+    try {
+      // Validate that all costs and quantities are numbers
+      for (const item of inventory) {
+        if (item.cost !== "" && item.cost !== undefined && item.cost !== null) {
+          const c = parseFloat(item.cost)
+          if (isNaN(c) || c < 0) {
+            setOnboardingError({
+              title: "Invalid Item Cost",
+              whatWentWrong: `Item "${item.name}" has an invalid cost.`,
+              action: "Please enter a valid cost (₦) greater than or equal to 0.",
+              step: 2
+            })
+            return
+          }
+        }
+      }
+
+      const monthKey = "ll_os_" + new Date().toISOString().slice(0, 7)
+      const numericOS = Object.fromEntries(
+        Object.entries(os).map(([k, v]) => [k, v === "" ? 0 : (parseFloat(v) || 0)])
+      )
+      const snapshot = {
+        date: new Date().toISOString(),
+        items: inventory.map(i => ({
+          id: i.id,
+          name: i.name,
+          unit: i.unit,
+          openingQty: numericOS[i.id] !== undefined ? numericOS[i.id] : (parseFloat(i.stock) || 0),
+          cost: i.cost === "" ? 0 : (parseFloat(i.cost) || 0)
+        }))
+      }
+      await saveLocal(monthKey, snapshot)
+      await saveLocal("ll_opening_stock", numericOS)
+
+      // Set live inventory levels to match these opening stocks
+      const updatedInventory = inventory.map(item => ({
+        ...item,
+        cost: item.cost === "" ? 0 : (parseFloat(item.cost) || 0),
+        stock: numericOS[item.id] !== undefined ? numericOS[item.id] : (parseFloat(item.stock) || 0)
       }))
+      setInventory(updatedInventory)
+      await saveInventory(updatedInventory)
+
+      setSavedOS(true)
+      setTimeout(() => {
+        setStep(3)
+      }, 800)
+    } catch (err) {
+      const formatted = formatApiError(err, { title: "Unable to lock opening stock", step: 2 })
+      setOnboardingError(formatted)
     }
-    await saveLocal(monthKey, snapshot)
-    await saveLocal("ll_opening_stock", numericOS)
-
-    // Set live inventory levels to match these opening stocks
-    const updatedInventory = inventory.map(item => ({
-      ...item,
-      cost: item.cost === "" ? 0 : (parseFloat(item.cost) || 0),
-      stock: numericOS[item.id] !== undefined ? numericOS[item.id] : (parseFloat(item.stock) || 0)
-    }))
-    setInventory(updatedInventory)
-    await saveInventory(updatedInventory)
-
-    setSavedOS(true)
-    setTimeout(() => {
-      setStep(3)
-    }, 800)
   }
 
   const handleManualAdd = async () => {
+    setManualAddError(null)
     let costNum = 0
     if (calcMode === "auto") {
       const paid = parseFloat(manualItem.totalPaid) || 0
       const qty = parseFloat(manualItem.qtyBought) || 0
       if (!manualItem.name.trim() || !manualItem.totalPaid || !manualItem.qtyBought) {
-        alert("Item name, total amount paid, and quantity bought are required")
+        setManualAddError({
+          title: "Missing Information",
+          whatWentWrong: "Item name, total amount paid, and quantity bought are all required.",
+          action: "Please fill in all required fields."
+        })
         return
       }
       if (qty <= 0) {
-        alert("Quantity bought must be greater than zero")
+        setManualAddError({
+          title: "Invalid Quantity",
+          whatWentWrong: "Quantity bought must be greater than zero.",
+          action: "Enter a valid quantity greater than 0."
+        })
         return
       }
       costNum = paid / qty
     } else {
       if (!manualItem.name.trim() || !manualItem.cost) {
-        alert("Item name and cost per unit are required")
+        setManualAddError({
+          title: "Missing Information",
+          whatWentWrong: "Item name and cost per unit are required.",
+          action: "Please enter the item name and cost per unit."
+        })
         return
       }
       costNum = parseFloat(manualItem.cost) || 0
+      if (costNum < 0) {
+        setManualAddError({
+          title: "Invalid Cost",
+          whatWentWrong: "Cost per unit cannot be negative.",
+          action: "Enter a positive number or 0."
+        })
+        return
+      }
     }
 
     const qtyNum = parseFloat(manualItem.openingQty) || 0
@@ -242,32 +291,143 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
       cat: "Dry Goods"
     }
 
-    const updated = [...inventory, newItem]
-    setInventory(updated)
-    await saveInventory(updated)
+    try {
+      const updated = [...inventory, newItem]
+      setInventory(updated)
+      await saveInventory(updated)
 
-    const updatedOS = { ...os, [newItem.id]: qtyNum }
-    setOs(updatedOS)
-    await saveLocal("ll_opening_stock", updatedOS)
+      const updatedOS = { ...os, [newItem.id]: qtyNum }
+      setOs(updatedOS)
+      await saveLocal("ll_opening_stock", updatedOS)
 
-    setManualItem({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
-    setCalcMode("auto")
-    setShowManualAdd(false)
+      setManualItem({ name: "", unit: "kg", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
+      setCalcMode("auto")
+      setShowManualAdd(false)
+      setManualAddError(null)
+    } catch (err) {
+      const formatted = formatApiError(err, { title: "Unable to add inventory item", step: 2 })
+      setManualAddError(formatted)
+    }
   }
 
   // Recipe Helpers (Step 3)
   const openRecipe = (r) => {
-    setRecipeModal(r ? { ...r } : { id: uid(), name: "", type: "layer", notes: "", ing: [{ iid: "", qty: "" }] })
+    setRecipeModalError(null)
+    setRecipeModal(r ? { ...r, ing: (r.ing && r.ing.length > 0) ? r.ing : [{ iid: "", qty: "" }] } : { id: uid(), name: "", type: "layer", notes: "", ing: [{ iid: "", qty: "" }] })
   }
 
   const saveRecipe = async () => {
-    if (!recipeModal.name.trim()) return alert("Recipe name is required")
-    const updated = recipes.find(r => r.id === recipeModal.id)
-      ? recipes.map(r => r.id === recipeModal.id ? recipeModal : r)
-      : [...recipes, recipeModal]
-    setRecipes(updated)
-    await saveRecipes(updated)
-    setRecipeModal(null)
+    setRecipeModalError(null)
+    if (!recipeModal.name || !recipeModal.name.trim()) {
+      setRecipeModalError({
+        title: "Recipe Name Required",
+        whatWentWrong: "Recipe name cannot be empty.",
+        action: "Please enter a name for your recipe (e.g. Vanilla Sponge)."
+      })
+      return
+    }
+
+    // Validate ingredient rows: check for selected items with invalid/missing quantities
+    for (let idx = 0; idx < (recipeModal.ing || []).length; idx++) {
+      const ing = recipeModal.ing[idx]
+      if (ing.iid && (!ing.qty || parseFloat(ing.qty) <= 0)) {
+        const it = inventory.find(x => x.id === ing.iid)
+        const itName = it ? it.name : `Ingredient ${idx + 1}`
+        setRecipeModalError({
+          title: "Invalid Recipe Ingredient",
+          whatWentWrong: `Ingredient ${idx + 1} (${itName}): Quantity is required and must be greater than 0.`,
+          action: "Please enter how much of this ingredient is needed for the recipe, or remove the ingredient row.",
+          fieldIndex: idx
+        })
+        return
+      }
+      if (!ing.iid && ing.qty && parseFloat(ing.qty) > 0) {
+        setRecipeModalError({
+          title: "Missing Ingredient Selection",
+          whatWentWrong: `Ingredient ${idx + 1}: Please select an ingredient item from the dropdown.`,
+          action: "Choose an item from your inventory or clear the quantity.",
+          fieldIndex: idx
+        })
+        return
+      }
+    }
+
+    const cleanRecipe = {
+      ...recipeModal,
+      name: recipeModal.name.trim(),
+      ing: (recipeModal.ing || []).filter(i => i && i.iid && String(i.iid).trim() !== "" && parseFloat(i.qty) > 0)
+    }
+
+    const updated = recipes.find(r => r.id === cleanRecipe.id)
+      ? recipes.map(r => r.id === cleanRecipe.id ? cleanRecipe : r)
+      : [...recipes, cleanRecipe]
+
+    try {
+      setRecipes(updated)
+      await saveRecipes(updated)
+      setRecipeModal(null)
+      setRecipeModalError(null)
+      setOnboardingError(null)
+    } catch (err) {
+      const formatted = formatApiError(err, { title: "Unable to save recipe", step: 3 })
+      setRecipeModalError(formatted)
+      setOnboardingError(formatted)
+    }
+  }
+
+  const validateAllRecipes = () => {
+    for (let rIdx = 0; rIdx < recipes.length; rIdx++) {
+      const r = recipes[rIdx]
+      if (!r.name || !r.name.trim()) {
+        return {
+          title: "Incomplete Recipe",
+          whatWentWrong: `Recipe #${rIdx + 1} is missing a name.`,
+          action: "Please edit the recipe to give it a name, or delete it.",
+          step: 3
+        }
+      }
+      for (let iIdx = 0; iIdx < (r.ing || []).length; iIdx++) {
+        const ing = r.ing[iIdx]
+        if (ing.iid && (!ing.qty || parseFloat(ing.qty) <= 0)) {
+          const it = inventory.find(x => x.id === ing.iid)
+          const itName = it ? it.name : `Ingredient ${iIdx + 1}`
+          return {
+            title: "Invalid Recipe Ingredient",
+            whatWentWrong: `Recipe "${r.name}" has an incomplete ingredient (${itName}). A valid positive quantity is required.`,
+            action: "Make sure every ingredient has a quantity greater than 0, or edit the recipe to remove unused rows.",
+            step: 3
+          }
+        }
+      }
+    }
+    return null
+  }
+
+  const handleFinish = async (target) => {
+    setOnboardingError(null)
+    const err = validateAllRecipes()
+    if (err) {
+      setOnboardingError(err)
+      setStep(3)
+      return
+    }
+    setCompleting(true)
+    try {
+      if (onComplete) {
+        await onComplete(target)
+      } else if (setView) {
+        setView(target)
+      }
+    } catch (finishErr) {
+      console.error("Finish onboarding error:", finishErr)
+      const formatted = formatApiError(finishErr, { title: "Unable to complete onboarding" })
+      setOnboardingError(formatted)
+      if (formatted.step && formatted.step !== step) {
+        setStep(formatted.step)
+      }
+    } finally {
+      setCompleting(false)
+    }
   }
 
   const deleteRecipe = async (id) => {
@@ -346,6 +506,72 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             <div style={{ height: 6, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${pct}%`, background: gold, borderRadius: 3, transition: "width 0.4s ease" }} />
             </div>
+          </div>
+        )}
+
+        {/* Onboarding Error Feedback Banner */}
+        {onboardingError && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: 20,
+              padding: "14px 16px",
+              background: "#FDEBE9",
+              border: "1.5px solid #F5C6CB",
+              borderRadius: 10,
+              color: "#842029",
+              boxShadow: "0 2px 8px rgba(176,58,46,0.08)"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <AlertTriangle size={20} color="#B03A2E" style={{ flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4, color: "#842029" }}>
+                    {onboardingError.title || "Unable to proceed"}
+                  </div>
+                  <div style={{ fontSize: 12.5, lineHeight: 1.5, marginBottom: onboardingError.action ? 6 : 0, color: "#491217" }}>
+                    {onboardingError.whatWentWrong}
+                  </div>
+                  {onboardingError.action && (
+                    <div style={{ fontSize: 12, fontWeight: 500, color: "#B03A2E" }}>
+                      <strong>What you need to do:</strong> {onboardingError.action}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOnboardingError(null)}
+                style={{ background: "none", border: "none", color: "#842029", cursor: "pointer", padding: 2 }}
+                title="Dismiss error"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {onboardingError.step && onboardingError.step !== step && (
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(176,58,46,0.2)", display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep(onboardingError.step)
+                    setOnboardingError(null)
+                  }}
+                  style={{
+                    background: "#B03A2E",
+                    color: "#fff",
+                    border: "none",
+                    padding: "5px 12px",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer"
+                  }}
+                >
+                  Go to Step {onboardingError.step} to fix this →
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -568,8 +794,18 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
             {/* MANUAL ADD MODAL */}
             {showManualAdd && (
-              <Modal title="Add Item Manually" onClose={() => setShowManualAdd(false)}>
-                <Inp label="Item Name *" value={manualItem.name} onChange={v => setManualItem(m => ({ ...m, name: v }))} placeholder="e.g. Flour, Butter, Eggs" />
+              <Modal title="Add Item Manually" onClose={() => { setShowManualAdd(false); setManualAddError(null) }}>
+                {manualAddError && (
+                  <div role="alert" style={{ padding: "9px 12px", background: "#FDEBE9", borderRadius: 8, border: "1px solid #F5C6CB", color: "#B03A2E", fontSize: 12, marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 6 }}>
+                    <AlertTriangle size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{manualAddError.title || "Unable to add item"}</div>
+                      <div style={{ marginTop: 2 }}>{manualAddError.whatWentWrong || manualAddError.displayMessage}</div>
+                      {manualAddError.action && <div style={{ marginTop: 2, fontWeight: 500 }}>{manualAddError.action}</div>}
+                    </div>
+                  </div>
+                )}
+                <Inp label="Item Name *" value={manualItem.name} onChange={v => { setManualItem(m => ({ ...m, name: v })); setManualAddError(null) }} placeholder="e.g. Flour, Butter, Eggs" />
                 <Sel 
                   label="Unit *" 
                   value={manualItem.unit} 
@@ -774,7 +1010,15 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                     Skip setup
                   </button>
                 )}
-                <Btn onClick={() => setStep(4)}>Next: Profit Margin →</Btn>
+                <Btn onClick={() => {
+                  const err = validateAllRecipes()
+                  if (err) {
+                    setOnboardingError(err)
+                    return
+                  }
+                  setOnboardingError(null)
+                  setStep(4)
+                }}>Next: Profit Margin →</Btn>
               </div>
             </div>
 
@@ -849,30 +1093,43 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
             {/* RECIPE MODAL */}
             {recipeModal && (
-              <Modal title={recipeModal.name ? "Edit Recipe" : "Add Custom Recipe"} onClose={() => setRecipeModal(null)}>
-                <Inp label="Recipe Name *" value={recipeModal.name} onChange={v => setRecipeModal({ ...recipeModal, name: v })} placeholder="e.g. Chocolate Sponge" />
+              <Modal title={recipeModal.name ? "Edit Recipe" : "Add Custom Recipe"} onClose={() => { setRecipeModal(null); setRecipeModalError(null) }}>
+                {recipeModalError && (
+                  <div role="alert" style={{ padding: "9px 12px", background: "#FDEBE9", borderRadius: 8, border: "1px solid #F5C6CB", color: "#B03A2E", fontSize: 12, marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 6 }}>
+                    <AlertTriangle size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{recipeModalError.title || "Unable to save recipe"}</div>
+                      <div style={{ marginTop: 2 }}>{recipeModalError.whatWentWrong || recipeModalError.displayMessage}</div>
+                      {recipeModalError.action && <div style={{ marginTop: 2, fontWeight: 500 }}>{recipeModalError.action}</div>}
+                    </div>
+                  </div>
+                )}
+                <Inp label="Recipe Name *" value={recipeModal.name} onChange={v => { setRecipeModal({ ...recipeModal, name: v }); setRecipeModalError(null) }} placeholder="e.g. Chocolate Sponge" />
                 <Inp label="Notes" value={recipeModal.notes} onChange={v => setRecipeModal({ ...recipeModal, notes: v })} placeholder="e.g. Rich chocolate base" />
                 
                 <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, marginTop: 12 }}>Ingredients</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 180, overflowY: "auto", marginBottom: 12 }}>
-                  {recipeModal.ing.map((ing, idx) => (
-                    <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <select value={ing.iid} onChange={e => updateIng(idx, "iid", e.target.value)} style={{ ...iSt, flex: 2, fontSize: 12, padding: "5px" }}>
-                        <option value="">— Select ingredient —</option>
-                        {inventory.map(i => (
-                          <option key={i.id} value={i.id}>{i.name} ({i.unit}) — {fmt(i.cost)}/{i.unit}</option>
-                        ))}
-                      </select>
-                      <input type="number" placeholder="Qty" value={ing.qty} onChange={e => updateIng(idx, "qty", e.target.value)} style={{ ...iSt, width: 70, fontSize: 12, padding: "5px" }} />
-                      <Btn small variant="danger" onClick={() => removeIng(idx)}>×</Btn>
-                    </div>
-                  ))}
+                  {recipeModal.ing.map((ing, idx) => {
+                    const hasRowError = recipeModalError && (recipeModalError.fieldIndex === idx || (recipeModalError.field?.includes('ingredients') && (!ing.qty || parseFloat(ing.qty) <= 0)))
+                    return (
+                      <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", padding: hasRowError ? "4px" : "0", borderRadius: 6, background: hasRowError ? "rgba(176,58,46,0.06)" : "transparent", border: hasRowError ? "1px solid #F5C6CB" : "none" }}>
+                        <select value={ing.iid} onChange={e => { updateIng(idx, "iid", e.target.value); setRecipeModalError(null) }} style={{ ...iSt, flex: 2, fontSize: 12, padding: "5px", borderColor: hasRowError && !ing.iid ? "#B03A2E" : undefined }}>
+                          <option value="">— Select ingredient —</option>
+                          {inventory.map(i => (
+                            <option key={i.id} value={i.id}>{i.name} ({i.unit}) — {fmt(i.cost)}/{i.unit}</option>
+                          ))}
+                        </select>
+                        <input type="number" placeholder="Qty" value={ing.qty} onChange={e => { updateIng(idx, "qty", e.target.value); setRecipeModalError(null) }} style={{ ...iSt, width: 70, fontSize: 12, padding: "5px", borderColor: hasRowError && (!ing.qty || parseFloat(ing.qty) <= 0) ? "#B03A2E" : undefined }} />
+                        <Btn small variant="danger" onClick={() => removeIng(idx)}>×</Btn>
+                      </div>
+                    )
+                  })}
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <Btn small variant="ghost" onClick={addIngToRecipe}>+ Add Ingredient</Btn>
                   <div style={{ display: "flex", gap: 8 }}>
                     <Btn variant="success" onClick={saveRecipe}>Save Recipe</Btn>
-                    <Btn variant="ghost" onClick={() => setRecipeModal(null)}>Cancel</Btn>
+                    <Btn variant="ghost" onClick={() => { setRecipeModal(null); setRecipeModalError(null) }}>Cancel</Btn>
                   </div>
                 </div>
               </Modal>
@@ -957,8 +1214,12 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <Btn full onClick={() => { if (onComplete) onComplete("calculator"); else setView("calculator") }}>Take Your First Order</Btn>
-              <Btn full variant="outline" onClick={() => { if (onComplete) onComplete("dashboard"); else setView("dashboard") }}>Go to Dashboard</Btn>
+              <Btn full disabled={completing} onClick={() => handleFinish("calculator")}>
+                {completing ? "Completing setup..." : "Take Your First Order"}
+              </Btn>
+              <Btn full variant="outline" disabled={completing} onClick={() => handleFinish("dashboard")}>
+                {completing ? "Completing setup..." : "Go to Dashboard"}
+              </Btn>
             </div>
           </div>
         )}

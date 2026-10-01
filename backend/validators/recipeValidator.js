@@ -5,11 +5,22 @@ const recipeIngredientSchema = z.object({
     quantity: z.number().positive('Valid positive quantity is required for each ingredient')
 });
 
+const sanitizeIngredients = (val) => {
+    if (!Array.isArray(val)) return [];
+    return val
+        .filter(i => i && typeof i.item === 'string' && i.item.trim() !== '' && i.item !== 'item' && Number(i.quantity) > 0)
+        .map(i => ({
+            ...i,
+            item: i.item.trim(),
+            quantity: Number(i.quantity)
+        }));
+};
+
 const createRecipeSchema = z.object({
     body: z.object({
         name: z.string().trim().min(1, 'Recipe name is required'),
         notes: z.string().optional().nullable(),
-        ingredients: z.array(recipeIngredientSchema).optional().default([]),
+        ingredients: z.preprocess(sanitizeIngredients, z.array(recipeIngredientSchema)).optional().default([]),
         type: z.string().optional().default('layer'),
         batchWeight: z.number().optional().nullable(),
         batchSize: z.number().optional().nullable(),
@@ -21,7 +32,7 @@ const updateRecipeSchema = z.object({
     body: z.object({
         name: z.string().trim().min(1, 'Recipe name cannot be empty').optional(),
         notes: z.string().optional().nullable(),
-        ingredients: z.array(recipeIngredientSchema).optional(),
+        ingredients: z.preprocess(sanitizeIngredients, z.array(recipeIngredientSchema)).optional(),
         type: z.string().optional(),
         batchWeight: z.number().optional().nullable(),
         batchSize: z.number().optional().nullable()

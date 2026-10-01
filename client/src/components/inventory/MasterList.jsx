@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect, Spinner, Pagination } from "../common/ui.jsx"
-import { fmt, fmtCost, fmtQty, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES } from "../../lib/helpers.js"
+import { fmt, fmtCost, fmtQty, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES, formatApiError } from "../../lib/helpers.js"
 
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
 import { 
@@ -2026,6 +2026,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
   const [msg,setMsg]=useState("")
   const [msgColor,setMsgColor]=useState("gold")
   const [recipeModal,setRecipeModal]=useState(null)
+  const [recipeModalError, setRecipeModalError] = useState(null)
   const isOwner = user?.role==="owner"
   const [showRecipeExcelImport, setShowRecipeExcelImport] = useState(false)
   const [showRecipeScan, setShowRecipeScan] = useState(false)
@@ -2065,10 +2066,39 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
 
   // ── Recipes ──
   const isSavingRecipeRef = useRef(false)
-  const openRecipe = (r) => setRecipeModal(r ? {...r} : {id:uid(),name:"",size:"6",tiers:1,covering:"buttercream",ing:[]})
+  const openRecipe = (r) => {
+    setRecipeModalError(null)
+    setRecipeModal(r ? {...r} : {id:uid(),name:"",size:"6",tiers:1,covering:"buttercream",ing:[]})
+  }
   const saveRecipe = async () => {
     if (isSavingRecipeRef.current || saving) return
-    if(!recipeModal.name)return showMsg("Recipe name is required")
+    setRecipeModalError(null)
+    if(!recipeModal.name || !recipeModal.name.trim()) {
+      const errObj = {
+        title: "Recipe Name Required",
+        whatWentWrong: "Please provide a name for this recipe.",
+        action: "Enter a descriptive name before saving."
+      }
+      setRecipeModalError(errObj)
+      return showMsg("Recipe name is required", "red")
+    }
+
+    for (let idx = 0; idx < (recipeModal.ing || []).length; idx++) {
+      const ing = recipeModal.ing[idx]
+      if (ing.iid && (!ing.qty || parseFloat(ing.qty) <= 0)) {
+        const itemObj = inventory.find(i => i.id === ing.iid)
+        const name = itemObj ? itemObj.name : `Ingredient ${idx + 1}`
+        const errObj = {
+          title: "Invalid Ingredient Quantity",
+          whatWentWrong: `${name} has an invalid or missing quantity.`,
+          action: "A valid positive quantity is required for each ingredient.",
+          fieldIndex: idx
+        }
+        setRecipeModalError(errObj)
+        return showMsg(`Ingredient ${idx + 1} (${name}): valid quantity greater than 0 is required`, "red")
+      }
+    }
+
     isSavingRecipeRef.current = true
     setSaving(true)
     try {
@@ -2084,9 +2114,12 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         : [...recipes, savedRec]
       setRecipes(updated)
       setRecipeModal(null)
+      setRecipeModalError(null)
       showMsg("Recipe saved directly to database","green")
     } catch (e) {
-      showMsg("Failed to save recipe: " + e.message, "red")
+      const formatted = e.details || formatApiError(e, { title: "Failed to save recipe" })
+      setRecipeModalError(formatted)
+      showMsg(formatted.displayMessage, "red")
     } finally {
       isSavingRecipeRef.current = false
       setSaving(false)
@@ -2204,8 +2237,18 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         itemLabel="recipes"
       />
 
-      {recipeModal&&<Modal title={recipeModal.name?"Edit Recipe":"New Recipe"} onClose={()=>setRecipeModal(null)}>
-        <Inp label="Recipe Name * (e.g. Vanilla Cake, Buttercream)" value={recipeModal.name} onChange={v=>setRecipeModal(r=>({...r,name:v}))}/>
+      {recipeModal&&<Modal title={recipeModal.name?"Edit Recipe":"New Recipe"} onClose={()=>{ setRecipeModal(null); setRecipeModalError(null); }}>
+        {recipeModalError && (
+          <div role="alert" style={{ padding: "9px 12px", background: "#FDEBE9", borderRadius: 8, border: "1px solid #F5C6CB", color: "#B03A2E", fontSize: 12, marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 6 }}>
+            <AlertTriangle size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 600 }}>{recipeModalError.title || "Unable to save recipe"}</div>
+              <div style={{ marginTop: 2 }}>{recipeModalError.whatWentWrong || recipeModalError.displayMessage}</div>
+              {recipeModalError.action && <div style={{ marginTop: 2, fontWeight: 500 }}>{recipeModalError.action}</div>}
+            </div>
+          </div>
+        )}
+        <Inp label="Recipe Name * (e.g. Vanilla Cake, Buttercream)" value={recipeModal.name} onChange={v=>{ setRecipeModal(r=>({...r,name:v})); setRecipeModalError(null); }}/>
         <div style={{marginBottom:11}}>
           <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Recipe type *</label>
           <div style={{display:"flex",gap:8}}>
@@ -2235,20 +2278,21 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
           {recipeModal.type==="pastry"?"Ingredients (per batch)":recipeModal.type==="covering"?"Ingredients (per batch)":"Ingredients (per 1 layer)"}
         </div>
         {recipeModal.ing.map((ing,idx)=>{
+          const hasRowError = recipeModalError && (recipeModalError.fieldIndex === idx || (recipeModalError.field?.includes('ingredients') && (!ing.qty || parseFloat(ing.qty) <= 0)))
           const options = inventory
             .filter(i => i.cat !== "Board and Packaging" && i.category !== "Board and Packaging")
             .map(i => ({
               value: i.id,
               label: `${i.name} (${i.unit}) — ${fmtCost(i.cost)}/${i.unit}`
             }))
-          return <div key={idx} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+          return <div key={idx} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center",padding:hasRowError?"4px":"0",borderRadius:6,background:hasRowError?"rgba(176,58,46,0.06)":"transparent",border:hasRowError?"1px solid #F5C6CB":"none"}}>
             <SearchableSelect
               value={ing.iid}
-              onChange={val => updateIng(idx,"iid",val)}
+              onChange={val => { updateIng(idx,"iid",val); setRecipeModalError(null); }}
               options={options}
               placeholder="Type to search ingredient..."
             />
-            <input type="number" step="any" placeholder="Qty" value={ing.qty} onChange={e=>updateIng(idx,"qty",e.target.value)} style={{...iSt,width:70,fontSize:12}}/>
+            <input type="number" step="any" placeholder="Qty" value={ing.qty} onChange={e=>{ updateIng(idx,"qty",e.target.value); setRecipeModalError(null); }} style={{...iSt,width:70,fontSize:12,borderColor:hasRowError&&(!ing.qty||parseFloat(ing.qty)<=0)?"#B03A2E":undefined}}/>
             <Btn small variant="danger" onClick={()=>removeIng(idx)} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn>
           </div>
         })}

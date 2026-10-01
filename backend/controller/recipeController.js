@@ -84,6 +84,20 @@ const createRecipe = asyncHandler(async (req, res) => {
         }
     }
 
+    // Filter ingredients to only those that exist for this tenant
+    let validIngredients = [];
+    if (ingredients && ingredients.length > 0) {
+        const itemIds = ingredients.map(ing => ing.item).filter(Boolean);
+        if (itemIds.length > 0) {
+            const existingItems = await prisma.inventoryItem.findMany({
+                where: { id: { in: itemIds }, tenantId },
+                select: { id: true }
+            });
+            const existingSet = new Set(existingItems.map(item => item.id));
+            validIngredients = ingredients.filter(ing => existingSet.has(ing.item));
+        }
+    }
+
     const recipe = await prisma.recipe.create({
         data: {
             id: req.body.id || undefined,
@@ -94,7 +108,7 @@ const createRecipe = asyncHandler(async (req, res) => {
             batchWeight: batchWeight !== undefined ? batchWeight : null,
             batchSize: batchSize !== undefined ? batchSize : null,
             ingredients: {
-                create: (ingredients || []).map(ing => ({
+                create: validIngredients.map(ing => ({
                     inventoryItemId: ing.item,
                     quantity: ing.quantity
                 }))
@@ -131,8 +145,18 @@ const updateRecipe = asyncHandler(async (req, res) => {
     if (batchSize !== undefined) updateData.batchSize = batchSize;
 
     if (ingredients) {
+        const itemIds = ingredients.map(ing => ing.item).filter(Boolean);
+        let validIngredients = [];
+        if (itemIds.length > 0) {
+            const existingItems = await prisma.inventoryItem.findMany({
+                where: { id: { in: itemIds }, tenantId },
+                select: { id: true }
+            });
+            const existingSet = new Set(existingItems.map(item => item.id));
+            validIngredients = ingredients.filter(ing => existingSet.has(ing.item));
+        }
         updateData.ingredients = {
-            create: ingredients.map(ing => ({
+            create: validIngredients.map(ing => ({
                 inventoryItemId: ing.item,
                 quantity: ing.quantity
             }))
