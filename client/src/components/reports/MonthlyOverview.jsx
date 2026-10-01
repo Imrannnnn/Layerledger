@@ -7,7 +7,7 @@
  */
 import React, { useState, useMemo, useEffect, useCallback } from "react"
 import { Btn, Card, SHead, TH, TR2, Spinner } from "../common/ui.jsx"
-import { fmt, isDateInMonth, getMonthKeyFromDate } from "../../lib/helpers.js"
+import { fmt, isDateInMonth, getMonthKeyFromDate, today } from "../../lib/helpers.js"
 import {
   loadLocal,
   saveLocal,
@@ -28,7 +28,7 @@ import { Download, Trash2, AlertTriangle, CheckCircle, RefreshCw } from "lucide-
 export function MonthlyOverview({ inventory, recipes = [], productions = [], setProductions, expenses = [], setExpenses, company, isOwner }) {
   const [quotesList, setQuotesList] = useState(() => loadLocal("ll_quotes", []))
   const [purchasesList, setPurchasesList] = useState(() => loadLocal("ll_purchases", []))
-  const cur = new Date().toISOString().slice(0, 7)
+  const cur = (typeof today === "function" ? today() : new Date().toISOString().slice(0, 10)).slice(0, 7)
   const [osItems, setOsItems] = useState(() => loadOpeningStock(cur))
   const [isRolledOver, setIsRolledOver] = useState(false)
   const [loadingOS, setLoadingOS] = useState(false)
