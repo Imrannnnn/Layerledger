@@ -382,22 +382,26 @@ export const checkPlanLimit = (limitType) => {
   }
 }
 
+export const saveMemoryAndStorageOnly = (key, val) => {
+  cache[key] = val
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const sKey = getStorageKey(key)
+      if (val === null || val === undefined) {
+        window.localStorage.removeItem(sKey)
+        if (sKey !== key) window.localStorage.removeItem(key)
+      } else {
+        window.localStorage.setItem(sKey, typeof val === "string" ? val : JSON.stringify(val))
+      }
+    } catch {
+      // localStorage quota/disabled fallback
+    }
+  }
+}
+
 const save = async (key, val) => {
   try {
-    cache[key] = val
-    if (typeof window !== "undefined" && window.localStorage) {
-      try {
-        const sKey = getStorageKey(key)
-        if (val === null || val === undefined) {
-          window.localStorage.removeItem(sKey)
-          if (sKey !== key) window.localStorage.removeItem(key)
-        } else {
-          window.localStorage.setItem(sKey, typeof val === "string" ? val : JSON.stringify(val))
-        }
-      } catch {
-        // localStorage quota/disabled fallback
-      }
-    }
+    saveMemoryAndStorageOnly(key, val)
 
     const headers = getAuthHeaders()
     if (!headers) return
@@ -419,12 +423,20 @@ const save = async (key, val) => {
     } else if (key === "ll_txns") {
       await syncTransactionsList(headers, val)
     } else if (key === "ll_clients") {
-      await syncClientsList(headers, val)
+      await debouncedSyncClientsList(headers, val)
     } else if (key === "ll_opening_stock" || key.startsWith("ll_os_")) {
       await syncOpeningStockList(headers, val, key)
     } else if (key === "ll_co") {
-      await syncTenantSettingsOnly(headers)
-    } else {
+      await debouncedSyncTenantSettingsOnly(headers)
+    } else if (
+      [
+        "ll_multipliers", "ll_coverings", "ll_decorations", "ll_packaging", 
+        "ll_onboarded", "ll_anthropic_key", "ll_users", "ll_aliases"
+      ].includes(key) ||
+      key.startsWith("ll_setting_") || 
+      key.startsWith("ll_lock_") || 
+      key.startsWith("ll_dismiss_")
+    ) {
       await debouncedSyncTenantSettingsOnly(headers)
     }
   } catch (e) {
@@ -432,7 +444,10 @@ const save = async (key, val) => {
   }
 }
 
+let isSyncingTenant = false
+let pendingTenantSync = false
 let syncTenantTimeout = null
+
 const debouncedSyncTenantSettingsOnly = (headers) => {
   if (syncTenantTimeout) clearTimeout(syncTenantTimeout)
   return new Promise((resolve) => {
@@ -442,90 +457,120 @@ const debouncedSyncTenantSettingsOnly = (headers) => {
       } finally {
         resolve()
       }
-    }, 350)
+    }, 400)
   })
 }
 
 const syncTenantSettingsOnly = async (headers) => {
   const apiUrl = import.meta.env.VITE_API_URL
   if (!apiUrl) return
+  if (isSyncingTenant) {
+    pendingTenantSync = true
+    return
+  }
+  isSyncingTenant = true
   try {
     const res = await fetch(`${apiUrl}/api/tenant`, { headers })
-    if (res.ok) {
-      const tenant = await res.json()
-      const data = {
-        ...(tenant.settings?.appConfig || {})
+    if (!res.ok) {
+      if (res.status === 429) {
+        console.warn("Rate limited (429) on /api/tenant GET. Skipping sync.")
       }
-      Object.entries(cache).forEach(([k, v]) => {
-        const keysToStoreInAppConfig = [
-          "ll_co", "ll_multipliers", "ll_coverings", "ll_decorations", "ll_packaging", 
-          "ll_onboarded", "ll_anthropic_key", "ll_users", "ll_clients", "ll_aliases"
-        ]
-        if (
-          keysToStoreInAppConfig.includes(k) || 
-          k.startsWith("ll_setting_") || 
-          k.startsWith("ll_lock_") || 
-          k.startsWith("ll_dismiss_")
-        ) {
-          data[k] = typeof v === "string" ? v : JSON.stringify(v)
-        }
-      })
-      // Ensure company profile in appConfig has valid details and syncs to tenant columns
-      let updatedTenantName = tenant.name
-      let updatedContactEmail = tenant.contactEmail || ""
-      let updatedContactPhone = tenant.contactPhone || ""
-      let updatedLogoUrl = tenant.logoUrl || ""
+      return
+    }
+    const tenant = await res.json()
+    const data = {
+      ...(tenant.settings?.appConfig || {})
+    }
+    const keysToStoreInAppConfig = [
+      "ll_co", "ll_multipliers", "ll_coverings", "ll_decorations", "ll_packaging", 
+      "ll_onboarded", "ll_anthropic_key", "ll_users", "ll_aliases"
+    ]
+    Object.entries(cache).forEach(([k, v]) => {
+      if (
+        keysToStoreInAppConfig.includes(k) || 
+        k.startsWith("ll_setting_") || 
+        k.startsWith("ll_lock_") || 
+        k.startsWith("ll_dismiss_")
+      ) {
+        data[k] = typeof v === "string" ? v : JSON.stringify(v)
+      }
+    })
+    // Ensure company profile in appConfig has valid details and syncs to tenant columns
+    let updatedTenantName = tenant.name
+    let updatedContactEmail = tenant.contactEmail || ""
+    let updatedContactPhone = tenant.contactPhone || ""
+    let updatedLogoUrl = tenant.logoUrl || ""
 
-      if (data["ll_co"]) {
-        try {
-          const coObj = typeof data["ll_co"] === "string" ? JSON.parse(data["ll_co"]) : data["ll_co"]
-          if (coObj && typeof coObj === "object") {
-            if (coObj.name && coObj.name !== "My Bakery" && coObj.name !== "BakeWealth Workspace") {
-              updatedTenantName = coObj.name
-            } else if (!coObj.name || coObj.name === "My Bakery" || coObj.name === "BakeWealth Workspace") {
-              coObj.name = tenant.name
-              data["ll_co"] = JSON.stringify(coObj)
-            }
-            if (coObj.email) updatedContactEmail = coObj.email
-            if (coObj.phone) updatedContactPhone = coObj.phone
-            if (coObj.logo) updatedLogoUrl = coObj.logo
+    if (data["ll_co"]) {
+      try {
+        const coObj = typeof data["ll_co"] === "string" ? JSON.parse(data["ll_co"]) : data["ll_co"]
+        if (coObj && typeof coObj === "object") {
+          if (coObj.name && coObj.name !== "My Bakery" && coObj.name !== "BakeWealth Workspace") {
+            updatedTenantName = coObj.name
+          } else if (!coObj.name || coObj.name === "My Bakery" || coObj.name === "BakeWealth Workspace") {
+            coObj.name = tenant.name
+            data["ll_co"] = JSON.stringify(coObj)
           }
-        } catch {
-          // Ignore JSON parse error on malformed ll_co
+          if (coObj.email) updatedContactEmail = coObj.email
+          if (coObj.phone) updatedContactPhone = coObj.phone
+          if (coObj.logo) updatedLogoUrl = coObj.logo
         }
+      } catch {
+        // Ignore JSON parse error on malformed ll_co
       }
-      const updatedSettings = {
-        ...(tenant.settings || {}),
-        appConfig: data
-      }
-      const putRes = await fetch(`${apiUrl}/api/tenant`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify({
-          name: updatedTenantName,
-          contactEmail: updatedContactEmail,
-          contactPhone: updatedContactPhone,
-          logoUrl: updatedLogoUrl,
-          settings: updatedSettings
-        })
+    }
+    const updatedSettings = {
+      ...(tenant.settings || {}),
+      appConfig: data
+    }
+
+    const currentConfigStr = JSON.stringify(tenant.settings?.appConfig || {})
+    const newConfigStr = JSON.stringify(data)
+    const isSettingsUnchanged = currentConfigStr === newConfigStr &&
+      (tenant.name || "") === (updatedTenantName || "") &&
+      (tenant.contactEmail || "") === (updatedContactEmail || "") &&
+      (tenant.contactPhone || "") === (updatedContactPhone || "") &&
+      (tenant.logoUrl || "") === (updatedLogoUrl || "")
+
+    if (isSettingsUnchanged) {
+      return
+    }
+
+    const putRes = await fetch(`${apiUrl}/api/tenant`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        name: updatedTenantName,
+        contactEmail: updatedContactEmail,
+        contactPhone: updatedContactPhone,
+        logoUrl: updatedLogoUrl,
+        settings: updatedSettings
       })
-      if (putRes.ok) {
-        const serverTenant = await putRes.json()
-        const cfg = serverTenant.settings?.appConfig
-        if (cfg) {
-          Object.entries(cfg).forEach(([k, v]) => {
-            try {
-              cache[k] = typeof v === "string" ? JSON.parse(v) : v
-            } catch {
-              cache[k] = v
-            }
-            saveLocal(k, cache[k])
-          })
-        }
+    })
+    if (putRes.ok) {
+      const serverTenant = await putRes.json()
+      const cfg = serverTenant.settings?.appConfig
+      if (cfg) {
+        Object.entries(cfg).forEach(([k, v]) => {
+          try {
+            cache[k] = typeof v === "string" ? JSON.parse(v) : v
+          } catch {
+            cache[k] = v
+          }
+          saveMemoryAndStorageOnly(k, cache[k])
+        })
       }
+    } else if (putRes.status === 429) {
+      console.warn("Rate limited (429) on /api/tenant PUT. Skipping sync.")
     }
   } catch (e) {
     console.error("Failed to sync tenant settings:", e)
+  } finally {
+    isSyncingTenant = false
+    if (pendingTenantSync) {
+      pendingTenantSync = false
+      debouncedSyncTenantSettingsOnly(headers)
+    }
   }
 }
 
@@ -1199,7 +1244,12 @@ const syncPurchasesList = async (headers, localPurchases) => {
     const apiUrl = import.meta.env.VITE_API_URL
     if (!apiUrl) return
     const res = await fetchWithTimeout(`${apiUrl}/api/purchases`, { headers })
-    if (!res.ok) return
+    if (!res.ok) {
+      if (res.status === 429) {
+        console.warn("Rate limited (429) on /api/purchases. Skipping sync.")
+      }
+      return
+    }
     const serverPurchases = await res.json()
 
     // Merge server purchases not present locally into local cache (prevents accidental data loss)
@@ -1210,7 +1260,7 @@ const syncPurchasesList = async (headers, localPurchases) => {
         .filter(sp => !localPurchases.some(lp => lp.id === sp.id))
       if (missingInLocal.length > 0) {
         const merged = [...localPurchases, ...missingInLocal]
-        saveLocal("ll_purchases", merged)
+        saveMemoryAndStorageOnly("ll_purchases", merged)
         cache["ll_purchases"] = merged
       }
     }
@@ -1329,12 +1379,38 @@ const syncTransactionsList = async (headers, localTxns) => {
   }
 }
 
+let syncClientsTimeout = null
+let isSyncingClients = false
+const debouncedSyncClientsList = (headers, localClients) => {
+  const serialized = JSON.stringify(localClients || [])
+  if (lastSyncedValues["ll_clients"] === serialized) return Promise.resolve()
+  if (syncClientsTimeout) clearTimeout(syncClientsTimeout)
+  return new Promise((resolve) => {
+    syncClientsTimeout = setTimeout(async () => {
+      if (isSyncingClients) return resolve()
+      try {
+        isSyncingClients = true
+        await syncClientsList(headers, localClients)
+        lastSyncedValues["ll_clients"] = serialized
+      } finally {
+        isSyncingClients = false
+        resolve()
+      }
+    }, 400)
+  })
+}
+
 const syncClientsList = async (headers, localClients) => {
   try {
     const apiUrl = import.meta.env.VITE_API_URL
     if (!apiUrl) return
     const res = await fetchWithTimeout(`${apiUrl}/api/clients`, { headers })
-    if (!res.ok) return
+    if (!res.ok) {
+      if (res.status === 429) {
+        console.warn("Rate limited (429) on /api/clients. Skipping sync.")
+      }
+      return
+    }
     const serverClientsRaw = await res.json()
     const serverClients = Array.isArray(serverClientsRaw) ? serverClientsRaw : (serverClientsRaw.data || [])
 
@@ -1391,6 +1467,9 @@ const syncClientsList = async (headers, localClients) => {
       await Promise.allSettled(clientTasks)
     }
   } catch (err) {
+    if (err?.name === "AbortError") {
+      return
+    }
     console.warn("syncClientsList error:", err)
   }
 }
@@ -1645,7 +1724,7 @@ export const syncFromBackend = async () => {
         sidebarColor: curCo.sidebarColor || "#0a0a0a",
         logo: curCo.logo || "/Bakewealthlogo.jpeg"
       }
-      saveLocal("ll_co", cache["ll_co"])
+      saveMemoryAndStorageOnly("ll_co", cache["ll_co"])
 
       if (tenant.settings?.pricing) {
         const p = tenant.settings.pricing
@@ -1833,7 +1912,7 @@ export const syncFromBackend = async () => {
       sidebarColor: curCo.sidebarColor || "#0a0a0a",
       logo: curCo.logo || "/Bakewealthlogo.jpeg"
     }
-    saveLocal("ll_co", cache["ll_co"])
+    saveMemoryAndStorageOnly("ll_co", cache["ll_co"])
 
     const [invRes, recipesRes, ordersRes, expensesRes, purchasesRes, invoicesRes, txnsRes, clientsRes] = await Promise.all([
       fetch(`${apiUrl}/api/inventory`, { headers }),

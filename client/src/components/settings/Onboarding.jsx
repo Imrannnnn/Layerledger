@@ -33,7 +33,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   // Step 4: Margin State
   const [profitPct, setProfitPct] = useState(settings.profitPct || 40)
 
-  // Excel Import Modal State (Step 1)
+  // Excel Import Modal State (Step 2)
   const [showImport, setShowImport] = useState(false)
   const [importStep, setImportStep] = useState(1) // 1 = paste columns, 2 = preview, 3 = done
   const [pasteN, setPasteN] = useState("")
@@ -393,86 +393,6 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
               ) : <div />}
               <Btn disabled={!company.name?.trim()} onClick={() => setStep(2)}>Next: Set Up Opening Stock →</Btn>
             </div>
-
-            {/* IMPORT MODAL */}
-            {showImport && (
-              <Modal title="Import — Excel, PDF or a photo" onClose={() => setShowImport(false)}>
-                {importStep === 1 && (
-                  <div>
-                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
-                      Open your Excel. Copy each column and paste into its own box. Only item names and cost per unit are required.
-                    </div>
-                    {importMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {importMsg}</div>}
-                    
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
-                      <div>
-                        <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Item Names *</label>
-                        <textarea value={pasteN} onChange={e => { setPasteN(e.target.value); checkMatch() }} placeholder={"Flour\nSugar\nOil\nEggs"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Unit (optional)</label>
-                        <textarea value={pasteU} onChange={e => setPasteU(e.target.value)} placeholder={"kg\nkg\nL\npcs"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-                        <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Defaults to kg</div>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 10, color: "var(--gold)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Cost / Unit *</label>
-                        <textarea value={pasteC} onChange={e => { setPasteC(e.target.value); checkMatch() }} placeholder={"1140\n1500\n3000\n700"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid #E8D5A3", background: "#FFF9EE", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-                      </div>
-                    </div>
-                    {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {warnMsg}</div>}
-                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
-                      <Btn onClick={doPreview} disabled={!pasteN.trim() || !pasteC.trim() || !!warnMsg}>Preview import →</Btn>
-                      <Btn variant="ghost" onClick={() => setShowImport(false)}>Cancel</Btn>
-                    </div>
-                  </div>
-                )}
-
-                {importStep === 2 && (
-                  <div>
-                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Toggle off anything you don't want to import.</div>
-                    <div style={{ overflowY: "auto", maxHeight: 220, marginBottom: 12 }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-                        <thead>
-                          <tr style={{ background: "#EDE5D6" }}>
-                            {["", "Item", "Unit", "Cost/Unit"].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: h === "Cost/Unit" ? "right" : "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>)}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {prevItems.map((p, i) => (
-                            <tr key={p.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA", opacity: p.on ? 1 : 0.35 }}>
-                              <td style={{ padding: "6px 10px" }}>
-                                <div onClick={() => setPrevItems(prev => prev.map((x, j) => j === i ? { ...x, on: !x.on } : x))} style={{ width: 30, height: 16, borderRadius: 8, background: p.on ? "#357A52" : "var(--border)", cursor: "pointer", position: "relative" }}>
-                                  <div style={{ width: 12, height: 12, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: p.on ? 16 : 2, transition: "left 0.2s" }} />
-                                </div>
-                              </td>
-                              <td style={{ padding: "6px 10px", fontWeight: 500 }}>{p.name}</td>
-                              <td style={{ padding: "6px 10px", color: "var(--muted)" }}>{p.unit}</td>
-                              <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 500, color: "var(--gold)" }}>{fmtCost(p.cost)}/{p.unit}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                      <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p => p.on)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                        <Check size={13} /> Import {prevItems.filter(p => p.on).length} Items
-                      </Btn>
-                      <Btn variant="ghost" onClick={() => setImportStep(1)}>← Edit</Btn>
-                    </div>
-                  </div>
-                )}
-
-                {importStep === 3 && (
-                  <div style={{ textAlign: "center", padding: "16px 0" }}>
-                    <div style={{ fontSize: 16, color: "#357A52", fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      <Check size={18} /> Import complete!
-                    </div>
-                    <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>Ingredients added to your inventory list. You can configure their stock next.</div>
-                    <Btn onClick={() => { setImportStep(1); setShowImport(false) }}>Done</Btn>
-                  </div>
-                )}
-              </Modal>
-            )}
           </div>
         )}
 
@@ -719,6 +639,86 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                   </Btn>
                   <Btn variant="ghost" onClick={() => setShowManualAdd(false)}>Cancel</Btn>
                 </div>
+              </Modal>
+            )}
+
+            {/* IMPORT MODAL */}
+            {showImport && (
+              <Modal title="Import — Excel, PDF or a photo" onClose={() => setShowImport(false)}>
+                {importStep === 1 && (
+                  <div>
+                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
+                      Open your Excel. Copy each column and paste into its own box. Only item names and cost per unit are required.
+                    </div>
+                    {importMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {importMsg}</div>}
+                    
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Item Names *</label>
+                        <textarea value={pasteN} onChange={e => { setPasteN(e.target.value); checkMatch() }} placeholder={"Flour\nSugar\nOil\nEggs"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Unit (optional)</label>
+                        <textarea value={pasteU} onChange={e => setPasteU(e.target.value)} placeholder={"kg\nkg\nL\npcs"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                        <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Defaults to kg</div>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 10, color: "var(--gold)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Cost / Unit *</label>
+                        <textarea value={pasteC} onChange={e => { setPasteC(e.target.value); checkMatch() }} placeholder={"1140\n1500\n3000\n700"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid #E8D5A3", background: "#FFF9EE", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                      </div>
+                    </div>
+                    {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {warnMsg}</div>}
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+                      <Btn onClick={doPreview} disabled={!pasteN.trim() || !pasteC.trim() || !!warnMsg}>Preview import →</Btn>
+                      <Btn variant="ghost" onClick={() => setShowImport(false)}>Cancel</Btn>
+                    </div>
+                  </div>
+                )}
+
+                {importStep === 2 && (
+                  <div>
+                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Toggle off anything you don't want to import.</div>
+                    <div style={{ overflowY: "auto", maxHeight: 220, marginBottom: 12 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ background: "#EDE5D6" }}>
+                            {["", "Item", "Unit", "Cost/Unit"].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: h === "Cost/Unit" ? "right" : "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {prevItems.map((p, i) => (
+                            <tr key={p.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA", opacity: p.on ? 1 : 0.35 }}>
+                              <td style={{ padding: "6px 10px" }}>
+                                <div onClick={() => setPrevItems(prev => prev.map((x, j) => j === i ? { ...x, on: !x.on } : x))} style={{ width: 30, height: 16, borderRadius: 8, background: p.on ? "#357A52" : "var(--border)", cursor: "pointer", position: "relative" }}>
+                                  <div style={{ width: 12, height: 12, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: p.on ? 16 : 2, transition: "left 0.2s" }} />
+                                </div>
+                              </td>
+                              <td style={{ padding: "6px 10px", fontWeight: 500 }}>{p.name}</td>
+                              <td style={{ padding: "6px 10px", color: "var(--muted)" }}>{p.unit}</td>
+                              <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 500, color: "var(--gold)" }}>{fmtCost(p.cost)}/{p.unit}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <Btn variant="success" onClick={confirmImport} disabled={!prevItems.some(p => p.on)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <Check size={13} /> Import {prevItems.filter(p => p.on).length} Items
+                      </Btn>
+                      <Btn variant="ghost" onClick={() => setImportStep(1)}>← Edit</Btn>
+                    </div>
+                  </div>
+                )}
+
+                {importStep === 3 && (
+                  <div style={{ textAlign: "center", padding: "16px 0" }}>
+                    <div style={{ fontSize: 16, color: "#357A52", fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <Check size={18} /> Import complete!
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>Ingredients added to your inventory list. You can configure their stock next.</div>
+                    <Btn onClick={() => { setImportStep(1); setShowImport(false) }}>Done</Btn>
+                  </div>
+                )}
               </Modal>
             )}
           </div>
