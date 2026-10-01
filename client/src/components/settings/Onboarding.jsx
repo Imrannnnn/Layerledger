@@ -415,7 +415,8 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
     try {
       if (onComplete) {
         await onComplete(target)
-      } else if (setView) {
+      }
+      if (setView) {
         setView(target)
       }
     } catch (finishErr) {

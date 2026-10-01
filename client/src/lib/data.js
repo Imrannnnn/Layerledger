@@ -520,8 +520,12 @@ const syncTenantSettingsOnly = async (headers) => {
         // Ignore JSON parse error on malformed ll_co
       }
     }
+    if (cache["ll_onboarded"] === "1" || (typeof sessionStorage !== "undefined" && (sessionStorage.getItem("ll_onboarded") === "1" || sessionStorage.getItem("ll_onboarding_completed") === "1"))) {
+      data["ll_onboarded"] = "1"
+    }
     const updatedSettings = {
       ...(tenant.settings || {}),
+      onboarded: (cache["ll_onboarded"] === "1" || Boolean(tenant.settings?.onboarded)),
       appConfig: data
     }
 
@@ -1713,10 +1717,10 @@ export const syncFromBackend = async () => {
 
       const config = tenant.settings?.appConfig || null
       let isAlreadyOnboarded = Boolean(
-        data.isOnboarded ??
-        tenant.isOnboarded ??
-        tenant.settings?.onboarded ??
-        (config?.ll_onboarded === "1" || config?.ll_onboarded === 1)
+        (data.isOnboarded ?? tenant.isOnboarded ?? tenant.settings?.onboarded) ||
+        (config?.ll_onboarded === "1" || config?.ll_onboarded === 1) ||
+        cache["ll_onboarded"] === "1" ||
+        (typeof sessionStorage !== "undefined" && (sessionStorage.getItem("ll_onboarded") === "1" || sessionStorage.getItem("ll_onboarding_completed") === "1"))
       )
       if (config) {
         Object.entries(config).forEach(([k, v]) => {
@@ -1870,9 +1874,15 @@ export const syncFromBackend = async () => {
         })
       }
 
-      cache["ll_onboarded"] = isAlreadyOnboarded ? "1" : "0"
-      if (typeof window !== "undefined" && window.localStorage) {
-        try { window.localStorage.setItem(getStorageKey("ll_onboarded"), isAlreadyOnboarded ? "1" : "0") } catch { /* ignore storage error */ }
+      if (isAlreadyOnboarded || cache["ll_onboarded"] === "1" || (typeof sessionStorage !== "undefined" && (sessionStorage.getItem("ll_onboarded") === "1" || sessionStorage.getItem("ll_onboarding_completed") === "1"))) {
+        cache["ll_onboarded"] = "1"
+        lastSyncedValues["ll_onboarded"] = "1"
+        saveMemoryAndStorageOnly("ll_onboarded", "1")
+      } else {
+        cache["ll_onboarded"] = "0"
+        if (typeof window !== "undefined" && window.localStorage) {
+          try { window.localStorage.setItem(getStorageKey("ll_onboarded"), "0") } catch { /* ignore storage error */ }
+        }
       }
 
       return true
@@ -2042,9 +2052,15 @@ export const syncFromBackend = async () => {
       lastSyncedValues["ll_clients"] = JSON.stringify(localClients)
     }
 
-    cache["ll_onboarded"] = isAlreadyOnboarded ? "1" : "0"
-    if (typeof window !== "undefined" && window.localStorage) {
-      try { window.localStorage.setItem(getStorageKey("ll_onboarded"), isAlreadyOnboarded ? "1" : "0") } catch { /* ignore storage error */ }
+    if (isAlreadyOnboarded || cache["ll_onboarded"] === "1" || (typeof sessionStorage !== "undefined" && (sessionStorage.getItem("ll_onboarded") === "1" || sessionStorage.getItem("ll_onboarding_completed") === "1"))) {
+      cache["ll_onboarded"] = "1"
+      lastSyncedValues["ll_onboarded"] = "1"
+      saveMemoryAndStorageOnly("ll_onboarded", "1")
+    } else {
+      cache["ll_onboarded"] = "0"
+      if (typeof window !== "undefined" && window.localStorage) {
+        try { window.localStorage.setItem(getStorageKey("ll_onboarded"), "0") } catch { /* ignore storage error */ }
+      }
     }
 
     return true
@@ -2074,6 +2090,19 @@ export const clearTempCalculatorState = () => {
 }
 
 export const completeOnboardingOnServer = async () => {
+  cache["ll_onboarded"] = "1"
+  lastSyncedValues["ll_onboarded"] = "1"
+  saveMemoryAndStorageOnly("ll_onboarded", "1")
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem("ll_onboarded", "1")
+      sessionStorage.setItem("ll_onboarding_completed", "1")
+      sessionStorage.removeItem("ll_onboarding_skipped")
+    }
+  } catch {
+    // ignore sessionStorage errors
+  }
+
   const headers = getAuthHeaders()
   if (!headers) return false
   const apiUrl = import.meta.env.VITE_API_URL
@@ -2085,7 +2114,6 @@ export const completeOnboardingOnServer = async () => {
     })
     if (res.ok) {
       cache["ll_onboarded"] = "1"
-      await saveLocal("ll_onboarded", "1")
       return true
     }
     const errJson = await res.json().catch(() => ({}))

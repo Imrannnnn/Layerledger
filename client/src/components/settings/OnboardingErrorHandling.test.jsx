@@ -227,5 +227,95 @@ describe("Onboarding Error Handling & User Feedback", () => {
       })
       expect(container.querySelector("[role='alert']")).toBeNull()
     })
+
+    test("navigates to calculator when clicking 'Take Your First Order'", async () => {
+      const mockSetView = jest.fn()
+      mockOnComplete.mockResolvedValueOnce(true)
+
+      await act(async () => {
+        root.render(
+          <Onboarding
+            gold="#C89D46"
+            company={mockCompany}
+            setCompany={mockSetCompany}
+            inventory={mockInventory}
+            setInventory={mockSetInventory}
+            recipes={mockRecipes}
+            setRecipes={mockSetRecipes}
+            settings={mockSettings}
+            setSettings={mockSetSettings}
+            onComplete={mockOnComplete}
+            setView={mockSetView}
+          />
+        )
+      })
+
+      // Advance through steps to Step 5
+      const nextBtn1 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next: Set Up Opening Stock"))
+      await act(async () => { nextBtn1.click() })
+      const nextBtn2 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next Step"))
+      await act(async () => { nextBtn2.click() })
+      const nextBtn3 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next: Profit Margin"))
+      await act(async () => { nextBtn3.click() })
+      const nextBtn4 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Save & Finish"))
+      await act(async () => { nextBtn4.click() })
+
+      expect(container.textContent).toContain("You're all set!")
+
+      // Click "Take Your First Order"
+      const takeOrderBtn = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Take Your First Order"))
+      expect(takeOrderBtn).toBeDefined()
+      await act(async () => {
+        takeOrderBtn.click()
+      })
+
+      expect(mockOnComplete).toHaveBeenCalledWith("calculator")
+      expect(mockSetView).toHaveBeenCalledWith("calculator")
+    })
+
+    test("navigates to dashboard when clicking 'Go to Dashboard'", async () => {
+      const mockSetView = jest.fn()
+      mockOnComplete.mockResolvedValueOnce(true)
+
+      await act(async () => {
+        root.render(
+          <Onboarding
+            gold="#C89D46"
+            company={mockCompany}
+            setCompany={mockSetCompany}
+            inventory={mockInventory}
+            setInventory={mockSetInventory}
+            recipes={mockRecipes}
+            setRecipes={mockSetRecipes}
+            settings={mockSettings}
+            setSettings={mockSetSettings}
+            onComplete={mockOnComplete}
+            setView={mockSetView}
+          />
+        )
+      })
+
+      // Advance through steps to Step 5
+      const nextBtn1 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next: Set Up Opening Stock"))
+      await act(async () => { nextBtn1.click() })
+      const nextBtn2 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next Step"))
+      await act(async () => { nextBtn2.click() })
+      const nextBtn3 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next: Profit Margin"))
+      await act(async () => { nextBtn3.click() })
+      const nextBtn4 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Save & Finish"))
+      await act(async () => { nextBtn4.click() })
+
+      expect(container.textContent).toContain("You're all set!")
+
+      // Click "Go to Dashboard"
+      const dashboardBtn = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Go to Dashboard"))
+      expect(dashboardBtn).toBeDefined()
+      await act(async () => {
+        dashboardBtn.click()
+      })
+
+      expect(mockOnComplete).toHaveBeenCalledWith("dashboard")
+      expect(mockSetView).toHaveBeenCalledWith("dashboard")
+    })
   })
 })

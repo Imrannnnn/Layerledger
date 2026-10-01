@@ -17,17 +17,24 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
   const todayStr = today.toISOString().slice(0, 10)
   const currentMonthStr = today.toISOString().slice(0, 7)
 
-  // Onboarding status & skipped popup
-  const isSetupPending = (
+  // Onboarding status: strictly check if user has completed onboarding
+  const isUserOnboarded = Boolean(
+    onboarded === true ||
+    user?.isOnboarded === true ||
+    tenantInfo?.settings?.onboarded === true ||
+    loadLocal("ll_onboarded", "0") === "1" ||
+    (typeof sessionStorage !== "undefined" && (sessionStorage.getItem("ll_onboarded") === "1" || sessionStorage.getItem("ll_onboarding_completed") === "1"))
+  )
+
+  const isSetupPending = !isUserOnboarded && Boolean(
     (typeof onboarded === "boolean" && !onboarded) ||
     onboardingSkipped ||
     loadLocal("ll_onboarding_skipped", "0") === "1" ||
-    loadLocal("ll_onboarded", "0") !== "1" ||
     (tenantInfo?.settings && tenantInfo.settings.onboarded === false)
   )
 
   const [showSkippedModal, setShowSkippedModal] = useState(() => {
-    if (!isSetupPending) return false
+    if (isUserOnboarded || !isSetupPending) return false
     try {
       if (sessionStorage.getItem("ll_dismiss_onboarding_prompt") === "1") return false
     } catch {}
@@ -162,7 +169,7 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
   }
 
   // - Onboarding / Setup Incomplete smart notification
-  if (isSetupPending) {
+  if (!isUserOnboarded && isSetupPending) {
     notifications.unshift({
       id: "setup_incomplete",
       type: "warning",
@@ -177,7 +184,7 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
   return (
     <div>
       {/* Onboarding Skipped Popup Modal */}
-      {showSkippedModal && isSetupPending && (
+      {!isUserOnboarded && showSkippedModal && isSetupPending && (
         <div style={{
           position: "fixed",
           inset: 0,
@@ -281,7 +288,7 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
       </div>
 
       {/* Onboarding Incomplete Banner for Skipped Users */}
-      {isSetupPending && (
+      {!isUserOnboarded && isSetupPending && (
         <div style={{
           marginBottom: 16,
           background: "linear-gradient(135deg, #FFF9EE, #FAF1DC)",
@@ -472,29 +479,31 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
               </div>
             </div>
 
-            {/* Setup Wizard Action Button */}
-            <div
-              onClick={() => setView("onboarding")}
-              style={{
-                cursor: "pointer",
-                background: isSetupPending ? "#FFF9EE" : "#F8F3EA",
-                border: isSetupPending ? "1px solid var(--gold)" : "1px solid var(--border)",
-                borderRadius: 10,
-                padding: "12px 14px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                transition: "transform 0.15s ease"
-              }}
-              onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"}
-              onMouseLeave={e => e.currentTarget.style.transform = "none"}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Sparkles size={16} color="var(--gold)" style={{ flexShrink: 0 }} />
-                <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text)" }}>Setup Wizard (Onboarding)</span>
+            {/* Setup Wizard Action Button - only shown if user has not completed onboarding */}
+            {!isUserOnboarded && (
+              <div
+                onClick={() => setView("onboarding")}
+                style={{
+                  cursor: "pointer",
+                  background: isSetupPending ? "#FFF9EE" : "#F8F3EA",
+                  border: isSetupPending ? "1px solid var(--gold)" : "1px solid var(--border)",
+                  borderRadius: 10,
+                  padding: "12px 14px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  transition: "transform 0.15s ease"
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"}
+                onMouseLeave={e => e.currentTarget.style.transform = "none"}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Sparkles size={16} color="var(--gold)" style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text)" }}>Setup Wizard (Onboarding)</span>
+                </div>
+                {isSetupPending ? <Badge color="gold">Incomplete</Badge> : <span style={{ fontSize: 11, color: "var(--muted)" }}>Launch →</span>}
               </div>
-              {isSetupPending ? <Badge color="gold">Incomplete</Badge> : <span style={{ fontSize: 11, color: "var(--muted)" }}>Launch →</span>}
-            </div>
+            )}
 
             {/* Grid of secondary actions */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>

@@ -31,7 +31,7 @@ import {
   loadTransactions, saveTxns, loadExpenses, saveExpenses, loadSetting, saveSetting,
   loadCompany, saveCompany, loadInvoices, saveInvoice, loadUsers, saveUsers,
   loadRecipes, saveRecipes, syncToBackend, syncFromBackend, loadTenantInfo, logout, loadLocal, saveLocal, clearTempCalculatorState,
-  loadDashboardFromLogin, fetchPageDataOnDemand, completeOnboardingOnServer, clearAllLocalState
+  loadDashboardFromLogin, fetchPageDataOnDemand, completeOnboardingOnServer, clearAllLocalState, saveMemoryAndStorageOnly
 } from "./lib/data.js"
 
 // ─── Seed data & helpers ────────────────────────────────────────────────────
@@ -219,6 +219,7 @@ export default function App() {
   const [planLimitModalOpen, setPlanLimitModalOpen] = useState(false)
   const [planLimitData, setPlanLimitData] = useState({})
   const [settingsTab, setSettingsTab] = useState("company")
+  const lastSyncedUserIdRef = useRef(null)
 
   useEffect(() => {
     const onInsufficient = (e) => {
@@ -288,8 +289,20 @@ export default function App() {
       if (recs) setRecipes(recs)
       setUsers(loadUsers()); setCompany(loadCompany())
       setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) })
-      setOnboarded(loadLocal("ll_onboarded", "0") === "1")
+
+      const isLocallyOnboarded = (
+        loadLocal("ll_onboarded", "0") === "1" ||
+        (typeof sessionStorage !== "undefined" && (sessionStorage.getItem("ll_onboarded") === "1" || sessionStorage.getItem("ll_onboarding_completed") === "1")) ||
+        Boolean(currentUser?.isOnboarded)
+      )
+      setOnboarded(isLocallyOnboarded)
       setOnboardingSkipped(loadLocal("ll_onboarding_skipped", "0") === "1")
+
+      const userId = currentUser.id || currentUser.email || "auth"
+      if (lastSyncedUserIdRef.current === userId && isLocallyOnboarded) {
+        return
+      }
+      lastSyncedUserIdRef.current = userId
 
       // Silently pull fresh database records on startup in background without blocking UI
       syncFromBackend().then(() => {
@@ -304,7 +317,13 @@ export default function App() {
         setUsers(loadUsers())
         setCompany(loadCompany())
         setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) })
-        setOnboarded(loadLocal("ll_onboarded", "0") === "1")
+
+        const isStillOnboarded = (
+          loadLocal("ll_onboarded", "0") === "1" ||
+          (typeof sessionStorage !== "undefined" && (sessionStorage.getItem("ll_onboarded") === "1" || sessionStorage.getItem("ll_onboarding_completed") === "1")) ||
+          Boolean(currentUser?.isOnboarded)
+        )
+        setOnboarded(isStillOnboarded)
         setOnboardingSkipped(loadLocal("ll_onboarding_skipped", "0") === "1")
       }).catch(err => {
         console.warn("Silent background startup sync notice:", err)
@@ -312,7 +331,7 @@ export default function App() {
     }
     init()
     return () => { isMounted = false }
-  }, [currentUser])
+  }, [currentUser?.id, currentUser?.email])
 
   // Handle Paystack redirect after hosted checkout
   useEffect(() => {
@@ -457,32 +476,37 @@ export default function App() {
     }
   }, [])
 
-  const handleExitOnboarding = useCallback(async (targetView) => {
-    try {
-      await syncToBackend();
-    } catch (syncErr) {
-      console.warn("Onboarding sync warning:", syncErr);
-    }
+  const handleExitOnboarding = useCallback((targetView) => {
+    const dest = targetView === "calculator" ? "calculator" : "dashboard";
 
+    // 1. Immediately update storage and memory flags
+    saveMemoryAndStorageOnly("ll_onboarded", "1");
+    saveMemoryAndStorageOnly("ll_onboarding_skipped", "0");
     try {
-      await completeOnboardingOnServer();
-    } catch (serverErr) {
-      console.warn("Complete onboarding server notice:", serverErr);
-    }
-
-    await saveLocal("ll_onboarded", "1");
-    try {
+      sessionStorage.setItem("ll_onboarded", "1");
+      sessionStorage.setItem("ll_onboarding_completed", "1");
+      sessionStorage.setItem("ll_dismiss_onboarding_prompt", "1");
       sessionStorage.removeItem("ll_onboarding_skipped");
+      sessionStorage.setItem("ll_active_view", dest);
     } catch {}
-    await saveLocal("ll_onboarding_skipped", "0");
-    setOnboardingSkipped(false);
+
+    // 2. Immediately update state so Onboarding unmounts and target screen displays
     setOnboarded(true);
+    setOnboardingSkipped(false);
+    setHasOnboardingParam(false);
+    goTo(dest);
+    setViewWithSync(dest);
+
+    // 3. Update current user
     if (currentUser) {
       const normalizedUser = { ...currentUser, isNewRegistration: false, isOnboarded: true };
-      sessionStorage.setItem("ll_current_user", JSON.stringify(normalizedUser));
+      try {
+        sessionStorage.setItem("ll_current_user", JSON.stringify(normalizedUser));
+      } catch {}
       setCurrentUser(normalizedUser);
     }
-    setHasOnboardingParam(false);
+
+    // 4. Clean up URL
     try {
       if (window.history.replaceState) {
         const url = new URL(window.location.href);
@@ -492,8 +516,13 @@ export default function App() {
     } catch {
       // Safe URL history fallback
     }
-    if (targetView) setViewWithSync(targetView);
-    else setViewWithSync("dashboard");
+
+    // 5. Asynchronously persist to backend without blocking the user
+    Promise.all([
+      saveLocal("ll_onboarded", "1").catch(() => {}),
+      completeOnboardingOnServer().catch(err => console.warn("completeOnboardingOnServer notice:", err)),
+      syncToBackend().catch(err => console.warn("syncToBackend notice:", err))
+    ]).catch(() => {});
   }, [currentUser, setViewWithSync]);
 
   const handleSkipOnboarding = useCallback(async () => {
