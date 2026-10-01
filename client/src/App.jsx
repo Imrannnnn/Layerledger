@@ -461,13 +461,13 @@ export default function App() {
     try {
       await syncToBackend();
     } catch (syncErr) {
-      console.error("Onboarding sync error:", syncErr);
-      throw syncErr;
+      console.warn("Onboarding sync warning:", syncErr);
     }
 
-    const success = await completeOnboardingOnServer();
-    if (!success) {
-      throw new Error("Unable to complete onboarding on server. Please check your connection and try again.");
+    try {
+      await completeOnboardingOnServer();
+    } catch (serverErr) {
+      console.warn("Complete onboarding server notice:", serverErr);
     }
 
     await saveLocal("ll_onboarded", "1");
@@ -673,12 +673,12 @@ export default function App() {
           setRecipes={setRecipes}
           settings={settings}
           setSettings={setSettings}
-          onComplete={() => handleExitOnboarding("calculator")}
+          onComplete={target => handleExitOnboarding(target || "calculator")}
           onSkip={() => handleSkipOnboarding()}
           onBack={() => handleSkipOnboarding()}
           setView={v => {
             if (v === "calculator") handleExitOnboarding("calculator");
-            else if (v === "dashboard") handleSkipOnboarding();
+            else if (v === "dashboard") handleExitOnboarding("dashboard");
             else setViewWithSync(v);
           }}
         />
@@ -857,7 +857,7 @@ export default function App() {
                   setRecipes={setRecipes}
                   settings={settings}
                   setSettings={setSettings}
-                  onComplete={() => handleExitOnboarding("calculator")}
+                  onComplete={target => handleExitOnboarding(target || "calculator")}
                   onSkip={() => handleSkipOnboarding()}
                   onBack={() => setViewWithSync("dashboard")}
                   setView={v => {

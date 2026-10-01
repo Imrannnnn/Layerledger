@@ -422,7 +422,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
       console.error("Finish onboarding error:", finishErr)
       const formatted = formatApiError(finishErr, { title: "Unable to complete onboarding" })
       setOnboardingError(formatted)
-      if (formatted.step && formatted.step !== step) {
+      if (formatted.step && (formatted.step === 2 || formatted.step === 3)) {
         setStep(formatted.step)
       }
     } finally {

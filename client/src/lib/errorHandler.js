@@ -106,7 +106,7 @@ export function parseValidationMessage(rawMessage, errorsArray = []) {
   }
 
   // Pattern 5: Company/Business details
-  if (/(?:company\.)?name|business name/i.test(rawMessage)) {
+  if (/(?:(?:^|\b)(?:company|business|bakery)\b.*\bname\b)|(?:body\.name\b)/i.test(rawMessage)) {
     return {
       field: "name",
       fieldIndex: null,

@@ -2075,9 +2075,9 @@ export const clearTempCalculatorState = () => {
 
 export const completeOnboardingOnServer = async () => {
   const headers = getAuthHeaders()
-  if (!headers) throw new Error("You must be logged in to complete onboarding.")
+  if (!headers) return false
   const apiUrl = import.meta.env.VITE_API_URL
-  if (!apiUrl) throw new Error("API URL is not configured.")
+  if (!apiUrl) return false
   try {
     const res = await fetch(`${apiUrl}/api/tenant/complete-onboarding`, {
       method: "POST",
@@ -2089,16 +2089,11 @@ export const completeOnboardingOnServer = async () => {
       return true
     }
     const errJson = await res.json().catch(() => ({}))
-    const errorMsg = errJson.message || `Server failed to complete onboarding (${res.status})`
-    const formatted = formatApiError(errJson.message ? errJson : errorMsg, {
-      title: "Unable to complete onboarding"
-    })
-    const err = new Error(formatted.displayMessage)
-    err.formatted = formatted
-    throw err
+    console.warn("Failed to complete onboarding on server:", res.status, errJson)
+    return false
   } catch (err) {
-    console.error("Failed to complete onboarding on server:", err)
-    throw err
+    console.warn("completeOnboardingOnServer network error:", err)
+    return false
   }
 }
 
