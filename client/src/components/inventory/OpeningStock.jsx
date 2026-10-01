@@ -64,8 +64,8 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
 
   // Fetch opening stock from PostgreSQL / Neon backend
   const syncAndRefresh = useCallback(async (force = false) => {
-    // If already loaded in this session and not forced, keep loaded data instantly without loading again
-    if (!force && sessionSyncedMonths.has(currentMonthStr)) {
+    // If already loaded in this session with data and not forced, keep loaded data instantly without loading again
+    if (!force && sessionSyncedMonths.has(currentMonthStr) && items.length > 0) {
       if (typeof isOpeningStockLocked === "function" && isOpeningStockLocked(currentMonthStr)) {
         setSaved(true)
       }
@@ -107,7 +107,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [currentMonthStr])
+  }, [currentMonthStr, items.length])
 
   useEffect(() => {
     syncAndRefresh(false)
@@ -220,7 +220,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
             id: targetItem.itemId || targetItem.id || uid(),
             name: targetItem.name,
             cat: "Dry Goods",
-            unit: targetItem.unit || "kg",
+            unit: targetItem.unit || "g",
             cost: targetItem.cost === "" || targetItem.cost === undefined ? 0 : (parseFloat(targetItem.cost) || 0),
             stock: qtyVal,
             minStock: 5
@@ -275,7 +275,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
             id: targetItem.itemId || targetItem.id || uid(),
             name: targetItem.name,
             cat: "Dry Goods",
-            unit: targetItem.unit || "kg",
+            unit: targetItem.unit || "g",
             cost: costVal,
             stock: rawQty === "" || rawQty === undefined ? 0 : (parseFloat(rawQty) || 0),
             minStock: 5
@@ -324,7 +324,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
             id: targetItem.itemId || targetItem.id || uid(),
             name: targetItem.name,
             cat: "Dry Goods",
-            unit: val || "kg",
+            unit: val || "g",
             cost: targetItem.cost === "" || targetItem.cost === undefined ? 0 : (parseFloat(targetItem.cost) || 0),
             stock: rawQty === "" || rawQty === undefined ? 0 : (parseFloat(rawQty) || 0),
             minStock: 5
@@ -614,7 +614,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
               id: updatedItems[idx].itemId || updatedItems[idx].id || uid(),
               name: app.name,
               cat: "Dry Goods",
-              unit: app.unit || "kg",
+              unit: app.unit || "g",
               cost: app.cost || 0,
               stock: app.openingQty || 0,
               minStock: 5
@@ -643,7 +643,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
               id: newId,
               name: app.name,
               cat: "Dry Goods",
-              unit: app.unit || "kg",
+              unit: app.unit || "g",
               cost: app.cost || 0,
               stock: app.openingQty || 0,
               minStock: 5
@@ -869,7 +869,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                             style={{ ...iSt, width: 75, padding: "4px 8px", fontSize: 12 }}
                           />
                         ) : (
-                          <span style={{ color: "var(--muted)" }}>{item.unit || "kg"}</span>
+                          <span style={{ color: "var(--muted)" }}>{item.unit || "g"}</span>
                         )}
                       </td>
                       <td style={{ padding: "10px 16px" }}>
@@ -1103,6 +1103,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                       placeholder={"g\nml\nm\nkg"}
                       style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
                     />
+                    <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default gram(g) millimeter (m)</div>
                   </div>
                   <div>
                     <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>

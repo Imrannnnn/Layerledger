@@ -240,7 +240,7 @@ const bulkSyncOpeningStock = asyncHandler(async (req, res) => {
                             tenantId,
                             name: trimmedName,
                             category: 'Dry Goods',
-                            unit: it.unit || 'kg',
+                            unit: it.unit || 'g',
                             cost: numCost,
                             stock: numQty,
                             totalValueOnHand: numCost * numQty,

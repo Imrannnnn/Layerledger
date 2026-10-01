@@ -124,6 +124,21 @@ const createItem = asyncHandler(async (req, res) => {
             }
         });
 
+        // Ensure newly created item is tracked in opening stock for the current month
+        const currentMonthStr = new Date().toISOString().slice(0, 7);
+        await tx.openingStock.create({
+            data: {
+                tenantId,
+                itemId: newItem.id,
+                name: newItem.name,
+                unit: newItem.unit || 'g',
+                cost: parsedCost,
+                openingQty: parsedStock,
+                month: currentMonthStr,
+                locked: false
+            }
+        });
+
         return newItem;
     });
 
@@ -386,6 +401,11 @@ const deleteOpeningStock = asyncHandler(async (req, res) => {
         // Clear opening balance history entries
         await tx.inventoryHistory.deleteMany({
             where: { tenantId, type: 'OPENING_BALANCE' }
+        });
+
+        // Delete all opening stock records from database table
+        await tx.openingStock.deleteMany({
+            where: { tenantId }
         });
 
         // Update tenant settings directly in DB

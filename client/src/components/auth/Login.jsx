@@ -8,6 +8,7 @@
 import React, { useState } from "react"
 import { Mail, CheckCircle2, ArrowRight } from "lucide-react"
 import { Btn, Inp, Card, Alert } from "../common/ui.jsx"
+import { clearAllLocalState } from "../../lib/data.js"
 
 export function Login({ onLogin, initialError = "", initialTab = "login", onBackToHome }) {
   const [tab, setTab] = useState(initialTab || "login") // "login" | "register" | "activation_sent"
@@ -91,6 +92,7 @@ export function Login({ onLogin, initialError = "", initialTab = "login", onBack
       if (tenantType === "organization" && !companyName) {
         return setErr("Please enter your organization name")
       }
+      clearAllLocalState()
       setLoading(true)
       setErr("")
       setResendSuccess("")

@@ -220,10 +220,7 @@ const load = (key, fallback) => {
   if (typeof window !== "undefined" && window.localStorage) {
     try {
       const sKey = getStorageKey(key)
-      let stored = window.localStorage.getItem(sKey)
-      if ((stored === null || stored === undefined) && sKey !== key && !getCurrentTenantId()) {
-        stored = window.localStorage.getItem(key)
-      }
+      const stored = window.localStorage.getItem(sKey)
       if (stored !== null && stored !== undefined) {
         try {
           const parsed = JSON.parse(stored)
@@ -2170,13 +2167,18 @@ export const clearAllLocalState = () => {
   })
   try {
     if (typeof sessionStorage !== "undefined") {
-      const sKeys = []
+      const sKeys = new Set()
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i)
-        if (key && (key.startsWith("ll_") || key.includes("onboarded"))) {
-          sKeys.push(key)
+        if (key && (key.startsWith("ll_") || key.includes("onboarded") || key.includes("opening_stock") || key.includes("_os_"))) {
+          sKeys.add(key)
         }
       }
+      Object.keys(sessionStorage).forEach(k => {
+        if (k && (k.startsWith("ll_") || k.includes("onboarded") || k.includes("opening_stock") || k.includes("_os_"))) {
+          sKeys.add(k)
+        }
+      })
       sKeys.forEach(k => sessionStorage.removeItem(k))
     }
   } catch (e) {
@@ -2184,14 +2186,20 @@ export const clearAllLocalState = () => {
   }
   try {
     if (typeof localStorage !== "undefined") {
-      const lKeys = []
+      const lKeys = new Set()
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i)
-        if (key && (key.startsWith("ll_") || key.includes("onboarded"))) {
-          lKeys.push(key)
+        if (key && (key.startsWith("ll_") || key.includes("onboarded") || key.includes("opening_stock") || key.includes("_os_"))) {
+          lKeys.add(key)
         }
       }
+      Object.keys(localStorage).forEach(k => {
+        if (k && (k.startsWith("ll_") || k.includes("onboarded") || k.includes("opening_stock") || k.includes("_os_"))) {
+          lKeys.add(k)
+        }
+      })
       lKeys.forEach(k => localStorage.removeItem(k))
+      localStorage.setItem("ll_os_migrated", "true")
     }
   } catch (e) {
     // Ignore
@@ -3495,7 +3503,7 @@ export const fetchOpeningStockFromServer = async (month) => {
       }))
 
       // Merge any items from inventory that aren't yet in server opening stock
-      const inv = cache["ll_inv"] || (typeof window !== "undefined" && window.localStorage ? JSON.parse(window.localStorage.getItem("ll_inv") || "[]") : [])
+      const inv = cache["ll_inv"] || load("ll_inv", [])
       if (Array.isArray(inv) && inv.length > 0) {
         const existingIds = new Set(items.map(it => (it.itemId || it.id || "").toLowerCase()).filter(Boolean))
         const existingNames = new Set(items.map(it => (it.name || "").trim().toLowerCase()).filter(Boolean))
@@ -3601,124 +3609,33 @@ export const saveOpeningStock = async (items, month, locked) => {
  */
 export const migrateLocalStorageOpeningStockToDatabase = async () => {
   if (typeof window === "undefined" || !window.localStorage) return true
-  const isMigrated = localStorage.getItem("ll_os_migrated")
-  if (isMigrated === "true") return true
-
-  const headers = getAuthHeaders()
-  const apiUrl = import.meta.env.VITE_API_URL
-  if (!headers || !apiUrl) return false
-
   try {
-    const currentMonthStr = new Date().toISOString().slice(0, 7)
-    const osEntries = new Map() // month -> { items: [], locked: boolean }
-
-    const parseOS = (raw) => {
-      if (!raw) return null
-      try {
-        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw
-        if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
-          return { items: parsed.items, locked: !!parsed.locked, month: parsed.month }
-        }
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return { items: parsed, locked: false, month: currentMonthStr }
-        }
-      } catch {
-        // Ignore invalid JSON / corrupted cache
-      }
-      return null
-    }
-
-    // Inspect localStorage
+    localStorage.removeItem("ll_opening_stock")
+    const keysToRemove = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (!key) continue
-      if (key === "ll_opening_stock" || (key.startsWith("ll_os_") && key !== "ll_os_migrated")) {
-        const parsed = parseOS(localStorage.getItem(key))
-        if (parsed) {
-          const m = (key.startsWith("ll_os_") ? key.replace("ll_os_", "") : parsed.month) || currentMonthStr
-          if (!osEntries.has(m)) {
-            osEntries.set(m, parsed)
-          }
-        }
+      if (key && (key.startsWith("ll_os_") && key !== "ll_os_migrated")) {
+        keysToRemove.push(key)
       }
     }
+    keysToRemove.forEach(k => localStorage.removeItem(k))
 
-    // Inspect sessionStorage
-    if (window.sessionStorage) {
-      for (let i = 0; i < sessionStorage.length; i++) {
-        const key = sessionStorage.key(i)
-        if (!key) continue
-        if (key === "ll_opening_stock" || (key.startsWith("ll_os_") && key !== "ll_os_migrated")) {
-          const parsed = parseOS(sessionStorage.getItem(key))
-          if (parsed) {
-            const m = (key.startsWith("ll_os_") ? key.replace("ll_os_", "") : parsed.month) || currentMonthStr
-            if (!osEntries.has(m)) {
-              osEntries.set(m, parsed)
-            }
-          }
-        }
-      }
-    }
-
-    // If nothing to migrate, mark flag and finish
-    if (osEntries.size === 0) {
-      localStorage.setItem("ll_os_migrated", "true")
-      return true
-    }
-
-    // Process each month: check DB first to avoid duplicate records
-    for (const [month, data] of osEntries.entries()) {
-      let alreadyInDb = false
-      try {
-        const checkRes = await fetch(`${apiUrl}/api/opening-stock?month=${encodeURIComponent(month)}`, { headers })
-        if (checkRes.ok) {
-          const existing = await checkRes.json()
-          if (Array.isArray(existing) && existing.length > 0) {
-            alreadyInDb = true
-          }
-        }
-      } catch (err) {
-        console.warn("Migration DB check error for month", month, err)
-      }
-
-      if (!alreadyInDb && data.items.length > 0) {
-        const uploadRes = await fetch(`${apiUrl}/api/opening-stock/bulk`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            month,
-            items: data.items,
-            locked: !!data.locked
-          })
-        })
-        if (!uploadRes.ok) {
-          console.warn("Migration upload failed for month", month)
-          return false
-        }
-      }
-    }
-
-    // Once successfully verified, purge local storage
-    localStorage.removeItem("ll_opening_stock")
-    Object.keys(localStorage).forEach(k => {
-      if (k.startsWith("ll_os_") && k !== "ll_os_migrated") {
-        localStorage.removeItem(k)
-      }
-    })
     if (window.sessionStorage) {
       sessionStorage.removeItem("ll_opening_stock")
-      Object.keys(sessionStorage).forEach(k => {
-        if (k.startsWith("ll_os_") && k !== "ll_os_migrated") {
-          sessionStorage.removeItem(k)
+      const sKeysToRemove = []
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key && (key.startsWith("ll_os_") && key !== "ll_os_migrated")) {
+          sKeysToRemove.push(key)
         }
-      })
+      }
+      sKeysToRemove.forEach(k => sessionStorage.removeItem(k))
     }
     localStorage.setItem("ll_os_migrated", "true")
-    return true
   } catch (e) {
     console.warn("migrateLocalStorageOpeningStockToDatabase notice:", e)
-    return false
   }
+  return true
 }
 
 // Pricing & Multipliers (PostgreSQL / Neon is Single Source of Truth)

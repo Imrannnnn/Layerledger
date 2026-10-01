@@ -397,10 +397,16 @@ export default function App() {
         try { sessionStorage.removeItem("ll_onboarding_skipped") } catch {}
         await saveLocal("ll_onboarding_skipped", "0")
 
+        setInventory([])
+        setRecipes([])
+        setProductions([])
+        setTransactions([])
+        setExpenses([])
+
         try {
           await syncFromBackend()
           setTenantInfo(loadTenantInfo())
-          setInventory(loadInventory(DEFAULT_INV))
+          setInventory(loadInventory([]))
           setProductions(loadProductions([]))
           setTransactions(loadTransactions([]))
           setExpenses(loadExpenses([]))
@@ -628,10 +634,16 @@ export default function App() {
               try { sessionStorage.removeItem("ll_onboarding_skipped") } catch {}
               await saveLocal("ll_onboarding_skipped", "0");
 
+              setInventory([]);
+              setRecipes([]);
+              setProductions([]);
+              setTransactions([]);
+              setExpenses([]);
+
               try {
                 await syncFromBackend();
                 setTenantInfo(loadTenantInfo());
-                setInventory(loadInventory(DEFAULT_INV));
+                setInventory(loadInventory([]));
                 setProductions(loadProductions([]));
                 setTransactions(loadTransactions([]));
                 setExpenses(loadExpenses([]));
