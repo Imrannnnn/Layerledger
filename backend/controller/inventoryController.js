@@ -124,21 +124,6 @@ const createItem = asyncHandler(async (req, res) => {
             }
         });
 
-        // Ensure newly created item is tracked in opening stock for the current month
-        const currentMonthStr = new Date().toISOString().slice(0, 7);
-        await tx.openingStock.create({
-            data: {
-                tenantId,
-                itemId: newItem.id,
-                name: newItem.name,
-                unit: newItem.unit || 'g',
-                cost: parsedCost,
-                openingQty: parsedStock,
-                month: currentMonthStr,
-                locked: false
-            }
-        });
-
         return newItem;
     });
 

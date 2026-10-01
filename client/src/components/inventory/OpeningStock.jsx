@@ -121,11 +121,11 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   useEffect(() => {
     if (!Array.isArray(inventory) || inventory.length === 0) return
     setItems(prevItems => {
-      if (!Array.isArray(prevItems) || prevItems.length === 0) return prevItems
-      const existingIds = new Set(prevItems.map(it => (it.itemId || it.id || "").toLowerCase()).filter(Boolean))
-      const existingNames = new Set(prevItems.map(it => (it.name || "").trim().toLowerCase()).filter(Boolean))
+      const currentList = Array.isArray(prevItems) ? prevItems : []
+      const existingIds = new Set(currentList.map(it => (it.itemId || it.id || "").toLowerCase()).filter(Boolean))
+      const existingNames = new Set(currentList.map(it => (it.name || "").trim().toLowerCase()).filter(Boolean))
       let added = false
-      const merged = [...prevItems]
+      const merged = [...currentList]
       inventory.forEach(invItem => {
         if (!invItem || !invItem.name) return
         const idMatch = invItem.id && (existingIds.has(invItem.id.toLowerCase()) || existingIds.has(("os_" + invItem.id).toLowerCase()))
@@ -140,6 +140,8 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
             openingQty: invItem.stock === "" || invItem.stock === undefined ? 0 : (parseFloat(invItem.stock) || 0),
             locked: saved
           })
+          existingNames.add((invItem.name || "").trim().toLowerCase())
+          if (invItem.id) existingIds.add(invItem.id.toLowerCase())
           added = true
         }
       })

@@ -66,7 +66,18 @@ const getOpeningStock = asyncHandler(async (req, res) => {
         return isMonthLocked ? { ...it, locked: true } : it;
     });
 
-    res.json(enrichedItems);
+    // Deduplicate by item name so multiple rows for the same item never repeat in the UI
+    const seenNames = new Set();
+    const uniqueItems = [];
+    for (const it of enrichedItems) {
+        const key = (it.name || '').trim().toLowerCase();
+        if (!seenNames.has(key)) {
+            seenNames.add(key);
+            uniqueItems.push(it);
+        }
+    }
+
+    res.json(uniqueItems);
 });
 
 /**
@@ -208,7 +219,16 @@ const bulkSyncOpeningStock = asyncHandler(async (req, res) => {
 
         // Insert new opening stock rows and feed to inventory
         if (items.length > 0) {
-            const validItems = items.filter(it => it && it.name && it.name.trim());
+            const rawValid = items.filter(it => it && it.name && it.name.trim());
+            const seenKeys = new Set();
+            const validItems = [];
+            for (const it of rawValid) {
+                const norm = it.name.trim().toLowerCase();
+                if (!seenKeys.has(norm)) {
+                    seenKeys.add(norm);
+                    validItems.push(it);
+                }
+            }
             const createData = [];
 
             for (const it of validItems) {
