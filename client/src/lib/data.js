@@ -192,7 +192,9 @@ export const getCurrentTenantId = () => {
     if (cache["ll_tenant_info"] && cache["ll_tenant_info"].id) {
       return cache["ll_tenant_info"].id
     }
-  } catch {}
+  } catch {
+    // Non-fatal tenant id lookup fallback
+  }
   return null
 }
 
@@ -488,7 +490,9 @@ const syncTenantSettingsOnly = async (headers) => {
             if (coObj.phone) updatedContactPhone = coObj.phone
             if (coObj.logo) updatedLogoUrl = coObj.logo
           }
-        } catch {}
+        } catch {
+          // Ignore JSON parse error on malformed ll_co
+        }
       }
       const updatedSettings = {
         ...(tenant.settings || {}),
@@ -2653,7 +2657,9 @@ export const loadCompany = () => {
         fallbackName = u.tenant?.name || u.companyName || u.businessName || ""
       }
     }
-  } catch {}
+  } catch {
+    // Session storage parse fallback
+  }
   if (!fallbackName) fallbackName = "BakeWealth Workspace"
 
   return load("ll_co", {

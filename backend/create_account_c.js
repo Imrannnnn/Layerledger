@@ -13,6 +13,7 @@ async function main() {
     })
   });
   const data = await res.json();
+  if (!res.ok) console.error('Registration response:', data);
   const user = await prisma.user.findFirst({ where: { email } });
   console.log('ACCOUNT_C_EMAIL=' + email);
   console.log('ACCOUNT_C_TOKEN=' + user.activationToken);

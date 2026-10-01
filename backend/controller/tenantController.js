@@ -84,7 +84,9 @@ const getTenantDetails = asyncHandler(async (req, res) => {
                     });
                 }
             }
-        } catch {}
+        } catch {
+            // Non-fatal sync notice ignored
+        }
     }
 
     const enrichedTenant = {
@@ -154,7 +156,9 @@ const updateTenantDetails = asyncHandler(async (req, res) => {
 
                 mergedSettings.appConfig.ll_co = JSON.stringify(coObj);
             }
-        } catch {}
+        } catch {
+            // Malformed JSON parse notice ignored
+        }
     } else {
         // If appConfig.ll_co does not exist yet, initialize it persistently
         mergedSettings.appConfig = mergedSettings.appConfig || {};
@@ -364,7 +368,9 @@ const getTenantBootstrap = asyncHandler(async (req, res) => {
                     });
                 }
             }
-        } catch {}
+        } catch {
+            // Non-fatal sync notice ignored
+        }
     }
 
     const enrichedTenant = {
