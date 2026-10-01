@@ -5,6 +5,7 @@ const updateTenantSchema = z.object({
         name: z.string().trim().min(1, 'Tenant name cannot be empty').optional(),
         contactEmail: z.string().trim().toLowerCase().email('Invalid email address').optional().or(z.literal('')),
         contactPhone: z.string().optional(),
+        logoUrl: z.string().optional(),
         settings: z.any().optional()
     })
 });

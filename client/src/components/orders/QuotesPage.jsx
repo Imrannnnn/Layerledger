@@ -958,7 +958,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               + "var CLIENT='" + (q.clientName || '').replace(/'/g, '') + "';"
                               + "var PHONE='" + ((q.clientPhone || '').replace(/[^0-9]/g, '').replace(/^0/, '234')) + "';"
                               + "var AMT='" + ((q.grandTotal || ((q.salePrice || q.quotePrice || 0) + (q.deliveryCharge || 0) + (q.vatAmount || 0))).toLocaleString()) + "';"
-                              + "var BIZ='" + (co.name || 'Fayvouree Cakes').replace(/'/g, '') + "';"
+                              + "var BIZ='" + (co.name || 'BakeWealth').replace(/'/g, '') + "';"
                               + "async function makePDF(){var el=document.getElementById('invoice-body');var canvas=await html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true});var img=canvas.toDataURL('image/jpeg',0.92);var pdf=new jspdf.jsPDF('p','mm','a4');var pw=pdf.internal.pageSize.getWidth();var ph=pdf.internal.pageSize.getHeight();var imgH=canvas.height*pw/canvas.width;pdf.addImage(img,'JPEG',0,0,pw,imgH);var left=imgH-ph;while(left>0){pdf.addPage();pdf.addImage(img,'JPEG',0,left-imgH,pw,imgH);left-=ph;}return pdf;}"
                               + "document.getElementById('shareBtn').onclick=async function(){var btn=this;btn.textContent='Preparing...';btn.disabled=true;try{var pdf=await makePDF();var blob=pdf.output('blob');var file=new File([blob],INV_NUM+'.pdf',{type:'application/pdf'});var msg='Hello '+CLIENT+'! Your invoice '+INV_NUM+' for ₦'+AMT+' is attached. Thank you for choosing '+BIZ+'!';if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:INV_NUM,text:msg});btn.textContent='Shared';}else{pdf.save(INV_NUM+'.pdf');var wa=PHONE?('https://wa.me/'+PHONE+'?text='+encodeURIComponent(msg)):('https://wa.me/?text='+encodeURIComponent(msg));window.open(wa,'_blank');document.getElementById('shareHelp').innerHTML='PDF downloaded and WhatsApp opened. Attach the downloaded PDF in the chat.';btn.textContent='Share Invoice';btn.disabled=false;}}catch(e){if(e.name!=='AbortError'){document.getElementById('shareHelp').innerHTML='Could not auto-share. Tap Save as PDF then attach it in WhatsApp.';}btn.textContent='Share Invoice';btn.disabled=false;}};"
                               + "</scr" + "ipt>"
@@ -994,7 +994,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                               bankName: co.bankName || "", 
                               bankAccount: co.bankAccount || "", 
                               bankAccountName: co.bankAccountName || "", 
-                              businessName: co.name || "Fayvouree Cakes" 
+                              businessName: co.name || "BakeWealth" 
                             }
                             const existing = loadLocal("ll_quote_invoices", [])
                             if (!existing.find(i => i.id === invoiceNum)) { await saveLocal("ll_quote_invoices", [savedInv, ...existing]) }

@@ -13,7 +13,7 @@ import { saveCompany, saveSetting, saveInventory, saveRecipes, saveLocal, loadLo
 import { uid, fmt, fmtCost, parseCSV } from "../../lib/helpers.js"
 import { AlertTriangle, Check, FileSpreadsheet, PenLine, Lock, Calculator, BookOpen, Receipt, Search } from "lucide-react"
 
-export function Onboarding({ gold, company, setCompany, inventory, setInventory, recipes, setRecipes, settings, setSettings, onComplete, onSkip, setView }) {
+export function Onboarding({ gold, company, setCompany, inventory, setInventory, recipes, setRecipes, settings, setSettings, onComplete, onSkip, onBack, setView }) {
   const [step, setStep] = useState(1)
   const logoRef = useRef()
 
@@ -307,6 +307,30 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
       <div style={{ width: "100%", maxWidth: 540, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 16, padding: "30px 28px", boxShadow: "0 8px 30px rgba(41,22,8,0.06)" }}>
         
+        {/* Top Header Bar for Back / Skip */}
+        {(onBack || onSkip) && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            {onBack ? (
+              <button
+                type="button"
+                onClick={onBack}
+                style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 4, fontWeight: 500, padding: 0 }}
+              >
+                ← Return to Dashboard
+              </button>
+            ) : <div />}
+            {onSkip && (
+              <button
+                type="button"
+                onClick={onSkip}
+                style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 12.5, textDecoration: "underline", padding: 0 }}
+              >
+                Skip setup for now →
+              </button>
+            )}
+          </div>
+        )}
+
         {/* BakeWealth Brand Logo */}
         <div style={{ textAlign: "center", marginBottom: 18 }}>
           <img src="/Bakewealthlogo.jpeg" alt="BakeWealth" style={{ height: 42, maxWidth: 140, objectFit: "contain", borderRadius: 6 }} />
@@ -357,7 +381,16 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             <Inp label="Email Address" value={company.email} onChange={v => co("email", v)} placeholder="e.g. contact@mybakery.com" />
 
 
-            <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+            <div style={{ marginTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              {onSkip ? (
+                <button
+                  type="button"
+                  onClick={onSkip}
+                  style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 12.5, textDecoration: "underline", padding: 0 }}
+                >
+                  Skip setup for now
+                </button>
+              ) : <div />}
               <Btn disabled={!company.name?.trim()} onClick={() => setStep(2)}>Next: Set Up Opening Stock →</Btn>
             </div>
 
@@ -596,9 +629,19 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
             <div style={{ marginTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <Btn variant="ghost" onClick={() => setStep(1)}>← Back</Btn>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {onSkip && (
+                  <button
+                    type="button"
+                    onClick={onSkip}
+                    style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 12.5, textDecoration: "underline", padding: 0, marginRight: 6 }}
+                  >
+                    Skip setup
+                  </button>
+                )}
                 {savedOS && <span style={{ fontSize: 12.5, color: "#357A52", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={13} /> Locked permanently</span>}
+                <Btn variant="ghost" onClick={() => setStep(3)}>Next Step →</Btn>
                 <Btn variant="success" onClick={lockOpeningStock} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <Lock size={13} /> Lock Open Stock for {curMonth}
+                  <Lock size={13} /> Lock & Continue
                 </Btn>
               </div>
             </div>
@@ -720,8 +763,17 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                   <PenLine size={13} /> Add manually
                 </Btn>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Btn variant="ghost" onClick={() => setStep(2)}>← Back</Btn>
+                {onSkip && (
+                  <button
+                    type="button"
+                    onClick={onSkip}
+                    style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 12.5, textDecoration: "underline", padding: 0, marginRight: 6 }}
+                  >
+                    Skip setup
+                  </button>
+                )}
                 <Btn onClick={() => setStep(4)}>Next: Profit Margin →</Btn>
               </div>
             </div>
@@ -852,7 +904,18 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
             <div style={{ marginTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <Btn variant="ghost" onClick={() => setStep(3)}>← Back</Btn>
-              <Btn onClick={() => setStep(5)}>Save & Finish →</Btn>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {onSkip && (
+                  <button
+                    type="button"
+                    onClick={onSkip}
+                    style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 12.5, textDecoration: "underline", padding: 0, marginRight: 6 }}
+                  >
+                    Skip setup
+                  </button>
+                )}
+                <Btn onClick={() => setStep(5)}>Save & Finish →</Btn>
+              </div>
             </div>
           </div>
         )}
@@ -893,7 +956,10 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
               </div>
             </div>
 
-            <Btn full onClick={() => setView("calculator")}>Take Your First Order</Btn>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <Btn full onClick={() => { if (onComplete) onComplete("calculator"); else setView("calculator") }}>Take Your First Order</Btn>
+              <Btn full variant="outline" onClick={() => { if (onComplete) onComplete("dashboard"); else setView("dashboard") }}>Go to Dashboard</Btn>
+            </div>
           </div>
         )}
 

@@ -12,7 +12,7 @@ import { fmt, uid, callClaude } from "../../lib/helpers.js"
 import { ROLES, DEFAULT_MULTS, DEFAULT_COVERINGS, PRICING_SIZES } from "../../constants.js"
 import { saveSetting, saveCompany, saveUsers, saveLocal, syncToBackend, syncFromBackend, clearAllDataOnServer, deleteTenantAccountOnServer, logout, loadLocal, saveInventory, deleteOpeningStockOnServer, fetchPricingSettingsFromServer, savePricingSettingsOnServer, resetPricingSettingsOnServer, checkPlanLimit, notifyPlanLimitReached } from "../../lib/data.js"
 import { PLRow } from "../../lib/costing.jsx"
-import { Check, AlertTriangle, Calculator, Lock, Unlock, Save, Trash2, Pencil, FileSpreadsheet, Lightbulb, Key, Download, Upload, Coins } from "lucide-react"
+import { Check, AlertTriangle, Calculator, Lock, Unlock, Save, Trash2, Pencil, FileSpreadsheet, Lightbulb, Key, Download, Upload, Coins, Sparkles } from "lucide-react"
 import { OpeningStock } from "../inventory/OpeningStock.jsx"
 import { TokenUsageSection } from "./TokenUsageSection.jsx"
 
@@ -466,6 +466,28 @@ export function Settings({ company, setCompany, settings, setSettings, users, se
     <Tabs tabs={tabList} active={tab} onChange={setTab} />
 
     {tab === "company" && <div style={{ maxWidth: 540 }}>
+      {/* Onboarding Setup Wizard Launcher */}
+      <Card style={{ marginBottom: 14, background: "linear-gradient(135deg, #FFFDF9, #FAF4E8)", border: "1px solid #E8D5A3" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(200,145,42,0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--gold)", flexShrink: 0 }}>
+              <Sparkles size={20} />
+            </div>
+            <div>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, color: "var(--text)" }}>
+                Onboarding & Setup Wizard
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                Guided step-by-step setup for brand identity, starting inventory, recipes, and margins.
+              </div>
+            </div>
+          </div>
+          <Btn onClick={() => setView("onboarding")} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            Launch Setup Wizard →
+          </Btn>
+        </div>
+      </Card>
+
       <Card>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 600, marginBottom: 14 }}>Company Profile</div>
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 14 }}>

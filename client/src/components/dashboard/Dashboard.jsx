@@ -10,12 +10,36 @@ import React, { useState } from "react"
 import { Btn, Card, Badge } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { loadLocal, saveLocal } from "../../lib/data.js"
-import { AlertTriangle, Coins, Truck, Calendar, ClipboardList, Zap, Calculator, ShoppingCart, Banknote, Cake } from "lucide-react"
+import { AlertTriangle, Coins, Truck, Calendar, ClipboardList, Zap, Calculator, ShoppingCart, Banknote, Cake, Sparkles, Check } from "lucide-react"
 
-export function Dashboard({ productions, inventory, expenses, setView, user, tenantInfo }) {
+export function Dashboard({ productions, inventory, expenses, setView, user, tenantInfo, onboarded, onboardingSkipped }) {
   const today = new Date()
   const todayStr = today.toISOString().slice(0, 10)
   const currentMonthStr = today.toISOString().slice(0, 7)
+
+  // Onboarding status & skipped popup
+  const isSetupPending = (
+    (typeof onboarded === "boolean" && !onboarded) ||
+    onboardingSkipped ||
+    loadLocal("ll_onboarding_skipped", "0") === "1" ||
+    loadLocal("ll_onboarded", "0") !== "1" ||
+    (tenantInfo?.settings && tenantInfo.settings.onboarded === false)
+  )
+
+  const [showSkippedModal, setShowSkippedModal] = useState(() => {
+    if (!isSetupPending) return false
+    try {
+      if (sessionStorage.getItem("ll_dismiss_onboarding_prompt") === "1") return false
+    } catch {}
+    return true
+  })
+
+  const dismissSkippedModal = () => {
+    setShowSkippedModal(false)
+    try {
+      sessionStorage.setItem("ll_dismiss_onboarding_prompt", "1")
+    } catch {}
+  }
 
   // 1. This week at a glance calculations
   const next7Days = new Date()
@@ -137,8 +161,117 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
     })
   }
 
+  // - Onboarding / Setup Incomplete smart notification
+  if (isSetupPending) {
+    notifications.unshift({
+      id: "setup_incomplete",
+      type: "warning",
+      icon: <Sparkles size={20} color="#BA7517" />,
+      title: "Bakery Setup Incomplete",
+      message: "You skipped the onboarding wizard. Complete your bakery profile, starting stock, and base recipes anytime.",
+      action: () => setView("onboarding"),
+      actionLabel: "Complete Setup"
+    })
+  }
+
   return (
     <div>
+      {/* Onboarding Skipped Popup Modal */}
+      {showSkippedModal && isSetupPending && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(30, 20, 10, 0.65)",
+          backdropFilter: "blur(4px)",
+          zIndex: 99999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16
+        }}>
+          <div style={{
+            background: "#FDFAF4",
+            borderRadius: 16,
+            maxWidth: 480,
+            width: "100%",
+            border: "1px solid var(--border)",
+            boxShadow: "0 20px 40px rgba(0,0,0,0.25)",
+            padding: "26px 24px",
+            position: "relative"
+          }}>
+            <button 
+              onClick={dismissSkippedModal}
+              style={{
+                position: "absolute",
+                top: 14,
+                right: 14,
+                background: "none",
+                border: "none",
+                fontSize: 22,
+                lineHeight: 1,
+                color: "var(--muted)",
+                cursor: "pointer",
+                padding: "4px 8px"
+              }}
+            >×</button>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#FAF1DC", border: "1px solid var(--gold)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--gold)", flexShrink: 0 }}>
+                <Sparkles size={22} />
+              </div>
+              <div>
+                <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
+                  Complete Bakery Setup
+                </div>
+                <div style={{ fontSize: 12, color: "var(--gold)", fontWeight: 600 }}>
+                  Setup Incomplete (Takes 2 mins)
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6, marginBottom: 16 }}>
+              You skipped the onboarding wizard. Completing it takes only 2 minutes and helps BakeWealth automatically calculate cake recipe costs, track ingredient levels, and generate branded invoices.
+            </div>
+
+            <div style={{ background: "#FAF7F0", borderRadius: 10, border: "1px solid var(--border)", padding: "12px 14px", marginBottom: 20 }}>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--muted)", fontWeight: 600, marginBottom: 8 }}>
+                What you'll set up:
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, color: "var(--text)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Check size={14} color="#357A52" /> <span>Bakery Branding & Logo</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Check size={14} color="#357A52" /> <span>Starting Stock</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Check size={14} color="#357A52" /> <span>Base Cake Recipes</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Check size={14} color="#357A52" /> <span>Target Margins</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn 
+                full 
+                onClick={() => {
+                  dismissSkippedModal()
+                  setView("onboarding")
+                }}
+                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontWeight: 600 }}
+              >
+                <span>Launch Setup Wizard</span> →
+              </Btn>
+              <Btn variant="ghost" onClick={dismissSkippedModal}>
+                Remind Me Later
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Greeting Header */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, fontWeight: 600, color: "var(--text)", display: "flex", alignItems: "center", gap: 8 }}>
@@ -146,6 +279,42 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
         </div>
         <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4, fontStyle: "italic" }}>"{quote}"</div>
       </div>
+
+      {/* Onboarding Incomplete Banner for Skipped Users */}
+      {isSetupPending && (
+        <div style={{
+          marginBottom: 16,
+          background: "linear-gradient(135deg, #FFF9EE, #FAF1DC)",
+          border: "1px solid var(--gold)",
+          borderRadius: 12,
+          padding: "14px 18px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+          boxShadow: "0 2px 8px rgba(200,145,42,0.08)"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--gold)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: "#7B5A3A", display: "flex", alignItems: "center", gap: 6 }}>
+                Bakery Setup Incomplete <Badge color="gold">2 mins</Badge>
+              </div>
+              <div style={{ fontSize: 12, color: "#8C6E52", marginTop: 2 }}>
+                You skipped onboarding. Finish configuring your brand identity, opening stock, and base recipes.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Btn small onClick={() => setView("onboarding")} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span>Resume Onboarding</span> →
+            </Btn>
+          </div>
+        </div>
+      )}
 
       {/* Month-end Lock Banner */}
       {showBanner && (
@@ -301,6 +470,30 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#7B5A3A" }}>Order Calculator</div>
                 <div style={{ fontSize: 11.5, color: "#8C6E52", marginTop: 2 }}>Build custom multi-tier pricing quotes instantly</div>
               </div>
+            </div>
+
+            {/* Setup Wizard Action Button */}
+            <div
+              onClick={() => setView("onboarding")}
+              style={{
+                cursor: "pointer",
+                background: isSetupPending ? "#FFF9EE" : "#F8F3EA",
+                border: isSetupPending ? "1px solid var(--gold)" : "1px solid var(--border)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                transition: "transform 0.15s ease"
+              }}
+              onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"}
+              onMouseLeave={e => e.currentTarget.style.transform = "none"}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Sparkles size={16} color="var(--gold)" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text)" }}>Setup Wizard (Onboarding)</span>
+              </div>
+              {isSetupPending ? <Badge color="gold">Incomplete</Badge> : <span style={{ fontSize: 11, color: "var(--muted)" }}>Launch →</span>}
             </div>
 
             {/* Grid of secondary actions */}

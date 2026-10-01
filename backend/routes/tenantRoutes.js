@@ -8,13 +8,17 @@ const {
     getTenantBootstrap,
     getTenantPricing,
     updateTenantPricing,
-    resetTenantPricing
+    resetTenantPricing,
+    completeOnboarding,
+    getOnboardingStatus
 } = require('../controller/tenantController');
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 const { validate } = require('../middleware/validationMiddleware');
 const { updateTenantSchema } = require('../validators/tenantValidator');
 
 router.get('/bootstrap', protect, getTenantBootstrap);
+router.get('/onboarding-status', protect, getOnboardingStatus);
+router.post('/complete-onboarding', protect, completeOnboarding);
 
 router.route('/pricing')
     .get(protect, getTenantPricing)

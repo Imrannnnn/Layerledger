@@ -23,7 +23,81 @@ const getTenantDetails = asyncHandler(async (req, res) => {
         throw new Error('Tenant not found');
     }
 
-    res.json(tenant);
+    const settings = tenant.settings || {};
+    const appConfig = { ...(settings.appConfig || {}) };
+    const isOnboarded = Boolean(
+        settings.onboarded === true ||
+        appConfig.ll_onboarded === "1" ||
+        appConfig.ll_onboarded === 1
+    );
+
+    let needsDbPersist = false;
+
+    if (!appConfig.ll_co) {
+        appConfig.ll_co = JSON.stringify({
+            name: tenant.name,
+            tagline: "",
+            address: "",
+            phone: tenant.contactPhone || "",
+            email: tenant.contactEmail || "",
+            pin: "1234",
+            primaryColor: "#f6ae13",
+            sidebarColor: "#0a0a0a",
+            logo: tenant.logoUrl || ""
+        });
+        needsDbPersist = true;
+    }
+
+    if (settings.onboarded !== isOnboarded) {
+        needsDbPersist = true;
+    }
+
+    let currentTenant = tenant;
+    if (needsDbPersist) {
+        currentTenant = await prisma.tenant.update({
+            where: { id: tenantId },
+            data: {
+                settings: {
+                    ...settings,
+                    onboarded: isOnboarded,
+                    appConfig
+                }
+            }
+        });
+    }
+
+    if (appConfig.ll_co) {
+        try {
+            const co = typeof appConfig.ll_co === 'string' ? JSON.parse(appConfig.ll_co) : appConfig.ll_co;
+            if (co && typeof co === 'object') {
+                const updateFields = {};
+                if (!currentTenant.contactEmail && co.email) updateFields.contactEmail = co.email;
+                if (!currentTenant.contactPhone && co.phone) updateFields.contactPhone = co.phone;
+                if (!currentTenant.logoUrl && co.logo) updateFields.logoUrl = co.logo;
+                if (co.name && co.name !== "My Bakery" && co.name !== "BakeWealth Workspace" && currentTenant.name !== co.name) {
+                    updateFields.name = co.name;
+                }
+                if (Object.keys(updateFields).length > 0) {
+                    currentTenant = await prisma.tenant.update({
+                        where: { id: tenantId },
+                        data: updateFields
+                    });
+                }
+            }
+        } catch {}
+    }
+
+    const enrichedTenant = {
+        ...currentTenant,
+        settings: {
+            ...settings,
+            onboarded: isOnboarded,
+            appConfig
+        },
+        isOnboarded
+    };
+
+    res.json(enrichedTenant);
 });
 
 /**
@@ -33,7 +107,7 @@ const getTenantDetails = asyncHandler(async (req, res) => {
  */
 const updateTenantDetails = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { name, contactEmail, contactPhone, settings } = req.body;
+    let { name, contactEmail, contactPhone, logoUrl, settings } = req.body;
 
     const existingTenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!existingTenant) {
@@ -56,17 +130,68 @@ const updateTenantDetails = asyncHandler(async (req, res) => {
         };
     }
 
+    // Keep appConfig.ll_co and top-level Tenant columns strictly synchronized and persistent
+    if (mergedSettings.appConfig && mergedSettings.appConfig.ll_co) {
+        try {
+            const coObj = typeof mergedSettings.appConfig.ll_co === 'string'
+                ? JSON.parse(mergedSettings.appConfig.ll_co)
+                : mergedSettings.appConfig.ll_co;
+            if (coObj && typeof coObj === 'object') {
+                if (name && name !== existingTenant.name) {
+                    coObj.name = name;
+                } else if ((!name || name === existingTenant.name) && coObj.name && coObj.name !== "My Bakery" && coObj.name !== "BakeWealth Workspace") {
+                    name = coObj.name;
+                }
+
+                if (contactEmail) coObj.email = contactEmail;
+                else if (coObj.email) contactEmail = coObj.email;
+
+                if (contactPhone) coObj.phone = contactPhone;
+                else if (coObj.phone) contactPhone = coObj.phone;
+
+                if (logoUrl) coObj.logo = logoUrl;
+                else if (coObj.logo) logoUrl = coObj.logo;
+
+                mergedSettings.appConfig.ll_co = JSON.stringify(coObj);
+            }
+        } catch {}
+    } else {
+        // If appConfig.ll_co does not exist yet, initialize it persistently
+        mergedSettings.appConfig = mergedSettings.appConfig || {};
+        mergedSettings.appConfig.ll_co = JSON.stringify({
+            name: name || existingTenant.name,
+            tagline: "",
+            address: "",
+            phone: contactPhone || existingTenant.contactPhone || "",
+            email: contactEmail || existingTenant.contactEmail || "",
+            pin: "1234",
+            primaryColor: "#f6ae13",
+            sidebarColor: "#0a0a0a",
+            logo: logoUrl || existingTenant.logoUrl || ""
+        });
+    }
+
     const updatedTenant = await prisma.tenant.update({
         where: { id: tenantId },
         data: {
             name: name !== undefined ? name : existingTenant.name,
             contactEmail: contactEmail !== undefined ? contactEmail : existingTenant.contactEmail,
             contactPhone: contactPhone !== undefined ? contactPhone : existingTenant.contactPhone,
+            logoUrl: logoUrl !== undefined ? logoUrl : existingTenant.logoUrl,
             settings: mergedSettings
         }
     });
 
-    res.json(updatedTenant);
+    const isOnboarded = Boolean(
+        updatedTenant.settings?.onboarded === true ||
+        updatedTenant.settings?.appConfig?.ll_onboarded === "1" ||
+        updatedTenant.settings?.appConfig?.ll_onboarded === 1
+    );
+
+    res.json({
+        ...updatedTenant,
+        isOnboarded
+    });
 });
 
 /**
@@ -179,8 +304,82 @@ const getTenantBootstrap = asyncHandler(async (req, res) => {
     ]);
 
 
+    const settings = tenant.settings || {};
+    const appConfig = { ...(settings.appConfig || {}) };
+    const isOnboarded = Boolean(
+        settings.onboarded === true ||
+        appConfig.ll_onboarded === "1" ||
+        appConfig.ll_onboarded === 1
+    );
+
+    let needsDbPersist = false;
+    if (!appConfig.ll_co) {
+        appConfig.ll_co = JSON.stringify({
+            name: tenant.name,
+            tagline: "",
+            address: "",
+            phone: tenant.contactPhone || "",
+            email: tenant.contactEmail || "",
+            pin: "1234",
+            primaryColor: "#f6ae13",
+            sidebarColor: "#0a0a0a",
+            logo: tenant.logoUrl || ""
+        });
+        needsDbPersist = true;
+    }
+
+    if (settings.onboarded !== isOnboarded) {
+        needsDbPersist = true;
+    }
+
+    let currentTenant = tenant;
+    if (needsDbPersist) {
+        currentTenant = await prisma.tenant.update({
+            where: { id: tenantId },
+            data: {
+                settings: {
+                    ...settings,
+                    onboarded: isOnboarded,
+                    appConfig
+                }
+            }
+        });
+    }
+
+    if (appConfig.ll_co) {
+        try {
+            const co = typeof appConfig.ll_co === 'string' ? JSON.parse(appConfig.ll_co) : appConfig.ll_co;
+            if (co && typeof co === 'object') {
+                const updateFields = {};
+                if (!currentTenant.contactEmail && co.email) updateFields.contactEmail = co.email;
+                if (!currentTenant.contactPhone && co.phone) updateFields.contactPhone = co.phone;
+                if (!currentTenant.logoUrl && co.logo) updateFields.logoUrl = co.logo;
+                if (co.name && co.name !== "My Bakery" && co.name !== "BakeWealth Workspace" && currentTenant.name !== co.name) {
+                    updateFields.name = co.name;
+                }
+                if (Object.keys(updateFields).length > 0) {
+                    currentTenant = await prisma.tenant.update({
+                        where: { id: tenantId },
+                        data: updateFields
+                    });
+                }
+            }
+        } catch {}
+    }
+
+    const enrichedTenant = {
+        ...currentTenant,
+        settings: {
+            ...settings,
+            onboarded: isOnboarded,
+            appConfig
+        },
+        isOnboarded
+    };
+
     res.json({
-        tenant,
+        tenant: enrichedTenant,
+        isOnboarded,
         inventory,
         openingStock,
         recipes,
@@ -488,6 +687,88 @@ const deleteTenantAccount = asyncHandler(async (req, res) => {
     });
 });
 
+/**
+ * @desc    Mark onboarding as completed for current tenant
+ * @route   POST /api/tenant/complete-onboarding
+ * @access  Private
+ */
+const completeOnboarding = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+
+    const existingTenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!existingTenant) {
+        res.status(404);
+        throw new Error('Tenant not found');
+    }
+
+    const currentSettings = existingTenant.settings || {};
+    const currentAppConfig = { ...(currentSettings.appConfig || {}) };
+
+    if (!currentAppConfig.ll_co) {
+        currentAppConfig.ll_co = JSON.stringify({
+            name: existingTenant.name,
+            tagline: "",
+            address: "",
+            phone: existingTenant.contactPhone || "",
+            email: existingTenant.contactEmail || "",
+            pin: "1234",
+            primaryColor: "#f6ae13",
+            sidebarColor: "#0a0a0a",
+            logo: existingTenant.logoUrl || ""
+        });
+    }
+
+    currentAppConfig.ll_onboarded = "1";
+
+    const updatedTenant = await prisma.tenant.update({
+        where: { id: tenantId },
+        data: {
+            settings: {
+                ...currentSettings,
+                onboarded: true,
+                appConfig: currentAppConfig
+            }
+        }
+    });
+
+    res.json({
+        success: true,
+        isOnboarded: true,
+        message: 'Onboarding completed successfully',
+        tenant: updatedTenant
+    });
+});
+
+/**
+ * @desc    Get onboarding status for current tenant
+ * @route   GET /api/tenant/onboarding-status
+ * @access  Private
+ */
+const getOnboardingStatus = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { id: true, name: true, settings: true }
+    });
+    if (!tenant) {
+        res.status(404);
+        throw new Error('Tenant not found');
+    }
+
+    const isOnboarded = Boolean(
+        tenant.settings?.onboarded === true ||
+        tenant.settings?.appConfig?.ll_onboarded === "1" ||
+        tenant.settings?.appConfig?.ll_onboarded === 1
+    );
+
+    res.json({
+        tenantId,
+        name: tenant.name,
+        isOnboarded
+    });
+});
+
 module.exports = {
     getTenantDetails,
     updateTenantDetails,
@@ -496,7 +777,9 @@ module.exports = {
     getTenantBootstrap,
     getTenantPricing,
     updateTenantPricing,
-    resetTenantPricing
+    resetTenantPricing,
+    completeOnboarding,
+    getOnboardingStatus
 };
 
 

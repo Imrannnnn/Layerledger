@@ -173,6 +173,38 @@ export const mapServerOrderToLocal = (o) => {
 }
 
 
+export const getCurrentTenantId = () => {
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      const uStr = sessionStorage.getItem("ll_current_user")
+      if (uStr) {
+        const u = JSON.parse(uStr)
+        if (u.tenantId) return u.tenantId
+        if (u.tenant && u.tenant.id) return u.tenant.id
+        if (u.user && u.user.tenantId) return u.user.tenantId
+      }
+      const tStr = sessionStorage.getItem("ll_tenant_info")
+      if (tStr) {
+        const t = JSON.parse(tStr)
+        if (t.id) return t.id
+      }
+    }
+    if (cache["ll_tenant_info"] && cache["ll_tenant_info"].id) {
+      return cache["ll_tenant_info"].id
+    }
+  } catch {}
+  return null
+}
+
+export const getStorageKey = (key, tenantId = null) => {
+  const tid = tenantId || getCurrentTenantId()
+  if (tid && typeof key === "string" && key.startsWith("ll_")) {
+    if (key.startsWith(`ll_${tid}_`)) return key
+    return `ll_${tid}_${key.slice(3)}`
+  }
+  return key
+}
+
 const load = (key, fallback) => {
   if (cache[key] !== undefined && cache[key] !== null) {
     try {
@@ -184,7 +216,11 @@ const load = (key, fallback) => {
   }
   if (typeof window !== "undefined" && window.localStorage) {
     try {
-      const stored = window.localStorage.getItem(key)
+      const sKey = getStorageKey(key)
+      let stored = window.localStorage.getItem(sKey)
+      if ((stored === null || stored === undefined) && sKey !== key && !getCurrentTenantId()) {
+        stored = window.localStorage.getItem(key)
+      }
       if (stored !== null && stored !== undefined) {
         try {
           const parsed = JSON.parse(stored)
@@ -349,10 +385,12 @@ const save = async (key, val) => {
     cache[key] = val
     if (typeof window !== "undefined" && window.localStorage) {
       try {
+        const sKey = getStorageKey(key)
         if (val === null || val === undefined) {
-          window.localStorage.removeItem(key)
+          window.localStorage.removeItem(sKey)
+          if (sKey !== key) window.localStorage.removeItem(key)
         } else {
-          window.localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val))
+          window.localStorage.setItem(sKey, typeof val === "string" ? val : JSON.stringify(val))
         }
       } catch {
         // localStorage quota/disabled fallback
@@ -382,6 +420,8 @@ const save = async (key, val) => {
       await syncClientsList(headers, val)
     } else if (key === "ll_opening_stock" || key.startsWith("ll_os_")) {
       await syncOpeningStockList(headers, val, key)
+    } else if (key === "ll_co") {
+      await syncTenantSettingsOnly(headers)
     } else {
       await debouncedSyncTenantSettingsOnly(headers)
     }
@@ -428,6 +468,28 @@ const syncTenantSettingsOnly = async (headers) => {
           data[k] = typeof v === "string" ? v : JSON.stringify(v)
         }
       })
+      // Ensure company profile in appConfig has valid details and syncs to tenant columns
+      let updatedTenantName = tenant.name
+      let updatedContactEmail = tenant.contactEmail || ""
+      let updatedContactPhone = tenant.contactPhone || ""
+      let updatedLogoUrl = tenant.logoUrl || ""
+
+      if (data["ll_co"]) {
+        try {
+          const coObj = typeof data["ll_co"] === "string" ? JSON.parse(data["ll_co"]) : data["ll_co"]
+          if (coObj && typeof coObj === "object") {
+            if (coObj.name && coObj.name !== "My Bakery" && coObj.name !== "BakeWealth Workspace") {
+              updatedTenantName = coObj.name
+            } else if (!coObj.name || coObj.name === "My Bakery" || coObj.name === "BakeWealth Workspace") {
+              coObj.name = tenant.name
+              data["ll_co"] = JSON.stringify(coObj)
+            }
+            if (coObj.email) updatedContactEmail = coObj.email
+            if (coObj.phone) updatedContactPhone = coObj.phone
+            if (coObj.logo) updatedLogoUrl = coObj.logo
+          }
+        } catch {}
+      }
       const updatedSettings = {
         ...(tenant.settings || {}),
         appConfig: data
@@ -436,9 +498,10 @@ const syncTenantSettingsOnly = async (headers) => {
         method: "PUT",
         headers,
         body: JSON.stringify({
-          name: tenant.name,
-          contactEmail: tenant.contactEmail || "",
-          contactPhone: tenant.contactPhone || "",
+          name: updatedTenantName,
+          contactEmail: updatedContactEmail,
+          contactPhone: updatedContactPhone,
+          logoUrl: updatedLogoUrl,
           settings: updatedSettings
         })
       })
@@ -452,6 +515,7 @@ const syncTenantSettingsOnly = async (headers) => {
             } catch {
               cache[k] = v
             }
+            saveLocal(k, cache[k])
           })
         }
       }
@@ -1541,12 +1605,14 @@ export const syncFromBackend = async () => {
         delete cache[k]
       })
 
-      let isAlreadyOnboarded = false
       const config = tenant.settings?.appConfig || null
+      let isAlreadyOnboarded = Boolean(
+        data.isOnboarded ??
+        tenant.isOnboarded ??
+        tenant.settings?.onboarded ??
+        (config?.ll_onboarded === "1" || config?.ll_onboarded === 1)
+      )
       if (config) {
-        if (config.ll_onboarded === "1" || config.ll_onboarded === 1 || config.ll_co || config.ll_multipliers) {
-          isAlreadyOnboarded = true
-        }
         Object.entries(config).forEach(([k, v]) => {
           if (v !== null && !keysToIgnoreOnLogin.includes(k)) {
             let parsed;
@@ -1563,6 +1629,20 @@ export const syncFromBackend = async () => {
         })
       }
 
+      // Ensure cache["ll_co"] is properly initialized with this tenant's real details
+      const curCo = cache["ll_co"] || {}
+      cache["ll_co"] = {
+        name: curCo.name && curCo.name !== "My Bakery" && curCo.name !== "BakeWealth Workspace" ? curCo.name : (tenant.name || "BakeWealth Workspace"),
+        address: curCo.address || "",
+        phone: curCo.phone || tenant.contactPhone || "",
+        email: curCo.email || tenant.contactEmail || "",
+        pin: curCo.pin || "1234",
+        primaryColor: curCo.primaryColor || "#f6ae13",
+        sidebarColor: curCo.sidebarColor || "#0a0a0a",
+        logo: curCo.logo || "/Bakewealthlogo.jpeg"
+      }
+      saveLocal("ll_co", cache["ll_co"])
+
       if (tenant.settings?.pricing) {
         const p = tenant.settings.pricing
         if (p.multipliers) cache["ll_multipliers"] = p.multipliers
@@ -1574,21 +1654,18 @@ export const syncFromBackend = async () => {
       migrateLocalStoragePricingToDatabase().catch(() => {})
 
       if (data.inventory) {
-        if (data.inventory.length > 0) isAlreadyOnboarded = true
         const localInv = data.inventory.map(mapServerInventoryToLocal)
         cache["ll_inv"] = localInv
         lastSyncedValues["ll_inv"] = JSON.stringify(localInv)
       }
 
       if (data.recipes) {
-        if (data.recipes.length > 0) isAlreadyOnboarded = true
         const localRecipes = data.recipes.map(mapServerRecipeToLocal)
         cache["ll_recipes"] = localRecipes
         lastSyncedValues["ll_recipes"] = JSON.stringify(localRecipes)
       }
 
       if (data.orders) {
-        if (data.orders.length > 0) isAlreadyOnboarded = true
         const localProds = []
         const localQuotes = []
         data.orders.forEach(o => {
@@ -1601,35 +1678,23 @@ export const syncFromBackend = async () => {
           }
         })
 
-        // Merge with existing local quotes if any exist in local cache/storage that haven't synced yet
-        const curLocalQuotes = load("ll_quotes", [])
-        const unSyncedQuotes = Array.isArray(curLocalQuotes)
-          ? curLocalQuotes.filter(lq => lq && lq.id && !localQuotes.some(sq => sq.id === lq.id))
-          : []
-        const mergedQuotes = [...unSyncedQuotes, ...localQuotes]
-
         cache["ll_prods"] = localProds
         lastSyncedValues["ll_prods"] = JSON.stringify(localProds)
-        cache["ll_quotes"] = mergedQuotes
-        lastSyncedValues["ll_quotes"] = JSON.stringify(mergedQuotes)
+        cache["ll_quotes"] = localQuotes
+        lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
         cache["_quotes_synced"] = true
         cache["_prods_synced"] = true
 
         if (typeof window !== "undefined" && window.localStorage) {
           try {
-            window.localStorage.setItem("ll_prods", JSON.stringify(localProds))
-            window.localStorage.setItem("ll_quotes", JSON.stringify(mergedQuotes))
+            window.localStorage.setItem(getStorageKey("ll_prods"), JSON.stringify(localProds))
+            window.localStorage.setItem(getStorageKey("ll_quotes"), JSON.stringify(localQuotes))
           } catch {
             /* ignore storage error */
           }
         }
         if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
           window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
-        }
-
-        // Push any unsynced quotes up to backend in background
-        if (unSyncedQuotes.length > 0) {
-          syncOrdersList(headers, localProds, mergedQuotes, load("ll_inv", []), load("ll_recipes", [])).catch(() => {})
         }
       }
 
@@ -1699,11 +1764,9 @@ export const syncFromBackend = async () => {
         })
       }
 
-      if (isAlreadyOnboarded) {
-        cache["ll_onboarded"] = "1"
-        if (typeof window !== "undefined" && window.localStorage) {
-          try { window.localStorage.setItem("ll_onboarded", "1") } catch { /* ignore storage error */ }
-        }
+      cache["ll_onboarded"] = isAlreadyOnboarded ? "1" : "0"
+      if (typeof window !== "undefined" && window.localStorage) {
+        try { window.localStorage.setItem(getStorageKey("ll_onboarded"), isAlreadyOnboarded ? "1" : "0") } catch { /* ignore storage error */ }
       }
 
       return true
@@ -1731,12 +1794,13 @@ export const syncFromBackend = async () => {
       delete cache[k]
     })
 
-    let isAlreadyOnboarded = false
     const config = tenant.settings?.appConfig || null
+    let isAlreadyOnboarded = Boolean(
+      tenant.isOnboarded ??
+      tenant.settings?.onboarded ??
+      (config?.ll_onboarded === "1" || config?.ll_onboarded === 1)
+    )
     if (config) {
-      if (config.ll_onboarded === "1" || config.ll_onboarded === 1 || config.ll_co || config.ll_multipliers) {
-        isAlreadyOnboarded = true
-      }
       Object.entries(config).forEach(([k, v]) => {
         if (v !== null && !keysToIgnoreOnLogin.includes(k)) {
           let parsed;
@@ -1753,6 +1817,20 @@ export const syncFromBackend = async () => {
       })
     }
 
+    // Ensure cache["ll_co"] is properly initialized with this tenant's real details
+    const curCo = cache["ll_co"] || {}
+    cache["ll_co"] = {
+      name: curCo.name && curCo.name !== "My Bakery" && curCo.name !== "BakeWealth Workspace" ? curCo.name : (tenant.name || "BakeWealth Workspace"),
+      address: curCo.address || "",
+      phone: curCo.phone || tenant.contactPhone || "",
+      email: curCo.email || tenant.contactEmail || "",
+      pin: curCo.pin || "1234",
+      primaryColor: curCo.primaryColor || "#f6ae13",
+      sidebarColor: curCo.sidebarColor || "#0a0a0a",
+      logo: curCo.logo || "/Bakewealthlogo.jpeg"
+    }
+    saveLocal("ll_co", cache["ll_co"])
+
     const [invRes, recipesRes, ordersRes, expensesRes, purchasesRes, invoicesRes, txnsRes, clientsRes] = await Promise.all([
       fetch(`${apiUrl}/api/inventory`, { headers }),
       fetch(`${apiUrl}/api/recipes`, { headers }),
@@ -1766,7 +1844,6 @@ export const syncFromBackend = async () => {
 
     if (invRes.ok) {
       const serverInv = await invRes.json()
-      if (serverInv.length > 0) isAlreadyOnboarded = true
       const localInv = serverInv.map(mapServerInventoryToLocal)
       cache["ll_inv"] = localInv
       lastSyncedValues["ll_inv"] = JSON.stringify(localInv)
@@ -1774,7 +1851,6 @@ export const syncFromBackend = async () => {
 
     if (recipesRes.ok) {
       const serverRecipes = await recipesRes.json()
-      if (serverRecipes.length > 0) isAlreadyOnboarded = true
       const localRecipes = serverRecipes.map(mapServerRecipeToLocal)
       cache["ll_recipes"] = localRecipes
       lastSyncedValues["ll_recipes"] = JSON.stringify(localRecipes)
@@ -1782,7 +1858,6 @@ export const syncFromBackend = async () => {
 
     if (ordersRes.ok) {
       const serverOrders = await ordersRes.json()
-      if (serverOrders.length > 0) isAlreadyOnboarded = true
       const localProds = []
       const localQuotes = []
       serverOrders.forEach(o => {
@@ -1795,34 +1870,23 @@ export const syncFromBackend = async () => {
         }
       })
 
-      // Merge with existing local quotes if any exist in local cache/storage that haven't synced yet
-      const curLocalQuotes = load("ll_quotes", [])
-      const unSyncedQuotes = Array.isArray(curLocalQuotes)
-        ? curLocalQuotes.filter(lq => lq && lq.id && !localQuotes.some(sq => sq.id === lq.id))
-        : []
-      const mergedQuotes = [...unSyncedQuotes, ...localQuotes]
-
       cache["ll_prods"] = localProds
       lastSyncedValues["ll_prods"] = JSON.stringify(localProds)
-      cache["ll_quotes"] = mergedQuotes
-      lastSyncedValues["ll_quotes"] = JSON.stringify(mergedQuotes)
+      cache["ll_quotes"] = localQuotes
+      lastSyncedValues["ll_quotes"] = JSON.stringify(localQuotes)
       cache["_quotes_synced"] = true
       cache["_prods_synced"] = true
 
       if (typeof window !== "undefined" && window.localStorage) {
         try {
-          window.localStorage.setItem("ll_prods", JSON.stringify(localProds))
-          window.localStorage.setItem("ll_quotes", JSON.stringify(mergedQuotes))
+          window.localStorage.setItem(getStorageKey("ll_prods"), JSON.stringify(localProds))
+          window.localStorage.setItem(getStorageKey("ll_quotes"), JSON.stringify(localQuotes))
         } catch {
           /* ignore storage error */
         }
       }
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
         window.dispatchEvent(new CustomEvent("layerledger:quotes-updated"))
-      }
-
-      if (unSyncedQuotes.length > 0) {
-        syncOrdersList(headers, localProds, mergedQuotes, load("ll_inv", []), load("ll_recipes", [])).catch(() => {})
       }
     }
 
@@ -1872,11 +1936,9 @@ export const syncFromBackend = async () => {
       lastSyncedValues["ll_clients"] = JSON.stringify(localClients)
     }
 
-    if (isAlreadyOnboarded) {
-      cache["ll_onboarded"] = "1"
-      if (typeof window !== "undefined" && window.localStorage) {
-        try { window.localStorage.setItem("ll_onboarded", "1") } catch { /* ignore storage error */ }
-      }
+    cache["ll_onboarded"] = isAlreadyOnboarded ? "1" : "0"
+    if (typeof window !== "undefined" && window.localStorage) {
+      try { window.localStorage.setItem(getStorageKey("ll_onboarded"), isAlreadyOnboarded ? "1" : "0") } catch { /* ignore storage error */ }
     }
 
     return true
@@ -1905,7 +1967,45 @@ export const clearTempCalculatorState = () => {
   })
 }
 
-export const logout = () => {
+export const completeOnboardingOnServer = async () => {
+  const headers = getAuthHeaders()
+  if (!headers) return false
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) return false
+  try {
+    const res = await fetch(`${apiUrl}/api/tenant/complete-onboarding`, {
+      method: "POST",
+      headers
+    })
+    if (res.ok) {
+      cache["ll_onboarded"] = "1"
+      await saveLocal("ll_onboarded", "1")
+      return true
+    }
+  } catch (err) {
+    console.warn("Failed to complete onboarding on server:", err)
+  }
+  return false
+}
+
+export const fetchOnboardingStatusFromServer = async () => {
+  const headers = getAuthHeaders()
+  if (!headers) return null
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) return null
+  try {
+    const res = await fetch(`${apiUrl}/api/tenant/onboarding-status`, { headers })
+    if (res.ok) {
+      const data = await res.json()
+      return Boolean(data.isOnboarded)
+    }
+  } catch (err) {
+    console.warn("Failed to fetch onboarding status from server:", err)
+  }
+  return null
+}
+
+export const clearAllLocalState = () => {
   clearTempCalculatorState()
   Object.keys(cache).forEach(k => {
     delete cache[k]
@@ -1914,26 +2014,37 @@ export const logout = () => {
     delete lastSyncedValues[k]
   })
   try {
-    sessionStorage.removeItem("ll_current_user")
-    sessionStorage.removeItem("ll_tenant_info")
-    // Remove all cache-related keys from sessionStorage
-    const keysToRemove = []
-    for (let i = 0; i < sessionStorage.length; i++) {
-      const key = sessionStorage.key(i)
-      if (key && key.startsWith("ll_")) {
-        keysToRemove.push(key)
+    if (typeof sessionStorage !== "undefined") {
+      const sKeys = []
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key && (key.startsWith("ll_") || key.includes("onboarded"))) {
+          sKeys.push(key)
+        }
       }
+      sKeys.forEach(k => sessionStorage.removeItem(k))
     }
-    keysToRemove.forEach(k => sessionStorage.removeItem(k))
   } catch (e) {
     // Ignore
   }
   try {
-    localStorage.removeItem("ll_current_user")
-    localStorage.removeItem("ll_token")
+    if (typeof localStorage !== "undefined") {
+      const lKeys = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && (key.startsWith("ll_") || key.includes("onboarded"))) {
+          lKeys.push(key)
+        }
+      }
+      lKeys.forEach(k => localStorage.removeItem(k))
+    }
   } catch (e) {
     // Ignore
   }
+}
+
+export const logout = () => {
+  clearAllLocalState()
 }
 
 export const clearAllDataOnServer = async () => {
@@ -2423,7 +2534,7 @@ export const saveProductionsList = async (data) => {
   cache["ll_prods"] = data
   lastSyncedValues["ll_prods"] = JSON.stringify(data)
   if (typeof window !== "undefined" && window.localStorage) {
-    try { window.localStorage.setItem("ll_prods", JSON.stringify(data)) } catch { /* ignore storage error */ }
+    try { window.localStorage.setItem(getStorageKey("ll_prods"), JSON.stringify(data)) } catch { /* ignore storage error */ }
   }
   const headers = getAuthHeaders()
   if (!headers) return
@@ -2530,16 +2641,32 @@ export const loadSetting = (key, def) => load("ll_setting_" + key, def)
 export const saveSetting = async (key, val) => await save("ll_setting_" + key, val)
 
 // Company
-export const loadCompany = () => load("ll_co", {
-  name: "My Bakery",
-  address: "Abuja, Nigeria",
-  phone: "",
-  email: "",
-  pin: "1234",
-  primaryColor: "#f6ae13",
-  sidebarColor: "#0a0a0a",
-  logo: "/Bakewealthlogo.jpeg"
-})
+export const loadCompany = () => {
+  let fallbackName = ""
+  try {
+    if (cache["ll_tenant_info"]?.name) {
+      fallbackName = cache["ll_tenant_info"].name
+    } else if (typeof sessionStorage !== "undefined") {
+      const uStr = sessionStorage.getItem("ll_current_user")
+      if (uStr) {
+        const u = JSON.parse(uStr)
+        fallbackName = u.tenant?.name || u.companyName || u.businessName || ""
+      }
+    }
+  } catch {}
+  if (!fallbackName) fallbackName = "BakeWealth Workspace"
+
+  return load("ll_co", {
+    name: fallbackName,
+    address: "",
+    phone: "",
+    email: "",
+    pin: "1234",
+    primaryColor: "#f6ae13",
+    sidebarColor: "#0a0a0a",
+    logo: "/Bakewealthlogo.jpeg"
+  })
+}
 export const saveCompany = async (data) => await save("ll_co", data)
 
 // Quotes
@@ -2557,7 +2684,7 @@ export const saveQuotes = async (data) => {
   cache["ll_quotes"] = data
   lastSyncedValues["ll_quotes"] = JSON.stringify(data)
   if (typeof window !== "undefined" && window.localStorage) {
-    try { window.localStorage.setItem("ll_quotes", JSON.stringify(data)) } catch { /* ignore storage error */ }
+    try { window.localStorage.setItem(getStorageKey("ll_quotes"), JSON.stringify(data)) } catch { /* ignore storage error */ }
   }
   const headers = getAuthHeaders()
   if (!headers) return

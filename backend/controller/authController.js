@@ -52,11 +52,27 @@ const registerUser = asyncHandler(async (req, res) => {
             data: {
                 name: finalCompanyName,
                 type: finalType,
+                contactEmail: normalizedEmail,
                 tokenBalance: 20, // 10 free scans * 2 credits
                 settings: {
                     plan: 'free',
+                    onboarded: false,
                     freeScansGranted: true,
-                    freeScansClaimedAt: new Date().toISOString()
+                    freeScansClaimedAt: new Date().toISOString(),
+                    appConfig: {
+                        ll_onboarded: "0",
+                        ll_co: JSON.stringify({
+                            name: finalCompanyName,
+                            tagline: "",
+                            address: "",
+                            phone: "",
+                            email: normalizedEmail,
+                            pin: "1234",
+                            primaryColor: "#f6ae13",
+                            sidebarColor: "#0a0a0a",
+                            logo: ""
+                        })
+                    }
                 }
             }
         });
@@ -167,6 +183,12 @@ const loginUser = asyncHandler(async (req, res) => {
             { expiresIn: '30d' }
         );
 
+        const isOnboarded = Boolean(
+            user.tenant?.settings?.onboarded === true ||
+            user.tenant?.settings?.appConfig?.ll_onboarded === "1" ||
+            user.tenant?.settings?.appConfig?.ll_onboarded === 1
+        );
+
         res.json({
             id: user.id,
             name: user.name,
@@ -174,7 +196,11 @@ const loginUser = asyncHandler(async (req, res) => {
             tenantId: user.tenantId,
             role: user.role,
             token,
-            tenant: user.tenant
+            tenant: {
+                ...user.tenant,
+                isOnboarded
+            },
+            isOnboarded
         });
     } else {
         res.status(401);
@@ -237,6 +263,12 @@ const activateUser = asyncHandler(async (req, res) => {
         { expiresIn: '30d' }
     );
 
+    const isOnboarded = Boolean(
+        user.tenant?.settings?.onboarded === true ||
+        user.tenant?.settings?.appConfig?.ll_onboarded === "1" ||
+        user.tenant?.settings?.appConfig?.ll_onboarded === 1
+    );
+
     res.json({
         success: true,
         message: 'Account activated successfully! Welcome to Bakewealth.',
@@ -246,8 +278,12 @@ const activateUser = asyncHandler(async (req, res) => {
         email: updatedUser.email,
         tenantId: updatedUser.tenantId,
         role: updatedUser.role,
-        tenant: user.tenant,
-        isNewRegistration: true
+        tenant: {
+            ...user.tenant,
+            isOnboarded
+        },
+        isNewRegistration: true,
+        isOnboarded
     });
 });
 

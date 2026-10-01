@@ -31,7 +31,7 @@ import {
   loadTransactions, saveTxns, loadExpenses, saveExpenses, loadSetting, saveSetting,
   loadCompany, saveCompany, loadInvoices, saveInvoice, loadUsers, saveUsers,
   loadRecipes, saveRecipes, syncToBackend, syncFromBackend, loadTenantInfo, logout, loadLocal, saveLocal, clearTempCalculatorState,
-  loadDashboardFromLogin, fetchPageDataOnDemand
+  loadDashboardFromLogin, fetchPageDataOnDemand, completeOnboardingOnServer, clearAllLocalState
 } from "./lib/data.js"
 
 // ─── Seed data & helpers ────────────────────────────────────────────────────
@@ -184,7 +184,22 @@ export default function App() {
       return h.slice(0, -1)
     });
   }
-  const [onboarded, setOnboarded] = useState(() => !!loadLocal("ll_onboarded", false))
+  const [onboarded, setOnboarded] = useState(() => {
+    try {
+      const u = JSON.parse(sessionStorage.getItem("ll_current_user") || "null")
+      if (u) {
+        if (typeof u.isOnboarded === "boolean") return u.isOnboarded
+        if (typeof u.tenant?.settings?.onboarded === "boolean") return u.tenant.settings.onboarded
+      }
+    } catch {}
+    return loadLocal("ll_onboarded", "0") === "1"
+  })
+  const [onboardingSkipped, setOnboardingSkipped] = useState(() => {
+    try {
+      if (sessionStorage.getItem("ll_onboarding_skipped") === "1") return true
+    } catch {}
+    return loadLocal("ll_onboarding_skipped", "0") === "1"
+  })
   const [inventory, setInventory] = useState(DEFAULT_INV)
   const [recipes, setRecipes] = useState(() => { const saved = loadRecipes(); return saved && saved.length > 0 ? saved : DEFAULT_RECIPES })
   const [productions, setProductions] = useState([])
@@ -273,7 +288,8 @@ export default function App() {
       if (recs) setRecipes(recs)
       setUsers(loadUsers()); setCompany(loadCompany())
       setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) })
-      setOnboarded(!!loadLocal("ll_onboarded", false))
+      setOnboarded(loadLocal("ll_onboarded", "0") === "1")
+      setOnboardingSkipped(loadLocal("ll_onboarding_skipped", "0") === "1")
 
       // Silently pull fresh database records on startup in background without blocking UI
       syncFromBackend().then(() => {
@@ -288,7 +304,8 @@ export default function App() {
         setUsers(loadUsers())
         setCompany(loadCompany())
         setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) })
-        setOnboarded(!!loadLocal("ll_onboarded", false))
+        setOnboarded(loadLocal("ll_onboarded", "0") === "1")
+        setOnboardingSkipped(loadLocal("ll_onboarding_skipped", "0") === "1")
       }).catch(err => {
         console.warn("Silent background startup sync notice:", err)
       })
@@ -349,11 +366,17 @@ export default function App() {
           // Safe fallback
         }
 
+        // Clear all previous local/session state from any other account
+        clearAllLocalState()
+
         // Store user and lead directly into interactive onboarding
-        const activatedUser = { ...data, isNewRegistration: true }
+        const activatedUser = { ...data, isNewRegistration: true, isOnboarded: false }
         sessionStorage.setItem("ll_current_user", JSON.stringify(activatedUser))
-        saveLocal("ll_onboarded", "0")
+        await saveLocal("ll_onboarded", "0")
         setOnboarded(false)
+        setOnboardingSkipped(false)
+        try { sessionStorage.removeItem("ll_onboarding_skipped") } catch {}
+        await saveLocal("ll_onboarding_skipped", "0")
 
         try {
           await syncFromBackend()
@@ -367,6 +390,7 @@ export default function App() {
           setUsers(loadUsers())
           setCompany(loadCompany())
           setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) })
+          setOnboarded(false)
         } catch (syncErr) {
           console.error("Activation sync notice:", syncErr)
         }
@@ -424,8 +448,59 @@ export default function App() {
       setSidebarOpen(false)
       setView("dashboard")
       setViewHistory(["dashboard"])
+      setCompany(loadCompany())
+      setTenantInfo(null)
+      setOnboarded(false)
+      setOnboardingSkipped(false)
+      try { sessionStorage.removeItem("ll_onboarding_skipped") } catch {}
+      saveLocal("ll_onboarding_skipped", "0").catch(() => {})
     }
   }, [])
+
+  const handleExitOnboarding = useCallback(async (targetView) => {
+    await completeOnboardingOnServer();
+    await saveLocal("ll_onboarded", "1");
+    try {
+      sessionStorage.removeItem("ll_onboarding_skipped");
+    } catch {}
+    await saveLocal("ll_onboarding_skipped", "0");
+    setOnboardingSkipped(false);
+    setOnboarded(true);
+    if (currentUser) {
+      const normalizedUser = { ...currentUser, isNewRegistration: false, isOnboarded: true };
+      sessionStorage.setItem("ll_current_user", JSON.stringify(normalizedUser));
+      setCurrentUser(normalizedUser);
+    }
+    setHasOnboardingParam(false);
+    try {
+      if (window.history.replaceState) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("onboarding");
+        window.history.replaceState({}, document.title, url.pathname + (url.search || ""));
+      }
+    } catch {
+      // Safe URL history fallback
+    }
+    if (targetView) setViewWithSync(targetView);
+    else setViewWithSync("dashboard");
+  }, [currentUser, setViewWithSync]);
+
+  const handleSkipOnboarding = useCallback(async () => {
+    try {
+      sessionStorage.setItem("ll_onboarding_skipped", "1");
+    } catch {}
+    await saveLocal("ll_onboarding_skipped", "1");
+    setOnboardingSkipped(true);
+    setHasOnboardingParam(false);
+    try {
+      if (window.history.replaceState) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("onboarding");
+        window.history.replaceState({}, document.title, url.pathname + (url.search || ""));
+      }
+    } catch {}
+    setViewWithSync("dashboard");
+  }, [setViewWithSync]);
 
   const gold = company.primaryColor || "var(--gold)"
   const sidebar = company.sidebarColor || "var(--sidebar)"
@@ -504,14 +579,14 @@ export default function App() {
             onBackToHome={() => setAuthMode(null)}
             onLogin={async (u) => {
               setInitialSyncing(true);
+              clearAllLocalState();
               sessionStorage.setItem("ll_current_user", JSON.stringify(u));
-              if (u?.isNewRegistration) {
-                saveLocal("ll_onboarded", "0");
-                setOnboarded(false);
-              } else {
-                saveLocal("ll_onboarded", "1");
-                setOnboarded(true);
-              }
+              const isUserOnboarded = Boolean(u?.isOnboarded ?? u?.tenant?.settings?.onboarded ?? false);
+              await saveLocal("ll_onboarded", isUserOnboarded ? "1" : "0");
+              setOnboarded(isUserOnboarded);
+              setOnboardingSkipped(false);
+              try { sessionStorage.removeItem("ll_onboarding_skipped") } catch {}
+              await saveLocal("ll_onboarding_skipped", "0");
 
               try {
                 await syncFromBackend();
@@ -525,6 +600,7 @@ export default function App() {
                 setUsers(loadUsers());
                 setCompany(loadCompany());
                 setSettings({ accessoryPct: loadSetting("accessoryPct", 10), profitPct: loadSetting("profitPct", 40) });
+                setOnboarded(loadLocal("ll_onboarded", "0") === "1");
               } catch (err) {
                 console.error("Login sync notice:", err);
               } finally {
@@ -568,47 +644,35 @@ export default function App() {
     )
   }
 
-  // Show onboarding strictly for first-time user registrations or when directly launched via welcome email link (?onboarding=1)
+  // Show onboarding whenever the authenticated user has not completed onboarding and hasn't skipped yet
   const shouldShowOnboarding = Boolean(
-    currentUser && (currentUser.isNewRegistration || hasOnboardingParam) && !onboarded
+    currentUser && !onboarded && !onboardingSkipped
   )
 
   if (shouldShowOnboarding) {
-    const handleExitOnboarding = async (targetView) => {
-      await saveLocal("ll_onboarded", "1");
-      setOnboarded(true);
-      if (currentUser?.isNewRegistration) {
-        const normalizedUser = { ...currentUser, isNewRegistration: false };
-        sessionStorage.setItem("ll_current_user", JSON.stringify(normalizedUser));
-        setCurrentUser(normalizedUser);
-      }
-      setHasOnboardingParam(false);
-      try {
-        if (window.history.replaceState) {
-          const url = new URL(window.location.href);
-          url.searchParams.delete("onboarding");
-          window.history.replaceState({}, document.title, url.pathname + (url.search || ""));
-        }
-      } catch {
-        // Safe URL history fallback
-      }
-      if (targetView) setViewWithSync(targetView);
-    };
-
-    return <Suspense fallback={<Spinner />}><Onboarding
-      gold={gold}
-      company={company}
-      setCompany={setCompany}
-      inventory={inventory}
-      setInventory={setInventory}
-      recipes={recipes}
-      setRecipes={setRecipes}
-      settings={settings}
-      setSettings={setSettings}
-      onComplete={() => handleExitOnboarding()}
-      onSkip={() => handleExitOnboarding()}
-      setView={v => handleExitOnboarding(v)}
-    /></Suspense>
+    return (
+      <Suspense fallback={<Spinner />}>
+        <Onboarding
+          gold={gold}
+          company={company}
+          setCompany={setCompany}
+          inventory={inventory}
+          setInventory={setInventory}
+          recipes={recipes}
+          setRecipes={setRecipes}
+          settings={settings}
+          setSettings={setSettings}
+          onComplete={() => handleExitOnboarding("calculator")}
+          onSkip={() => handleSkipOnboarding()}
+          onBack={() => handleSkipOnboarding()}
+          setView={v => {
+            if (v === "calculator") handleExitOnboarding("calculator");
+            else if (v === "dashboard") handleSkipOnboarding();
+            else setViewWithSync(v);
+          }}
+        />
+      </Suspense>
+    )
   }
 
   const sidebarContent = <>
@@ -708,7 +772,7 @@ export default function App() {
             )}
             <img src={company.logo || "/Bakewealthlogo.jpeg"} alt="logo" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(200,145,42,0.3)", background: "#fff" }} />
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: gold, fontWeight: 700 }}>{company.name || "BakeWealth"}</div>
-            {!isMobile && <div style={{ fontSize: 12, color: "#8B6B4A", marginLeft: 10, background: "rgba(200,145,42,0.1)", padding: "2px 8px", borderRadius: 4 }}>{nav.find(n => n.id === view)?.label}</div>}
+            {!isMobile && <div style={{ fontSize: 12, color: "#8B6B4A", marginLeft: 10, background: "rgba(200,145,42,0.1)", padding: "2px 8px", borderRadius: 4 }}>{nav.find(n => n.id === view)?.label || (view === "onboarding" ? "Setup Wizard" : view)}</div>}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -759,7 +823,39 @@ export default function App() {
         <div className="main-content" style={{ padding: isMobile ? "14px" : "24px 26px", flex: 1, overflowY: "auto", color: "var(--text)" }}>
           {loading ? <Spinner /> :
             <Suspense fallback={<Spinner />}>
-              {view === "dashboard" && <Dashboard productions={productions} inventory={inventory} expenses={expenses} setView={setViewWithSync} user={currentUser} tenantInfo={tenantInfo} />}
+              {view === "dashboard" && (
+                <Dashboard
+                  productions={productions}
+                  inventory={inventory}
+                  expenses={expenses}
+                  setView={setViewWithSync}
+                  user={currentUser}
+                  tenantInfo={tenantInfo}
+                  onboarded={onboarded}
+                  onboardingSkipped={onboardingSkipped}
+                />
+              )}
+              {view === "onboarding" && (
+                <Onboarding
+                  gold={gold}
+                  company={company}
+                  setCompany={setCompany}
+                  inventory={inventory}
+                  setInventory={setInventory}
+                  recipes={recipes}
+                  setRecipes={setRecipes}
+                  settings={settings}
+                  setSettings={setSettings}
+                  onComplete={() => handleExitOnboarding("calculator")}
+                  onSkip={() => handleSkipOnboarding()}
+                  onBack={() => setViewWithSync("dashboard")}
+                  setView={v => {
+                    if (v === "calculator") handleExitOnboarding("calculator");
+                    else if (v === "dashboard") handleExitOnboarding("dashboard");
+                    else setViewWithSync(v);
+                  }}
+                />
+              )}
               {view === "masterlist" && <MasterList inventory={inventory} setInventory={setInventory} recipes={recipes} setRecipes={setRecipes} user={currentUser} setView={setViewWithSync} company={company} />}
               {(view === "openingstock" || view === "stock") && <Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory} setInventory={setInventory} user={currentUser} setView={setViewWithSync} initialTab="stock" />}
               {view === "calculator" && <OrderCalculator inventory={inventory} recipes={recipes} settings={settings} setView={setViewWithSync} company={company} />}
