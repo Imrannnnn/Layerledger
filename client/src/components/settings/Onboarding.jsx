@@ -531,7 +531,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
       `}</style>
 
       <div style={{ width: "100%", maxWidth: 540, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 16, padding: "30px 28px", boxShadow: "0 8px 30px rgba(41,22,8,0.06)" }}>
-        
+
         {/* Top Header Bar for Back / Skip */}
         {(onBack || onSkip) && (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -871,10 +871,10 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                   </div>
                 )}
                 <Inp label="Item Name *" value={manualItem.name} onChange={v => { setManualItem(m => ({ ...m, name: v })); setManualAddError(null) }} placeholder="e.g. Flour, Butter, Eggs" />
-                <Sel 
-                  label="Unit *" 
-                  value={manualItem.unit} 
-                  onChange={v => setManualItem(m => ({ ...m, unit: v }))} 
+                <Sel
+                  label="Unit *"
+                  value={manualItem.unit}
+                  onChange={v => setManualItem(m => ({ ...m, unit: v }))}
                   options={[
                     { value: "g", label: "g (grams)" },
                     { value: "ml", label: "ml (milliliters)" },
@@ -883,10 +883,10 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                     { value: "L", label: "L (litres)" },
                     { value: "pcs", label: "pcs (pieces)" },
                     { value: "pack", label: "pack (packs)" }
-                  ]} 
+                  ]}
                   placeholder="Select unit"
                 />
-                
+
                 <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
                   <button
                     onClick={() => setCalcMode("auto")}
@@ -941,7 +941,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                 )}
 
                 <Inp label="Opening Qty (optional)" type="number" value={manualItem.openingQty} onChange={v => setManualItem(m => ({ ...m, openingQty: v }))} placeholder="e.g. 5" />
-                
+
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
                   <Btn variant="success" onClick={handleManualAdd} disabled={!manualItem.name.trim() || (calcMode === "auto" ? (!manualItem.totalPaid || !manualItem.qtyBought) : !manualItem.cost)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                     <Check size={13} /> Add Item
@@ -960,7 +960,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                       Open your Excel. Copy each column and paste into its own box. Only item names and cost per unit are required.
                     </div>
                     {importMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {importMsg}</div>}
-                    
+
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
                       <div>
                         <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Item Names *</label>
@@ -968,8 +968,8 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                       </div>
                       <div>
                         <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Unit (optional)</label>
-                        <textarea value={pasteU} onChange={e => setPasteU(e.target.value)} placeholder={"kg\nkg\nL\npcs"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-                        <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Defaults to kg</div>
+                        <textarea value={pasteU} onChange={e => setPasteU(e.target.value)} placeholder={"g\nml\nm\nkg"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                        <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default gram(g) millimeter (m)</div>
                       </div>
                       <div>
                         <label style={{ fontSize: 10, color: "var(--gold)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Cost / Unit *</label>
@@ -1104,14 +1104,14 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                       Paste your recipe names (one per line) from Excel, PDF, or type them out.
                     </div>
                     {recipeImportMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {recipeImportMsg}</div>}
-                    
-                    <textarea 
-                      value={pasteRecipeNames} 
-                      onChange={e => setPasteRecipeNames(e.target.value)} 
-                      placeholder={"Chocolate Sponge\nRed Velvet Layer\nVanilla Cupcake"} 
-                      style={{ width: "100%", minHeight: 150, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 13, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none", marginBottom: 12 }} 
+
+                    <textarea
+                      value={pasteRecipeNames}
+                      onChange={e => setPasteRecipeNames(e.target.value)}
+                      placeholder={"Chocolate Sponge\nRed Velvet Layer\nVanilla Cupcake"}
+                      style={{ width: "100%", minHeight: 150, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 13, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none", marginBottom: 12 }}
                     />
-                    
+
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                       <Btn onClick={doRecipePreview} disabled={!pasteRecipeNames.trim()}>Preview import →</Btn>
                       <Btn variant="ghost" onClick={() => setShowRecipeImport(false)}>Cancel</Btn>
@@ -1179,7 +1179,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                 )}
                 <Inp label="Recipe Name *" value={recipeModal.name} onChange={v => { setRecipeModal({ ...recipeModal, name: v }); setRecipeModalError(null) }} placeholder="e.g. Chocolate Sponge" />
                 <Inp label="Notes" value={recipeModal.notes} onChange={v => setRecipeModal({ ...recipeModal, notes: v })} placeholder="e.g. Rich chocolate base" />
-                
+
                 <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, marginTop: 12 }}>Ingredients</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 180, overflowY: "auto", marginBottom: 12 }}>
                   {recipeModal.ing.map((ing, idx) => {

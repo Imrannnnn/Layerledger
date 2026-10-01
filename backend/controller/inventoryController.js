@@ -325,6 +325,12 @@ const deleteAllInventory = asyncHandler(async (req, res) => {
             data: { itemId: null }
         });
 
+        // 1b. Unlink any opening stock items referencing inventory items so foreign keys don't fail
+        await tx.openingStock.updateMany({
+            where: { tenantId, itemId: { not: null } },
+            data: { itemId: null }
+        });
+
         // 2. Delete inventory history
         await tx.inventoryHistory.deleteMany({
             where: { tenantId }

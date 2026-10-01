@@ -2209,6 +2209,16 @@ export const clearAllDataOnServer = async () => {
   if (!apiUrl) return false
 
   try {
+    // 0. Explicitly delete opening stock directly
+    try {
+      await fetch(`${apiUrl}/api/opening-stock`, {
+        method: "DELETE",
+        headers
+      })
+    } catch {
+      // Non-fatal opening stock pre-delete
+    }
+
     // 1. Direct database wipe via backend transaction
     const res = await fetch(`${apiUrl}/api/tenant/data`, {
       method: "DELETE",
@@ -2228,10 +2238,11 @@ export const clearAllDataOnServer = async () => {
       delete lastSyncedValues[k]
     })
 
-    // 3. Clear all browser storage
+    // 3. Clear all browser storage and ensure legacy opening stock cannot resurrect
     try {
       localStorage.clear()
       sessionStorage.clear()
+      localStorage.setItem("ll_os_migrated", "true")
     } catch {
       // Ignore storage access errors
     }
@@ -2248,6 +2259,16 @@ export const deleteTenantAccountOnServer = async () => {
   if (!headers) throw new Error("Authentication headers missing. Please log in again.")
   const apiUrl = import.meta.env.VITE_API_URL
   if (!apiUrl) throw new Error("API URL not configured.")
+
+  // 0. Explicitly delete all opening stock directly before tenant wipe
+  try {
+    await fetch(`${apiUrl}/api/opening-stock`, {
+      method: "DELETE",
+      headers
+    })
+  } catch {
+    // Non-fatal opening stock pre-delete
+  }
 
   // 1. Direct tenant account purge via backend transaction
   const res = await fetch(`${apiUrl}/api/tenant/account`, {
@@ -2268,10 +2289,11 @@ export const deleteTenantAccountOnServer = async () => {
     delete lastSyncedValues[k]
   })
 
-  // 3. Clear all browser storage and invoke logout
+  // 3. Clear all browser storage, mark migration flag so old data cannot resurrect, and invoke logout
   try {
     localStorage.clear()
     sessionStorage.clear()
+    localStorage.setItem("ll_os_migrated", "true")
   } catch {
     // Ignore storage access errors
   }
@@ -2363,9 +2385,17 @@ export const deleteOpeningStockOnServer = async (month) => {
         }
         try {
           localStorage.removeItem("ll_os_" + month)
-          if (month === curMonthStr) localStorage.removeItem("ll_opening_stock")
+          localStorage.removeItem(getStorageKey("ll_os_" + month))
+          if (month === curMonthStr) {
+            localStorage.removeItem("ll_opening_stock")
+            localStorage.removeItem(getStorageKey("ll_opening_stock"))
+          }
           sessionStorage.removeItem("ll_os_" + month)
-          if (month === curMonthStr) sessionStorage.removeItem("ll_opening_stock")
+          sessionStorage.removeItem(getStorageKey("ll_os_" + month))
+          if (month === curMonthStr) {
+            sessionStorage.removeItem("ll_opening_stock")
+            sessionStorage.removeItem(getStorageKey("ll_opening_stock"))
+          }
         } catch {
           // Ignore local storage errors
         }
@@ -2375,14 +2405,23 @@ export const deleteOpeningStockOnServer = async (month) => {
           if (k.startsWith("ll_os_")) delete cache[k]
         })
         try {
-          localStorage.removeItem("ll_opening_stock")
-          Object.keys(localStorage).forEach(k => {
-            if (k.startsWith("ll_os_") && k !== "ll_os_migrated") localStorage.removeItem(k)
-          })
-          sessionStorage.removeItem("ll_opening_stock")
-          Object.keys(sessionStorage).forEach(k => {
-            if (k.startsWith("ll_os_") && k !== "ll_os_migrated") sessionStorage.removeItem(k)
-          })
+          const lRemoves = []
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i)
+            if (k && (k.includes("opening_stock") || k.includes("_os_") || k.startsWith("ll_os_")) && k !== "ll_os_migrated") {
+              lRemoves.push(k)
+            }
+          }
+          lRemoves.forEach(k => localStorage.removeItem(k))
+
+          const sRemoves = []
+          for (let i = 0; i < sessionStorage.length; i++) {
+            const k = sessionStorage.key(i)
+            if (k && (k.includes("opening_stock") || k.includes("_os_") || k.startsWith("ll_os_")) && k !== "ll_os_migrated") {
+              sRemoves.push(k)
+            }
+          }
+          sRemoves.forEach(k => sessionStorage.removeItem(k))
         } catch {
           // Ignore local storage errors
         }
@@ -3338,7 +3377,11 @@ export const loadOpeningStock = (month) => {
   // Fall back to localStorage if memory cache is empty
   if (!cached && typeof window !== "undefined" && window.localStorage) {
     try {
-      const raw = window.localStorage.getItem("ll_os_" + currentMonthStr) || (currentMonthStr === new Date().toISOString().slice(0, 7) ? window.localStorage.getItem("ll_opening_stock") : null)
+      const sKeyMonth = getStorageKey("ll_os_" + currentMonthStr)
+      const sKeyBase = getStorageKey("ll_opening_stock")
+      const raw = window.localStorage.getItem(sKeyMonth) ||
+        (currentMonthStr === new Date().toISOString().slice(0, 7) ? window.localStorage.getItem(sKeyBase) : null) ||
+        (!getCurrentTenantId() ? (window.localStorage.getItem("ll_os_" + currentMonthStr) || (currentMonthStr === new Date().toISOString().slice(0, 7) ? window.localStorage.getItem("ll_opening_stock") : null)) : null)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (parsed) {
@@ -3361,7 +3404,8 @@ export const loadOpeningStock = (month) => {
     let curCached = cache["ll_opening_stock"]
     if (!curCached && typeof window !== "undefined" && window.localStorage) {
       try {
-        const raw = window.localStorage.getItem("ll_opening_stock")
+        const sKeyBase = getStorageKey("ll_opening_stock")
+        const raw = window.localStorage.getItem(sKeyBase) || (!getCurrentTenantId() ? window.localStorage.getItem("ll_opening_stock") : null)
         if (raw) {
           curCached = JSON.parse(raw)
           cache["ll_opening_stock"] = curCached
@@ -3489,9 +3533,11 @@ export const fetchOpeningStockFromServer = async (month) => {
       }
       if (typeof window !== "undefined" && window.localStorage) {
         try {
-          window.localStorage.setItem("ll_os_" + targetMonth, JSON.stringify(payload))
+          const sKeyMonth = getStorageKey("ll_os_" + targetMonth)
+          const sKeyBase = getStorageKey("ll_opening_stock")
+          window.localStorage.setItem(sKeyMonth, JSON.stringify(payload))
           if (targetMonth === new Date().toISOString().slice(0, 7)) {
-            window.localStorage.setItem("ll_opening_stock", JSON.stringify(payload))
+            window.localStorage.setItem(sKeyBase, JSON.stringify(payload))
           }
         } catch { /* ignore storage error */ }
       }
@@ -3514,9 +3560,11 @@ export const saveOpeningStock = async (items, month, locked) => {
 
   if (typeof window !== "undefined" && window.localStorage) {
     try {
-      window.localStorage.setItem("ll_os_" + currentMonthStr, JSON.stringify(payload))
+      const sKeyMonth = getStorageKey("ll_os_" + currentMonthStr)
+      const sKeyBase = getStorageKey("ll_opening_stock")
+      window.localStorage.setItem(sKeyMonth, JSON.stringify(payload))
       if (currentMonthStr === new Date().toISOString().slice(0, 7)) {
-        window.localStorage.setItem("ll_opening_stock", JSON.stringify(payload))
+        window.localStorage.setItem(sKeyBase, JSON.stringify(payload))
       }
     } catch { /* ignore storage error */ }
   }

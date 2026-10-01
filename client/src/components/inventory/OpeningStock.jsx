@@ -566,7 +566,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
         return {
           id: match ? match.id : "os_" + uid(),
           name: match ? match.name : name,
-          unit: us[i] || (match ? match.unit : "kg"),
+          unit: us[i] || (match ? match.unit : "g"),
           cost: cs.length > 0 ? cost : (match ? match.cost : 0),
           openingQty: qs.length > 0 ? qty : (match ? match.openingQty : 0),
           isNew: !match,
@@ -1094,13 +1094,13 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                   </div>
                   <div>
                     <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                      Units (kg, g, L, pcs)
+                      Units (g, ml, m, kg, pcs)
                     </label>
                     <textarea
                       rows={6}
                       value={pasteU}
                       onChange={e => setPasteU(e.target.value)}
-                      placeholder={"kg\nkg\nkg"}
+                      placeholder={"g\nml\nm\nkg"}
                       style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
                     />
                   </div>

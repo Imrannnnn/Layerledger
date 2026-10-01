@@ -239,11 +239,17 @@ const clearAllTenantData = asyncHandler(async (req, res) => {
         // 7. Delete recipes
         await tx.recipe.deleteMany({ where: { tenantId } });
 
-        // 8. Delete inventory items
-        await tx.inventoryItem.deleteMany({ where: { tenantId } });
+        // 8a. Unlink opening stock items referencing inventory items
+        await tx.openingStock.updateMany({
+            where: { tenantId, itemId: { not: null } },
+            data: { itemId: null }
+        });
 
         // 8b. Delete opening stock
         await tx.openingStock.deleteMany({ where: { tenantId } });
+
+        // 8c. Delete inventory items
+        await tx.inventoryItem.deleteMany({ where: { tenantId } });
 
         // 9. Delete expenses and transactions
         await tx.expense.deleteMany({ where: { tenantId } });
@@ -657,7 +663,13 @@ const deleteTenantAccount = asyncHandler(async (req, res) => {
         // 9. Delete recipes
         await tx.recipe.deleteMany({ where: { tenantId } });
 
-        // 10. Delete opening stock
+        // 10a. Unlink opening stock items referencing inventory items
+        await tx.openingStock.updateMany({
+            where: { tenantId, itemId: { not: null } },
+            data: { itemId: null }
+        });
+
+        // 10b. Delete opening stock
         await tx.openingStock.deleteMany({ where: { tenantId } });
 
         // 11. Delete packaging and decorations
