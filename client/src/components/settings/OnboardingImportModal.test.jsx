@@ -12,7 +12,8 @@ jest.mock("../../lib/data.js", () => ({
   saveInventory: jest.fn(),
   saveRecipes: jest.fn(),
   saveLocal: jest.fn(),
-  loadLocal: jest.fn().mockReturnValue({})
+  loadLocal: jest.fn().mockReturnValue({}),
+  saveOpeningStock: jest.fn()
 }))
 
 describe("Onboarding Import Modal", () => {
@@ -102,6 +103,7 @@ describe("Onboarding Import Modal", () => {
     expect(container.textContent).toContain("Step 2 — Opening Stock")
     expect(container.textContent).toContain("Open your Excel. Copy each column and paste into its own box")
     expect(container.textContent).toContain("Item Names *")
+    expect(container.textContent).toContain("Opening Stock Quantity")
     expect(container.textContent).toContain("Preview import →")
 
     // Click Cancel to close modal
@@ -117,6 +119,102 @@ describe("Onboarding Import Modal", () => {
     // Modal is closed, still on Step 2
     expect(container.textContent).not.toContain("Open your Excel. Copy each column and paste into its own box")
     expect(container.textContent).toContain("Step 2 — Opening Stock")
+  })
+
+  test("Step 2 import parses Item Names, Units, Opening Stock Quantity, and Costs and confirms import", async () => {
+    await act(async () => {
+      root.render(
+        <Onboarding
+          gold="#C89D46"
+          company={mockCompany}
+          setCompany={mockSetCompany}
+          inventory={mockInventory}
+          setInventory={mockSetInventory}
+          recipes={mockRecipes}
+          setRecipes={mockSetRecipes}
+          settings={mockSettings}
+          setSettings={mockSetSettings}
+          onComplete={mockOnComplete}
+        />
+      )
+    })
+
+    // Click "Next: Set Up Opening Stock →"
+    const nextBtn = Array.from(container.querySelectorAll("button")).find(b =>
+      b.textContent.includes("Next: Set Up Opening Stock")
+    )
+    await act(async () => {
+      nextBtn.click()
+    })
+
+    // Click Import button
+    const importBtn = Array.from(container.querySelectorAll("button")).find(b =>
+      b.textContent.includes("Import — Excel, PDF or a photo")
+    )
+    await act(async () => {
+      importBtn.click()
+    })
+
+    // There should be 4 textareas: names, units, quantities, costs
+    const textareas = container.querySelectorAll("textarea")
+    expect(textareas.length).toBe(4)
+
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype,
+      "value"
+    ).set
+
+    await act(async () => {
+      nativeSetter.call(textareas[0], "Sugar\nButter") // names
+      textareas[0].dispatchEvent(new Event("input", { bubbles: true }))
+      textareas[0].dispatchEvent(new Event("change", { bubbles: true }))
+
+      nativeSetter.call(textareas[1], "kg\ng") // units
+      textareas[1].dispatchEvent(new Event("input", { bubbles: true }))
+      textareas[1].dispatchEvent(new Event("change", { bubbles: true }))
+
+      nativeSetter.call(textareas[2], "20\n500") // opening stock quantities
+      textareas[2].dispatchEvent(new Event("input", { bubbles: true }))
+      textareas[2].dispatchEvent(new Event("change", { bubbles: true }))
+
+      nativeSetter.call(textareas[3], "1500\n3000") // costs
+      textareas[3].dispatchEvent(new Event("input", { bubbles: true }))
+      textareas[3].dispatchEvent(new Event("change", { bubbles: true }))
+    })
+
+    // Preview import
+    const previewBtn = Array.from(container.querySelectorAll("button")).find(b =>
+      b.textContent.includes("Preview import")
+    )
+    expect(previewBtn.disabled).toBe(false)
+    await act(async () => {
+      previewBtn.click()
+    })
+
+    // Verify preview table has Opening Qty
+    expect(container.textContent).toContain("Opening Qty")
+    expect(container.textContent).toContain("20 kg")
+    expect(container.textContent).toContain("500 g")
+
+    // Confirm import
+    const confirmBtn = Array.from(container.querySelectorAll("button")).find(b =>
+      b.textContent.includes("Import 2 Items")
+    )
+    expect(confirmBtn).toBeTruthy()
+    await act(async () => {
+      confirmBtn.click()
+    })
+
+    // Verify saveInventory and saveOpeningStock were called
+    expect(dataLib.saveInventory).toHaveBeenCalled()
+    expect(dataLib.saveOpeningStock).toHaveBeenCalled()
+    const savedOpeningStockList = dataLib.saveOpeningStock.mock.calls[0][0]
+    const sugarOS = savedOpeningStockList.find(i => i.name === "Sugar")
+    const butterOS = savedOpeningStockList.find(i => i.name === "Butter")
+    expect(sugarOS).toBeTruthy()
+    expect(sugarOS.openingQty).toBe(20)
+    expect(butterOS).toBeTruthy()
+    expect(butterOS.openingQty).toBe(500)
   })
 
   test("Step 3 recipe import saves recipes with clean empty ingredients array", async () => {

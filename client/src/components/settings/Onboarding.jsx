@@ -38,6 +38,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   const [importStep, setImportStep] = useState(1) // 1 = paste columns, 2 = preview, 3 = done
   const [pasteN, setPasteN] = useState("")
   const [pasteU, setPasteU] = useState("")
+  const [pasteQ, setPasteQ] = useState("")
   const [pasteC, setPasteC] = useState("")
   const [prevItems, setPrevItems] = useState([])
   const [warnMsg, setWarnMsg] = useState("")
@@ -84,10 +85,12 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   // Excel Importer Helpers
   const L = v => v.trim().split(String.fromCharCode(10)).map(s => s.replace(/,/g, "").trim()).filter(Boolean)
 
-  const checkMatch = () => {
-    const ns = L(pasteN), cs = L(pasteC)
+  const checkMatch = (valN = pasteN, valC = pasteC, valQ = pasteQ) => {
+    const ns = L(valN), cs = L(valC), qs = L(valQ)
     if (ns.length > 0 && cs.length > 0 && ns.length !== cs.length) {
       setWarnMsg(`Names: ${ns.length} rows — Costs: ${cs.length} rows. Must match.`)
+    } else if (ns.length > 0 && qs.length > 0 && ns.length !== qs.length) {
+      setWarnMsg(`Names: ${ns.length} rows — Quantities: ${qs.length} rows. Must match.`)
     } else {
       setWarnMsg("")
     }
@@ -95,23 +98,36 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
   const doPreview = () => {
     setImportMsg("")
-    const ns = L(pasteN), us = L(pasteU), cs = L(pasteC)
+    const ns = L(pasteN), us = L(pasteU), qs = L(pasteQ), cs = L(pasteC)
     if (!ns.length || !cs.length) {
       return setImportMsg("Item names and cost per unit are required")
     }
     if (ns.length !== cs.length) {
       return setImportMsg(`Names (${ns.length}) and costs (${cs.length}) must have same number of rows`)
     }
+    if (qs.length > 0 && qs.length !== ns.length) {
+      return setImportMsg(`Names (${ns.length}) and quantities (${qs.length}) must have same number of rows`)
+    }
     const items = ns.map((name, i) => {
       const rawCost = cs[i] || ""
-      const cleanedCostStr = rawCost.replace(/[^0-9.]/g, "")
-      const parsedCost = parseFloat(cleanedCostStr) || 0
+      const cleanCost = (rawCost.includes(",") && !rawCost.includes("."))
+        ? rawCost.replace(/,/g, ".")
+        : rawCost.replace(/,/g, "")
+      const parsedCost = parseFloat(cleanCost.replace(/[^0-9.]/g, "")) || 0
+
+      const rawQty = qs[i] || ""
+      const cleanQty = (rawQty.includes(",") && !rawQty.includes("."))
+        ? rawQty.replace(/,/g, ".")
+        : rawQty.replace(/,/g, "")
+      const parsedQty = rawQty ? (parseFloat(cleanQty.replace(/[^0-9.]/g, "")) || 0) : 0
+
       return {
         id: uid(),
         name,
         unit: us[i] || "g",
         cost: parsedCost,
-        stock: 0,
+        stock: parsedQty,
+        openingQty: parsedQty,
         minStock: 5,
         on: true,
         cat: "Dry Goods"
@@ -126,15 +142,31 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
   const confirmImport = async () => {
     const approved = prevItems.filter(p => p.on)
-    const updated = [...inventory, ...approved.filter(ni => !inventory.find(i => i.name.toLowerCase() === ni.name.toLowerCase()))]
+    const updated = inventory.map(item => {
+      const match = approved.find(p => p.name.toLowerCase() === item.name.toLowerCase())
+      if (match) {
+        return {
+          ...item,
+          unit: match.unit || item.unit,
+          cost: match.cost || item.cost,
+          stock: match.stock !== undefined ? match.stock : item.stock
+        }
+      }
+      return item
+    })
+    approved.forEach(p => {
+      if (!updated.some(item => item.name.toLowerCase() === p.name.toLowerCase())) {
+        updated.push(p)
+      }
+    })
     setInventory(updated)
     await saveInventory(updated)
 
     const updatedOS = { ...os }
     approved.forEach(p => {
-      if (updatedOS[p.id] === undefined) {
-        updatedOS[p.id] = p.stock || 0
-      }
+      const match = updated.find(i => i.name.toLowerCase() === p.name.toLowerCase())
+      const targetId = match ? match.id : p.id
+      updatedOS[targetId] = (p.stock !== undefined && p.stock !== "") ? p.stock : (updatedOS[targetId] || 0)
     })
     setOs(updatedOS)
     await saveLocal("ll_opening_stock", updatedOS)
@@ -155,6 +187,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
     setPasteN("")
     setPasteU("")
+    setPasteQ("")
     setPasteC("")
     setImportStep(3)
   }
@@ -961,10 +994,10 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                     </div>
                     {importMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {importMsg}</div>}
 
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, marginBottom: 10 }}>
                       <div>
                         <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Item Names *</label>
-                        <textarea value={pasteN} onChange={e => { setPasteN(e.target.value); checkMatch() }} placeholder={"Flour\nSugar\nOil\nEggs"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                        <textarea value={pasteN} onChange={e => { setPasteN(e.target.value); checkMatch(e.target.value, pasteC, pasteQ) }} placeholder={"Flour\nSugar\nOil\nEggs"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
                       </div>
                       <div>
                         <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Unit (optional)</label>
@@ -972,8 +1005,13 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                         <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default gram(g) millimeter (m)</div>
                       </div>
                       <div>
+                        <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Opening Stock Quantity</label>
+                        <textarea value={pasteQ} onChange={e => { setPasteQ(e.target.value); checkMatch(pasteN, pasteC, e.target.value) }} placeholder={"50\n25\n10\n30"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                        <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default 0</div>
+                      </div>
+                      <div>
                         <label style={{ fontSize: 10, color: "var(--gold)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Cost / Unit *</label>
-                        <textarea value={pasteC} onChange={e => { setPasteC(e.target.value); checkMatch() }} placeholder={"1140\n1500\n3000\n700"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid #E8D5A3", background: "#FFF9EE", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                        <textarea value={pasteC} onChange={e => { setPasteC(e.target.value); checkMatch(pasteN, e.target.value, pasteQ) }} placeholder={"1140\n1500\n3000\n700"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid #E8D5A3", background: "#FFF9EE", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
                       </div>
                     </div>
                     {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {warnMsg}</div>}
@@ -991,7 +1029,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
                         <thead>
                           <tr style={{ background: "#EDE5D6" }}>
-                            {["", "Item", "Unit", "Cost/Unit"].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: h === "Cost/Unit" ? "right" : "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>)}
+                            {["", "Item", "Unit", "Opening Qty", "Cost/Unit"].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: (h === "Cost/Unit" || h === "Opening Qty") ? "right" : "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>)}
                           </tr>
                         </thead>
                         <tbody>
@@ -1004,6 +1042,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                               </td>
                               <td style={{ padding: "6px 10px", fontWeight: 500 }}>{p.name}</td>
                               <td style={{ padding: "6px 10px", color: "var(--muted)" }}>{p.unit}</td>
+                              <td style={{ padding: "6px 10px", textAlign: "right", color: "var(--text)" }}>{(p.stock ?? 0)} {p.unit}</td>
                               <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 500, color: "var(--gold)" }}>{fmtCost(p.cost)}/{p.unit}</td>
                             </tr>
                           ))}
