@@ -267,19 +267,39 @@ describe("Onboarding Import Modal", () => {
       importBtn.click()
     })
 
-    expect(container.textContent).toContain("Paste your recipe names (one per line)")
+    expect(container.textContent).toContain("Recipe Name *")
+    expect(container.textContent).toContain("Option B: Paste Ingredient Columns from Excel")
 
-    // Fill textarea
-    const textarea = container.querySelector("textarea")
-    expect(textarea).toBeTruthy()
+    // Fill Recipe Name
+    const nameInput = container.querySelector("input[placeholder*='Chocolate Sponge']")
+    expect(nameInput).toBeTruthy()
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value"
+    ).set
+    await act(async () => {
+      nativeInputValueSetter.call(nameInput, "Chocolate Sponge")
+      nameInput.dispatchEvent(new Event("input", { bubbles: true }))
+      nameInput.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+
+    // Fill Ingredient Names & Quantities textareas
+    const textareas = container.querySelectorAll("textarea")
+    expect(textareas.length).toBeGreaterThanOrEqual(2)
     const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(
       window.HTMLTextAreaElement.prototype,
       "value"
     ).set
     await act(async () => {
-      nativeTextAreaValueSetter.call(textarea, "Chocolate Sponge\nRed Velvet Layer")
-      textarea.dispatchEvent(new Event("input", { bubbles: true }))
-      textarea.dispatchEvent(new Event("change", { bubbles: true }))
+      // Ingredient names textarea
+      nativeTextAreaValueSetter.call(textareas[0], "Flour\nSugar")
+      textareas[0].dispatchEvent(new Event("input", { bubbles: true }))
+      textareas[0].dispatchEvent(new Event("change", { bubbles: true }))
+
+      // Quantity textarea
+      nativeTextAreaValueSetter.call(textareas[1], "500\n250")
+      textareas[1].dispatchEvent(new Event("input", { bubbles: true }))
+      textareas[1].dispatchEvent(new Event("change", { bubbles: true }))
     })
 
     // Click "Preview import →"
@@ -291,22 +311,28 @@ describe("Onboarding Import Modal", () => {
       previewBtn.click()
     })
 
+    // Verify preview step displays Recipe Name and ingredients
+    expect(container.textContent).toContain("Chocolate Sponge")
+    expect(container.textContent).toContain("Flour")
+    expect(container.textContent).toContain("Sugar")
+
     // Confirm import
     const confirmBtn = Array.from(container.querySelectorAll("button")).find(b =>
-      b.textContent.includes("Import 2 Recipes")
+      b.textContent.includes("Import Recipe (2 Ingredients)")
     )
     expect(confirmBtn).toBeTruthy()
     await act(async () => {
       confirmBtn.click()
     })
 
-    // Verify saveRecipes was called with clean ing: []
+    // Verify saveRecipes was called with imported ingredients
     expect(dataLib.saveRecipes).toHaveBeenCalled()
     const savedRecs = dataLib.saveRecipes.mock.calls[0][0]
-    expect(savedRecs.length).toBe(2)
-    expect(savedRecs[0].name).toBe("Chocolate Sponge")
-    expect(savedRecs[0].ing).toEqual([])
-    expect(savedRecs[1].name).toBe("Red Velvet Layer")
-    expect(savedRecs[1].ing).toEqual([])
+    expect(savedRecs.length).toBeGreaterThanOrEqual(1)
+    const importedRecipe = savedRecs.find(r => r.name === "Chocolate Sponge")
+    expect(importedRecipe).toBeTruthy()
+    expect(importedRecipe.ing.length).toBe(2)
+    expect(importedRecipe.ing[0].qty).toBe(500)
+    expect(importedRecipe.ing[1].qty).toBe(250)
   })
 })

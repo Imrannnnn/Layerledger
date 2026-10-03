@@ -9,9 +9,9 @@
  */
 import React, { useState, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, Modal, Alert } from "../common/ui.jsx"
-import { saveCompany, saveSetting, saveInventory, saveRecipes, saveLocal, loadLocal, saveOpeningStock } from "../../lib/data.js"
-import { uid, fmt, fmtCost, parseCSV, formatApiError } from "../../lib/helpers.js"
-import { AlertTriangle, Check, FileSpreadsheet, PenLine, Lock, Calculator, BookOpen, Receipt, Search, X } from "lucide-react"
+import { saveCompany, saveSetting, saveInventory, saveRecipes, saveLocal, loadLocal, saveOpeningStock, refundScanCredits } from "../../lib/data.js"
+import { uid, fmt, fmtCost, parseCSV, formatApiError, callClaude, compressImage, extractAndRepairJson } from "../../lib/helpers.js"
+import { AlertTriangle, Check, FileSpreadsheet, PenLine, Lock, Calculator, BookOpen, Receipt, Search, X, Camera, Sparkles, UploadCloud, FileText, RefreshCw, Upload, Image as ImageIcon } from "lucide-react"
 
 export function Onboarding({ gold, company, setCompany, inventory, setInventory, recipes, setRecipes, settings, setSettings, onComplete, onSkip, onBack, setView }) {
   const [step, setStep] = useState(1)
@@ -33,9 +33,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   // Step 4: Margin State
   const [profitPct, setProfitPct] = useState(settings.profitPct || 40)
 
-  // Excel Import Modal State (Step 2)
+  // Excel / PDF / Photo Import Modal State (Step 2)
   const [showImport, setShowImport] = useState(false)
-  const [importStep, setImportStep] = useState(1) // 1 = paste columns, 2 = preview, 3 = done
+  const [importStep, setImportStep] = useState(1) // 1 = paste columns or scan, 2 = preview, 3 = done
   const [pasteN, setPasteN] = useState("")
   const [pasteU, setPasteU] = useState("")
   const [pasteQ, setPasteQ] = useState("")
@@ -44,12 +44,44 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   const [warnMsg, setWarnMsg] = useState("")
   const [importMsg, setImportMsg] = useState("")
 
+  // AI Scan State for Step 2 Import (PDF or Photo)
+  const [aiFile, setAiFile] = useState(null) // { name, size, type: 'pdf'|'image', rawBase64 }
+  const [aiScanning, setAiScanning] = useState(false)
+  const [aiScanError, setAiScanError] = useState("")
+  const [aiScanRefund, setAiScanRefund] = useState("")
+  const aiFileInputRef = useRef(null)
+  const aiCameraInputRef = useRef(null)
+
+  // Per-Item Photo Scan State (Step 2 individual item scanning)
+  const [scanningItem, setScanningItem] = useState(null)
+  const [itemScanFile, setItemScanFile] = useState(null)
+  const [itemScanning, setItemScanning] = useState(false)
+  const [itemScanError, setItemScanError] = useState("")
+  const [itemScanResult, setItemScanResult] = useState(null)
+  const itemScanFileRef = useRef(null)
+  const itemScanCameraRef = useRef(null)
+
   // Recipe Import Modal State (Step 3)
   const [showRecipeImport, setShowRecipeImport] = useState(false)
   const [recipeImportStep, setRecipeImportStep] = useState(1)
-  const [pasteRecipeNames, setPasteRecipeNames] = useState("")
-  const [prevRecipes, setPrevRecipes] = useState([])
+  const [recipeImportName, setRecipeImportName] = useState("")
+  const [targetRecipeId, setTargetRecipeId] = useState(null)
+  const [pasteRecipeIngN, setPasteRecipeIngN] = useState("")
+  const [pasteRecipeIngQ, setPasteRecipeIngQ] = useState("")
+  const [pasteRecipeIngU, setPasteRecipeIngU] = useState("")
+  const [recipeImportIngs, setRecipeImportIngs] = useState([])
   const [recipeImportMsg, setRecipeImportMsg] = useState("")
+  const [recipeImportTab, setRecipeImportTab] = useState("import")
+  const [pickSearch, setPickSearch] = useState("")
+  const [pickedQty, setPickedQty] = useState({})
+
+  // Recipe AI Scan State (Step 3)
+  const [recipeAiFile, setRecipeAiFile] = useState(null)
+  const [recipeAiScanning, setRecipeAiScanning] = useState(false)
+  const [recipeAiScanError, setRecipeAiScanError] = useState("")
+  const [recipeAiScanRefund, setRecipeAiScanRefund] = useState("")
+  const recipeAiFileInputRef = useRef(null)
+  const recipeAiCameraInputRef = useRef(null)
 
   // Feedback & Error States
   const [onboardingError, setOnboardingError] = useState(null)
@@ -61,6 +93,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   const [showManualAdd, setShowManualAdd] = useState(false)
   const [calcMode, setCalcMode] = useState("auto") // "auto" or "manual"
   const [manualItem, setManualItem] = useState({ name: "", unit: "g", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
+  const [manualScanning, setManualScanning] = useState(false)
+  const [manualScanError, setManualScanError] = useState("")
+  const manualScanFileRef = useRef(null)
 
   const co = (field, val) => {
     const u = { ...company, [field]: val }
@@ -192,30 +227,785 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
     setImportStep(3)
   }
 
+  const openRecipeImport = (existingRecipe = null, defaultTab = "import") => {
+    setRecipeImportStep(1)
+    setRecipeImportMsg("")
+    setRecipeAiFile(null)
+    setRecipeAiScanError("")
+    setRecipeAiScanRefund("")
+    setPickSearch("")
+    setRecipeImportTab(defaultTab)
+    if (existingRecipe) {
+      setTargetRecipeId(existingRecipe.id || null)
+      setRecipeImportName(existingRecipe.name || "")
+      setPasteRecipeIngN("")
+      setPasteRecipeIngQ("")
+      setPasteRecipeIngU("")
+      setRecipeImportIngs([])
+      const initialPicked = {}
+      if (Array.isArray(existingRecipe.ing)) {
+        existingRecipe.ing.forEach(item => {
+          if (item && item.iid) initialPicked[item.iid] = item.qty
+        })
+      }
+      setPickedQty(initialPicked)
+    } else {
+      setTargetRecipeId(null)
+      setRecipeImportName("")
+      setPasteRecipeIngN("")
+      setPasteRecipeIngQ("")
+      setPasteRecipeIngU("")
+      setRecipeImportIngs([])
+      setPickedQty({})
+    }
+    setShowRecipeImport(true)
+  }
+
+  const savePickedFromInventory = async () => {
+    if (!recipeImportName || !recipeImportName.trim()) {
+      setRecipeImportMsg("Please enter a Recipe Name (e.g. Vanilla Cake, Chocolate Sponge)")
+      return
+    }
+
+    const activeIngs = Object.entries(pickedQty)
+      .map(([iid, val]) => ({
+        iid,
+        qty: parseFloat(val) || 0
+      }))
+      .filter(item => item.qty > 0 && inventory.some(it => it.id === item.iid))
+
+    if (!activeIngs.length) {
+      setRecipeImportMsg("Please select at least one ingredient and enter its quantity.")
+      return
+    }
+
+    const cleanName = recipeImportName.trim()
+    const existingIdx = recipes.findIndex(r =>
+      (targetRecipeId && r.id === targetRecipeId) ||
+      r.name.trim().toLowerCase() === cleanName.toLowerCase()
+    )
+
+    const cleanRecipe = {
+      id: existingIdx >= 0 ? recipes[existingIdx].id : uid(),
+      name: cleanName,
+      type: "layer",
+      notes: existingIdx >= 0 ? (recipes[existingIdx].notes || "Cake layer recipe") : "Cake layer recipe",
+      ing: activeIngs
+    }
+
+    let updatedRecipes
+    if (existingIdx >= 0) {
+      updatedRecipes = recipes.map((r, i) => i === existingIdx ? cleanRecipe : r)
+    } else {
+      updatedRecipes = [...recipes, cleanRecipe]
+    }
+
+    setRecipes(updatedRecipes)
+    await saveRecipes(updatedRecipes)
+
+    if (recipeModal && (recipeModal.id === cleanRecipe.id || targetRecipeId === recipeModal.id || !recipeModal.name)) {
+      setRecipeModal(prev => ({
+        ...prev,
+        id: cleanRecipe.id,
+        name: cleanRecipe.name,
+        ing: cleanRecipe.ing
+      }))
+    }
+
+    setRecipeImportIngs(activeIngs.map(ing => {
+      const invItem = inventory.find(x => x.id === ing.iid)
+      return {
+        id: uid(),
+        name: invItem ? invItem.name : "Ingredient",
+        qty: ing.qty,
+        unit: invItem ? invItem.unit : "g",
+        iid: ing.iid,
+        on: true
+      }
+    }))
+
+    setRecipeImportStep(3)
+  }
+
   const doRecipePreview = () => {
     setRecipeImportMsg("")
-    const names = pasteRecipeNames.trim().split(String.fromCharCode(10)).map(s => s.trim()).filter(Boolean)
-    if (!names.length) {
-      return setRecipeImportMsg("Recipe names are required")
+    if (!recipeImportName || !recipeImportName.trim()) {
+      return setRecipeImportMsg("Please enter a Recipe Name (e.g. Vanilla Cake, Chocolate Sponge)")
     }
-    const newRecs = names.map(name => ({
-      id: uid(),
-      name,
-      notes: "Cake layer recipe",
-      ing: [],
-      on: true
-    }))
-    setPrevRecipes(newRecs)
+
+    const ns = L(pasteRecipeIngN)
+    const qs = L(pasteRecipeIngQ)
+    const us = L(pasteRecipeIngU)
+
+    if (!ns.length) {
+      return setRecipeImportMsg("Ingredient names are required")
+    }
+    if (qs.length > 0 && qs.length !== ns.length) {
+      return setRecipeImportMsg(`Ingredient names (${ns.length}) and quantities (${qs.length}) must have the same number of rows`)
+    }
+
+    const parsedIngs = ns.map((name, i) => {
+      const rawQty = qs[i] || "1"
+      const cleanQty = (rawQty.includes(",") && !rawQty.includes("."))
+        ? rawQty.replace(/,/g, ".")
+        : rawQty.replace(/,/g, "")
+      const qty = parseFloat(cleanQty.replace(/[^0-9.]/g, "")) || 1
+
+      const cleanName = name.trim()
+      let match = inventory.find(inv => inv.name.trim().toLowerCase() === cleanName.toLowerCase())
+      if (!match) {
+        match = inventory.find(inv =>
+          inv.name.trim().toLowerCase().includes(cleanName.toLowerCase()) ||
+          cleanName.toLowerCase().includes(inv.name.trim().toLowerCase())
+        )
+      }
+
+      const unit = us[i] || (match ? (match.unit || "g") : "g")
+
+      return {
+        id: uid(),
+        name: cleanName,
+        qty,
+        unit,
+        iid: match ? match.id : "new",
+        matchItem: match,
+        on: true
+      }
+    }).filter(p => p.name)
+
+    if (!parsedIngs.length) {
+      return setRecipeImportMsg("No valid ingredients found")
+    }
+
+    setRecipeImportIngs(parsedIngs)
     setRecipeImportStep(2)
   }
 
   const confirmRecipeImport = async () => {
-    const approved = prevRecipes.filter(r => r.on)
-    const updated = [...recipes, ...approved.filter(nr => !recipes.find(r => r.name.toLowerCase() === nr.name.toLowerCase()))]
-    setRecipes(updated)
-    await saveRecipes(updated)
-    setPasteRecipeNames("")
+    if (!recipeImportName || !recipeImportName.trim()) {
+      setRecipeImportMsg("Recipe name is required.")
+      return
+    }
+
+    const approved = recipeImportIngs.filter(i => i.on)
+    if (!approved.length) {
+      setRecipeImportMsg("At least one ingredient is required.")
+      return
+    }
+
+    let updatedInventory = [...inventory]
+    const recipeIngredients = []
+
+    for (const ing of approved) {
+      let targetInvId = ing.iid
+
+      // If marked as new item or not found in inventory, add to inventory
+      if (targetInvId === "new" || !updatedInventory.some(x => x.id === targetInvId)) {
+        const newInvId = uid()
+        const newInvItem = {
+          id: newInvId,
+          name: ing.name.trim(),
+          unit: ing.unit || "g",
+          cat: "Dry Goods",
+          cost: 0,
+          stock: 0,
+          minStock: 5
+        }
+        updatedInventory.push(newInvItem)
+        targetInvId = newInvId
+      }
+
+      recipeIngredients.push({
+        iid: targetInvId,
+        qty: parseFloat(ing.qty) || 0
+      })
+    }
+
+    if (updatedInventory.length !== inventory.length) {
+      setInventory(updatedInventory)
+      await saveInventory(updatedInventory)
+    }
+
+    const cleanName = recipeImportName.trim()
+    const existingIdx = recipes.findIndex(r =>
+      (targetRecipeId && r.id === targetRecipeId) ||
+      r.name.trim().toLowerCase() === cleanName.toLowerCase()
+    )
+
+    let updatedRecipes
+    const cleanRecipe = {
+      id: existingIdx >= 0 ? recipes[existingIdx].id : uid(),
+      name: cleanName,
+      type: "layer",
+      notes: existingIdx >= 0 ? (recipes[existingIdx].notes || "Cake layer recipe") : "Cake layer recipe",
+      ing: recipeIngredients
+    }
+
+    if (existingIdx >= 0) {
+      updatedRecipes = recipes.map((r, i) => i === existingIdx ? cleanRecipe : r)
+    } else {
+      updatedRecipes = [...recipes, cleanRecipe]
+    }
+
+    setRecipes(updatedRecipes)
+    await saveRecipes(updatedRecipes)
+
+    if (recipeModal && (recipeModal.id === cleanRecipe.id || targetRecipeId === recipeModal.id || !recipeModal.name)) {
+      setRecipeModal(prev => ({
+        ...prev,
+        id: cleanRecipe.id,
+        name: cleanRecipe.name,
+        ing: cleanRecipe.ing
+      }))
+    }
+
     setRecipeImportStep(3)
+  }
+
+  // AI Scan Handlers for Inventory (Step 2)
+  const handleAiFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setAiScanError("")
+    setAiScanRefund("")
+
+    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
+    const isImg = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)
+
+    if (!isPdf && !isImg) {
+      setAiScanError("Please select a PDF document (.pdf) or an image photo (.jpg, .png, .webp).")
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setAiFile({
+        name: file.name,
+        size: (file.size / 1024).toFixed(1) + " KB",
+        type: isPdf ? "pdf" : "image",
+        rawBase64: ev.target.result
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const scanAiInventory = async () => {
+    if (!aiFile) return
+    setAiScanning(true)
+    setAiScanError("")
+    setAiScanRefund("")
+
+    try {
+      const content = []
+      if (aiFile.type === "pdf") {
+        const base64Data = aiFile.rawBase64.includes(",") ? aiFile.rawBase64.split(",")[1] : aiFile.rawBase64
+        content.push({
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: base64Data
+          }
+        })
+      } else {
+        const compressed = await compressImage(aiFile.rawBase64, 1920, 0.88, { enhanceContrast: true })
+        content.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/jpeg",
+            data: compressed
+          }
+        })
+      }
+
+      const promptText = `You are an expert AI inventory and stock-audit specialist for a bakery and cake business.
+Analyze this document or photo carefully. The input could be:
+1. An inventory list, stock-take sheet, or spreadsheet (printed or PDF).
+2. A supplier invoice, receipt, purchase order, or waybill (e.g. from flour mills, supermarket, packaging store).
+3. A handwritten inventory sheet, notebook page, or paper stock count.
+4. A photo of physical bakery stock, pantry shelves, ingredients (flour sacks, sugar bags, butter, eggs, flavour bottles, boxes, cake boards).
+5. A price list or quotation for bakery supplies.
+
+YOUR GOAL: Extract EVERY single distinct ingredient, material, packaging item, or supply item visible in this file.
+
+For each item, extract:
+- "name": Clean, standard ingredient/item name (e.g. "Flour", "Granulated Sugar", "Unsalted Butter", "Eggs", "Vanilla Flavour", "10-inch Cake Board", "Cocoa Powder", "Baking Powder").
+- "unit": Standard measurement unit. Use "g", "kg", "ml", "l", "pcs", "crate", "carton", "pack", or "bag". Never leave empty. Default dry goods to "g" or "kg", liquids to "ml" or "l", packaging/eggs to "pcs" or "crate".
+- "openingQty": Stock quantity or count visible. If it's a photo of physical items, count how many are visible (e.g. 2 sacks -> 2). If not specified or unknown, default to 1.
+- "cost": Cost or price per unit (in Nigerian Naira ₦ or number). If an invoice has a total price and quantity, calculate unit price = total / quantity. If cost is not visible or unknown, set cost to 0 so the user can enter it.
+- "category": Choose one of: "Dry Goods", "Dairy", "Flavours & Colours", "Packaging", "Decorations", "Other".
+
+Return ONLY valid JSON in this exact structure, with no markdown code fences or conversational text:
+{
+  "items": [
+    {
+      "name": "Flour",
+      "unit": "kg",
+      "openingQty": 50,
+      "cost": 1140,
+      "category": "Dry Goods"
+    }
+  ]
+}`
+
+      content.push({
+        type: "text",
+        text: promptText
+      })
+
+      const raw = await callClaude([
+        {
+          role: "user",
+          content: content
+        }
+      ], "You are an expert AI vision assistant for a bakery business. Extract inventory and opening stock items from documents or photos into JSON. Return valid JSON only.", 4000, { creditCost: 2, feature: "inventory_scanner" })
+
+      let result = null
+      try {
+        const cleanJson = raw.replace(/```json|```/g, "").trim()
+        result = JSON.parse(cleanJson)
+      } catch {
+        result = extractAndRepairJson(raw)
+      }
+
+      const items = result && (
+        Array.isArray(result.items) ? result.items :
+        Array.isArray(result.inventory) ? result.inventory :
+        Array.isArray(result.data) ? result.data :
+        Array.isArray(result) ? result : null
+      )
+
+      if (!items || items.length === 0) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, "Failed inventory scan: no readable items detected")
+            setAiScanRefund("Scan could not read any items. 2 credits refunded automatically.")
+          } catch (_) {}
+        }
+        setAiScanError("No inventory items could be detected in this file. Please make sure the photo or document is clear and readable.")
+        return
+      }
+
+      const parsedItems = items.map(it => {
+        const rawCost = it.cost !== undefined ? it.cost : (it.unit_price || it.price || 0)
+        const costNum = parseFloat(String(rawCost).replace(/[^0-9.]/g, "")) || 0
+        const rawQty = it.openingQty !== undefined ? it.openingQty : (it.stock !== undefined ? it.stock : (it.qty || 1))
+        const qtyNum = parseFloat(String(rawQty).replace(/[^0-9.]/g, "")) || 1
+
+        return {
+          id: uid(),
+          name: (it.name || it.item || "Unnamed Item").trim(),
+          unit: it.unit || "g",
+          cost: costNum,
+          stock: qtyNum,
+          openingQty: qtyNum,
+          minStock: 5,
+          on: true,
+          cat: it.category || "Dry Goods"
+        }
+      }).filter(p => p.name)
+
+      if (parsedItems.length === 0) {
+        setAiScanError("No valid items could be parsed from the file.")
+        return
+      }
+
+      setPrevItems(parsedItems)
+      setPasteN(parsedItems.map(p => p.name).join("\n"))
+      setPasteU(parsedItems.map(p => p.unit).join("\n"))
+      setPasteQ(parsedItems.map(p => p.openingQty).join("\n"))
+      setPasteC(parsedItems.map(p => p.cost).join("\n"))
+      setImportStep(2)
+    } catch (err) {
+      console.error("AI inventory scan failed:", err)
+      if (!err.message?.includes("DAILY_AI_CEILING_REACHED") && !err.message?.includes("Insufficient")) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, `Failed inventory scan: ${err.message}`)
+            setAiScanRefund("Scan failed. 2 credits refunded automatically.")
+          } catch (_) {}
+        }
+      }
+      setAiScanError(`Scan failed: ${err.message}`)
+    } finally {
+      setAiScanning(false)
+    }
+  }
+
+  // Single Item Photo Scan Handlers (Step 2 per-item)
+  const handleItemScanFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setItemScanError("")
+    setItemScanResult(null)
+
+    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
+    const isImg = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)
+
+    if (!isPdf && !isImg) {
+      setItemScanError("Please select an image photo (.jpg, .png, .webp) or PDF.")
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setItemScanFile({
+        name: file.name,
+        size: (file.size / 1024).toFixed(1) + " KB",
+        type: isPdf ? "pdf" : "image",
+        rawBase64: ev.target.result
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const scanSingleItemPhoto = async () => {
+    if (!itemScanFile || !scanningItem) return
+    setItemScanning(true)
+    setItemScanError("")
+    setItemScanResult(null)
+
+    try {
+      const content = []
+      if (itemScanFile.type === "pdf") {
+        const base64Data = itemScanFile.rawBase64.includes(",") ? itemScanFile.rawBase64.split(",")[1] : itemScanFile.rawBase64
+        content.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: base64Data }
+        })
+      } else {
+        const compressed = await compressImage(itemScanFile.rawBase64, 1920, 0.88, { enhanceContrast: true })
+        content.push({
+          type: "image",
+          source: { type: "base64", media_type: "image/jpeg", data: compressed }
+        })
+      }
+
+      content.push({
+        type: "text",
+        text: `You are an expert AI vision assistant for a bakery business.
+Analyze this photo of a bakery ingredient, packaging supply, or purchase receipt/label for the target inventory item: "${scanningItem.name}".
+Extract:
+- "name": Detected brand or item name.
+- "unit": Measurement unit ("kg", "g", "ml", "l", "pcs", "crate", "pack", "carton", "bag").
+- "cost": Unit price or amount paid per unit (in Naira ₦ or number). If total amount and quantity are shown, calculate cost per unit. If not visible, return 0.
+- "openingQty": Quantity visible or stated (default 1).
+
+Return ONLY valid JSON:
+{
+  "name": "${scanningItem.name}",
+  "unit": "${scanningItem.unit || 'g'}",
+  "cost": 0,
+  "openingQty": 1
+}`
+      })
+
+      const raw = await callClaude([
+        { role: "user", content }
+      ], "Extract inventory item cost and quantity from image into JSON. Return valid JSON only.", 2000, { creditCost: 2, feature: "inventory_scanner" })
+
+      let result = null
+      try {
+        const cleanJson = raw.replace(/```json|```/g, "").trim()
+        result = JSON.parse(cleanJson)
+      } catch {
+        result = extractAndRepairJson(raw)
+      }
+
+      const itemData = (result?.items && result.items[0]) || result || {}
+      const extractedCost = parseFloat(String(itemData.cost || itemData.unit_price || 0).replace(/[^0-9.]/g, "")) || 0
+      const extractedQty = parseFloat(String(itemData.openingQty || itemData.qty || itemData.stock || 1).replace(/[^0-9.]/g, "")) || 1
+      const extractedUnit = itemData.unit || scanningItem.unit || "g"
+
+      setItemScanResult({
+        cost: extractedCost,
+        openingQty: extractedQty,
+        unit: extractedUnit,
+        name: itemData.name || scanningItem.name
+      })
+    } catch (err) {
+      console.error("Item photo scan failed:", err)
+      if (!err.message?.includes("DAILY_AI_CEILING_REACHED") && !err.message?.includes("Insufficient")) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, `Failed item photo scan: ${err.message}`)
+          } catch (_) {}
+        }
+      }
+      setItemScanError(`Scan failed: ${err.message}`)
+    } finally {
+      setItemScanning(false)
+    }
+  }
+
+  const applyItemScanResult = async () => {
+    if (!scanningItem || !itemScanResult) return
+    if (itemScanResult.cost !== undefined) {
+      await updateCost(scanningItem.id, itemScanResult.cost)
+    }
+    if (itemScanResult.openingQty !== undefined) {
+      await updateOS(scanningItem.id, itemScanResult.openingQty)
+    }
+    setScanningItem(null)
+    setItemScanFile(null)
+    setItemScanResult(null)
+  }
+
+  // Manual Add Item Photo Scan Handler
+  const handleManualPhotoScan = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setManualScanError("")
+    setManualScanning(true)
+
+    try {
+      const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
+      const reader = new FileReader()
+      const rawBase64 = await new Promise((resolve, reject) => {
+        reader.onload = ev => resolve(ev.target.result)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+
+      const content = []
+      if (isPdf) {
+        const base64Data = rawBase64.includes(",") ? rawBase64.split(",")[1] : rawBase64
+        content.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: base64Data }
+        })
+      } else {
+        const compressed = await compressImage(rawBase64, 1920, 0.88, { enhanceContrast: true })
+        content.push({
+          type: "image",
+          source: { type: "base64", media_type: "image/jpeg", data: compressed }
+        })
+      }
+
+      content.push({
+        type: "text",
+        text: `You are an expert AI vision assistant for a bakery business.
+Analyze this photo of a bakery ingredient, packaging supply, or purchase receipt/label.
+Extract:
+- "name": Clean item or brand name (e.g. "Dangote Sugar", "Simas Margarine", "Golden Penny Flour", "Egg Crate").
+- "unit": Measurement unit ("kg", "g", "ml", "l", "pcs", "crate", "pack", "carton", "bag").
+- "cost": Unit price or cost (in Naira ₦ or number). If total paid and quantity are shown, calculate unit price.
+- "openingQty": Starting stock quantity visible or stated (default 1).
+- "category": One of "Dry Goods", "Dairy", "Flavours & Colours", "Packaging", "Decorations", "Other".
+
+Return ONLY valid JSON:
+{
+  "name": "Item name",
+  "unit": "kg",
+  "cost": 1500,
+  "openingQty": 1,
+  "category": "Dry Goods"
+}`
+      })
+
+      const raw = await callClaude([
+        { role: "user", content }
+      ], "Extract inventory item details from photo into JSON. Return valid JSON only.", 2000, { creditCost: 2, feature: "inventory_scanner" })
+
+      let result = null
+      try {
+        const cleanJson = raw.replace(/```json|```/g, "").trim()
+        result = JSON.parse(cleanJson)
+      } catch {
+        result = extractAndRepairJson(raw)
+      }
+
+      const itemData = (result?.items && result.items[0]) || result || {}
+      const extractedCost = parseFloat(String(itemData.cost || itemData.unit_price || 0).replace(/[^0-9.]/g, "")) || ""
+      const extractedQty = parseFloat(String(itemData.openingQty || itemData.qty || itemData.stock || 1).replace(/[^0-9.]/g, "")) || ""
+
+      setCalcMode("manual")
+      setManualItem(m => ({
+        ...m,
+        name: itemData.name || m.name,
+        unit: itemData.unit || m.unit,
+        cost: extractedCost !== "" ? extractedCost : m.cost,
+        openingQty: extractedQty !== "" ? extractedQty : m.openingQty
+      }))
+    } catch (err) {
+      console.error("Manual add scan failed:", err)
+      if (!err.message?.includes("DAILY_AI_CEILING_REACHED") && !err.message?.includes("Insufficient")) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, `Failed manual item photo scan: ${err.message}`)
+          } catch (_) {}
+        }
+      }
+      setManualScanError(`Scan failed: ${err.message}`)
+    } finally {
+      setManualScanning(false)
+      if (manualScanFileRef.current) manualScanFileRef.current.value = ""
+    }
+  }
+
+  // Recipe AI Scan Handlers (Step 3)
+  const handleRecipeAiFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setRecipeAiScanError("")
+    setRecipeAiScanRefund("")
+    const isPdf = file.name?.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
+    const reader = new FileReader()
+    reader.onload = ev => {
+      setRecipeAiFile({
+        name: file.name || "recipe-upload",
+        size: (file.size / 1024).toFixed(1) + " KB",
+        type: isPdf ? "pdf" : "image",
+        rawBase64: ev.target.result
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const scanAiRecipes = async () => {
+    if (!recipeAiFile) return
+    setRecipeAiScanning(true)
+    setRecipeAiScanError("")
+    setRecipeAiScanRefund("")
+
+    try {
+      const content = []
+      if (recipeAiFile.type === "pdf") {
+        const base64Data = recipeAiFile.rawBase64.includes(",") ? recipeAiFile.rawBase64.split(",")[1] : recipeAiFile.rawBase64
+        content.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: base64Data }
+        })
+      } else {
+        const compressed = await compressImage(recipeAiFile.rawBase64, 1920, 0.88, { enhanceContrast: true })
+        content.push({
+          type: "image",
+          source: { type: "base64", media_type: "image/jpeg", data: compressed }
+        })
+      }
+
+      content.push({
+        type: "text",
+        text: `You are an expert culinary/baking recipe parser for a professional bakery.
+Analyze this document or photo of a recipe sheet, recipe card, cookbook page, handwritten recipe, spec sheet, or bakery formula.
+
+YOUR GOAL:
+1. Extract the Recipe Name (e.g. "Chocolate Sponge", "Vanilla Cake", "Red Velvet Layer", "Buttercream Frosting").
+2. Extract EVERY ingredient along with its numeric quantity and standard measurement unit.
+
+Standard measurement units: kg, g, l, ml, piece, pcs, pack, bunch, tsp, tbsp, cup.
+If a quantity is a fraction like 1/2, convert to 0.5.
+If unit is not stated, default to "g" for dry ingredients, "ml" for liquids, and "piece" for count items like eggs.
+
+Return ONLY valid JSON in this exact structure with no markdown code fences or conversational text:
+{
+  "recipeName": "Chocolate Sponge",
+  "ingredients": [
+    { "name": "Flour", "quantity": 500, "unit": "g" },
+    { "name": "Sugar", "quantity": 250, "unit": "g" },
+    { "name": "Cocoa Powder", "quantity": 50, "unit": "g" },
+    { "name": "Eggs", "quantity": 4, "unit": "piece" }
+  ]
+}`
+      })
+
+      const raw = await callClaude([
+        { role: "user", content }
+      ], "Extract recipe name and ingredients with quantities from photo or document into JSON. Return valid JSON only.", 2500, { creditCost: 2, feature: "recipe_scanner" })
+
+      let result = null
+      try {
+        const cleanJson = raw.replace(/```json|```/g, "").trim()
+        result = JSON.parse(cleanJson)
+      } catch {
+        result = extractAndRepairJson(raw)
+      }
+
+      let parsedName = result?.recipeName || result?.name || result?.title || ""
+      let rawIngs = result?.ingredients || result?.items || []
+
+      if ((!rawIngs || rawIngs.length === 0) && Array.isArray(result?.recipes) && result.recipes.length > 0) {
+        const first = result.recipes[0]
+        parsedName = parsedName || first.name || first.title || ""
+        rawIngs = first.ingredients || first.items || []
+      } else if (Array.isArray(result) && result.length > 0) {
+        if (result[0]?.name && (result[0]?.quantity !== undefined || result[0]?.qty !== undefined)) {
+          rawIngs = result
+        } else if (result[0]?.ingredients) {
+          parsedName = parsedName || result[0].name || ""
+          rawIngs = result[0].ingredients
+        }
+      }
+
+      if (!rawIngs || rawIngs.length === 0) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, "Failed recipe scan: no readable ingredients detected")
+            setRecipeAiScanRefund("Scan could not read any ingredients. 2 credits refunded automatically.")
+          } catch (_) {}
+        }
+        setRecipeAiScanError("No ingredients or quantities could be detected in this file. Please make sure the photo or document is clear.")
+        return
+      }
+
+      if (parsedName && !recipeImportName.trim()) {
+        setRecipeImportName(parsedName.trim())
+      }
+
+      const items = rawIngs.map(ing => {
+        const rawName = String(ing.name || ing.item || "Ingredient").trim()
+        const norm = rawName.toLowerCase()
+        let match = inventory.find(it => it.name.trim().toLowerCase() === norm)
+        if (!match) {
+          match = inventory.find(it => it.name.toLowerCase().includes(norm) || norm.includes(it.name.toLowerCase()))
+        }
+
+        const rawQty = ing.quantity !== undefined ? ing.quantity : (ing.qty !== undefined ? ing.qty : 1)
+        const cleanQty = typeof rawQty === "string" ? rawQty.replace(/,/g, ".") : rawQty
+        const qtyNum = parseFloat(String(cleanQty).replace(/[^0-9.]/g, "")) || 1
+
+        return {
+          id: uid(),
+          name: rawName,
+          qty: qtyNum > 0 ? qtyNum : 1,
+          unit: match ? (match.unit || (ing.unit || "g")) : (ing.unit || "g"),
+          iid: match ? match.id : "new",
+          matchItem: match,
+          on: true
+        }
+      }).filter(p => p.name)
+
+      if (items.length === 0) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, "Failed recipe scan: no valid ingredients parsed")
+            setRecipeAiScanRefund("Scan could not read any ingredients. 2 credits refunded automatically.")
+          } catch (_) {}
+        }
+        setRecipeAiScanError("No valid ingredients could be parsed from this file.")
+        return
+      }
+
+      setRecipeImportIngs(items)
+      setPasteRecipeIngN(items.map(x => x.name).join("\n"))
+      setPasteRecipeIngQ(items.map(x => x.qty).join("\n"))
+      setPasteRecipeIngU(items.map(x => x.unit).join("\n"))
+      setRecipeImportStep(2)
+    } catch (err) {
+      console.error("Recipe scan failed:", err)
+      if (typeof refundScanCredits === "function") {
+        try {
+          await refundScanCredits(2, `Failed recipe scan: ${err.message}`)
+          setRecipeAiScanRefund("Scan failed. 2 credits refunded automatically.")
+        } catch (_) {}
+      }
+      setRecipeAiScanError(`Scan failed: ${err.message}`)
+    } finally {
+      setRecipeAiScanning(false)
+      if (recipeAiFileInputRef.current) recipeAiFileInputRef.current.value = ""
+      if (recipeAiCameraInputRef.current) recipeAiCameraInputRef.current.value = ""
+    }
   }
 
   // Opening Stock Helpers (Step 2)
@@ -809,7 +1599,38 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                       const value = qty * cost
                       return (
                         <tr key={item.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
-                          <td style={{ padding: "8px 10px", fontWeight: 500 }}>{item.name}</td>
+                          <td style={{ padding: "8px 10px", fontWeight: 500 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                              <span>{item.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setScanningItem(item)
+                                  setItemScanFile(null)
+                                  setItemScanResult(null)
+                                  setItemScanError("")
+                                }}
+                                title={`Scan photo or receipt for ${item.name}`}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 6,
+                                  padding: "2px 6px",
+                                  cursor: "pointer",
+                                  color: "var(--muted)",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 3,
+                                  fontSize: 10.5,
+                                  flexShrink: 0
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.borderColor = gold; e.currentTarget.style.color = gold }}
+                                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)" }}
+                              >
+                                <Camera size={11} /> Scan
+                              </button>
+                            </div>
+                          </td>
                           <td style={{ padding: "8px 10px", color: "var(--muted)" }}>{item.unit}</td>
                           <td style={{ padding: "8px 10px", textAlign: "right" }}>
                             <input
@@ -892,7 +1713,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
             {/* MANUAL ADD MODAL */}
             {showManualAdd && (
-              <Modal title="Add Item Manually" onClose={() => { setShowManualAdd(false); setManualAddError(null) }}>
+              <Modal title="Add Item Manually" onClose={() => { setShowManualAdd(false); setManualAddError(null); setManualScanError(""); }}>
                 {manualAddError && (
                   <div role="alert" style={{ padding: "9px 12px", background: "#FDEBE9", borderRadius: 8, border: "1px solid #F5C6CB", color: "#B03A2E", fontSize: 12, marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 6 }}>
                     <AlertTriangle size={14} style={{ marginTop: 2, flexShrink: 0 }} />
@@ -903,6 +1724,53 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                     </div>
                   </div>
                 )}
+
+                {manualScanError && (
+                  <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                    <AlertTriangle size={14} /> {manualScanError}
+                  </div>
+                )}
+
+                {/* AI Photo Auto-Fill */}
+                <div style={{ marginBottom: 14 }}>
+                  <Btn
+                    type="button"
+                    small
+                    variant="outline"
+                    onClick={() => manualScanFileRef.current?.click()}
+                    disabled={manualScanning}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      borderColor: "var(--gold)",
+                      color: "var(--gold)",
+                      background: "#FAF7F0",
+                      padding: "8px 12px",
+                      borderRadius: 8
+                    }}
+                  >
+                    {manualScanning ? (
+                      <>
+                        <RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }} /> Scanning photo with AI...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={13} /> Scan Photo or Receipt to Auto-Fill (AI)
+                      </>
+                    )}
+                  </Btn>
+                  <input
+                    ref={manualScanFileRef}
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={handleManualPhotoScan}
+                    style={{ display: "none" }}
+                  />
+                </div>
+
                 <Inp label="Item Name *" value={manualItem.name} onChange={v => { setManualItem(m => ({ ...m, name: v })); setManualAddError(null) }} placeholder="e.g. Flour, Butter, Eggs" />
                 <Sel
                   label="Unit *"
@@ -984,47 +1852,299 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
               </Modal>
             )}
 
+            {/* PER-ITEM PHOTO SCAN MODAL */}
+            {scanningItem && (
+              <Modal title={`Scan Photo for ${scanningItem.name}`} onClose={() => { setScanningItem(null); setItemScanFile(null); setItemScanResult(null); setItemScanError(""); }}>
+                <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.6 }}>
+                  Upload or snap a photo of your <strong>{scanningItem.name}</strong> bag, packaging, price label, or purchase receipt. AI will extract the unit cost and stock count.
+                </div>
+
+                {itemScanError && (
+                  <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12, color: "#B03A2E", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                    <AlertTriangle size={14} /> {itemScanError}
+                  </div>
+                )}
+
+                {!itemScanFile ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                    <div
+                      onClick={() => itemScanFileRef.current?.click()}
+                      style={{
+                        border: "2px dashed var(--border)",
+                        borderRadius: 12,
+                        padding: "22px 16px",
+                        textAlign: "center",
+                        cursor: "pointer",
+                        background: "#FAF7F0",
+                        transition: "all 0.2s"
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = gold}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
+                    >
+                      <Camera size={26} color="var(--gold)" style={{ margin: "0 auto 8px" }} />
+                      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)", marginBottom: 4 }}>
+                        Click to upload photo or document
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                        Supports JPG, PNG, WEBP or PDF receipt
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                      <Btn small variant="outline" onClick={() => itemScanFileRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <UploadCloud size={13} /> Select Photo or PDF
+                      </Btn>
+                      <Btn small variant="outline" onClick={() => itemScanCameraRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <Camera size={13} /> Take photo
+                      </Btn>
+                    </div>
+
+                    <input ref={itemScanFileRef} type="file" accept="image/*,.pdf" onChange={handleItemScanFileSelect} style={{ display: "none" }} />
+                    <input ref={itemScanCameraRef} type="file" accept="image/*" capture="environment" onChange={handleItemScanFileSelect} style={{ display: "none" }} />
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 16, padding: 12, background: "#FAF7F0", borderRadius: 10, border: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {itemScanFile.type === "image" ? (
+                          <img src={itemScanFile.rawBase64} alt="Preview" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6 }} />
+                        ) : (
+                          <FileText size={30} color="var(--gold)" />
+                        )}
+                        <div>
+                          <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>{itemScanFile.name}</div>
+                          <div style={{ fontSize: 11, color: "var(--muted)" }}>{itemScanFile.size} • {itemScanFile.type.toUpperCase()}</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setItemScanFile(null); setItemScanResult(null); }}
+                        style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4 }}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+
+                    {!itemScanResult && (
+                      <Btn
+                        onClick={scanSingleItemPhoto}
+                        disabled={itemScanning}
+                        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                      >
+                        {itemScanning ? (
+                          <>
+                            <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Scanning photo with AI...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={14} /> Scan Photo with AI (2 Credits)
+                          </>
+                        )}
+                      </Btn>
+                    )}
+                  </div>
+                )}
+
+                {itemScanResult && (
+                  <div style={{ padding: 14, background: "#F5FBF6", border: "1.5px solid #C3E6CB", borderRadius: 10, marginBottom: 16 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: "#155724", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <Check size={16} color="#28A745" /> AI Scan Detected Details
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 12 }}>
+                      <div>
+                        <span style={{ color: "var(--muted)", display: "block", marginBottom: 3 }}>Cost per Unit:</span>
+                        <input
+                          type="number"
+                          value={itemScanResult.cost}
+                          onChange={e => setItemScanResult(r => ({ ...r, cost: parseFloat(e.target.value) || 0 }))}
+                          style={{ ...iSt, width: "100%", padding: "5px 8px", fontSize: 13, fontWeight: 600, color: "var(--gold)" }}
+                        />
+                      </div>
+                      <div>
+                        <span style={{ color: "var(--muted)", display: "block", marginBottom: 3 }}>Opening Quantity:</span>
+                        <input
+                          type="number"
+                          value={itemScanResult.openingQty}
+                          onChange={e => setItemScanResult(r => ({ ...r, openingQty: parseFloat(e.target.value) || 0 }))}
+                          style={{ ...iSt, width: "100%", padding: "5px 8px", fontSize: 13, fontWeight: 600 }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <Btn variant="success" onClick={applyItemScanResult} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <Check size={13} /> Apply to {scanningItem.name}
+                      </Btn>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <Btn variant="ghost" onClick={() => { setScanningItem(null); setItemScanFile(null); setItemScanResult(null); }}>
+                    Cancel
+                  </Btn>
+                </div>
+              </Modal>
+            )}
+
             {/* IMPORT MODAL */}
             {showImport && (
-              <Modal title="Import — Excel, PDF or a photo" onClose={() => setShowImport(false)}>
+              <Modal title="Import — Excel, PDF or a photo" onClose={() => { setShowImport(false); setAiFile(null); setAiScanError(""); setAiScanRefund(""); }}>
                 {importStep === 1 && (
                   <div>
-                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
-                      Open your Excel. Copy each column and paste into its own box. Only item names and cost per unit are required.
-                    </div>
-                    {importMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {importMsg}</div>}
+                    {/* OPTION A: AI SCAN (PDF OR PHOTO) */}
+                    <div style={{ marginBottom: 18, padding: "14px 16px", background: "#FAF7F0", border: "1.5px dashed var(--gold)", borderRadius: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <Sparkles size={16} color="var(--gold)" />
+                          <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text)" }}>Option A: Scan PDF or Photo with AI</span>
+                        </div>
+                        <span style={{ fontSize: 10.5, background: "#FFF3D6", color: "#8A6318", padding: "2px 7px", borderRadius: 4, fontWeight: 600 }}>2 Credits</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
+                        Upload a stock sheet PDF, supplier invoice, paper receipt, handwritten inventory list, or snap a photo of physical ingredients/supplies. AI will read all item names, units, stock quantities, and costs.
+                      </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, marginBottom: 10 }}>
-                      <div>
-                        <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Item Names *</label>
-                        <textarea value={pasteN} onChange={e => { setPasteN(e.target.value); checkMatch(e.target.value, pasteC, pasteQ) }} placeholder={"Flour\nSugar\nOil\nEggs"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Unit (optional)</label>
-                        <textarea value={pasteU} onChange={e => setPasteU(e.target.value)} placeholder={"g\nml\nm\nkg"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-                        <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default gram(g) millimeter (m)</div>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Opening Stock Quantity</label>
-                        <textarea value={pasteQ} onChange={e => { setPasteQ(e.target.value); checkMatch(pasteN, pasteC, e.target.value) }} placeholder={"50\n25\n10\n30"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-                        <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default 0</div>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 10, color: "var(--gold)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Cost / Unit *</label>
-                        <textarea value={pasteC} onChange={e => { setPasteC(e.target.value); checkMatch(pasteN, e.target.value, pasteQ) }} placeholder={"1140\n1500\n3000\n700"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid #E8D5A3", background: "#FFF9EE", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
-                      </div>
+                      {aiScanError && (
+                        <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                          <AlertTriangle size={14} /> {aiScanError}
+                        </div>
+                      )}
+
+                      {aiScanRefund && (
+                        <div style={{ padding: "8px 12px", background: "#E8F4FD", borderRadius: 8, fontSize: 12, color: "#0B5394", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                          <Check size={14} /> {aiScanRefund}
+                        </div>
+                      )}
+
+                      {!aiFile ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div
+                            onClick={() => aiFileInputRef.current?.click()}
+                            style={{
+                              border: "1.5px dashed #D5C29D",
+                              borderRadius: 10,
+                              padding: "18px 16px",
+                              textAlign: "center",
+                              cursor: "pointer",
+                              background: "#FFFFFF",
+                              transition: "all 0.2s"
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.borderColor = gold}
+                            onMouseLeave={e => e.currentTarget.style.borderColor = "#D5C29D"}
+                          >
+                            <UploadCloud size={26} color="var(--gold)" style={{ margin: "0 auto 6px" }} />
+                            <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>
+                              Click or drop PDF document or photo here
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                              Supports .pdf, .jpg, .png, .webp (invoices, stock sheets, photos)
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                            <Btn small variant="outline" onClick={() => aiFileInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                              <UploadCloud size={13} /> Select PDF or Photo
+                            </Btn>
+                            <Btn small variant="outline" onClick={() => aiCameraInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                              <Camera size={13} /> Take photo
+                            </Btn>
+                          </div>
+
+                          <input ref={aiFileInputRef} type="file" accept=".pdf,image/*,application/pdf" onChange={handleAiFileSelect} style={{ display: "none" }} />
+                          <input ref={aiCameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleAiFileSelect} style={{ display: "none" }} />
+                        </div>
+                      ) : (
+                        <div style={{ padding: 12, background: "#FFFFFF", borderRadius: 8, border: "1px solid var(--border)" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              {aiFile.type === "image" ? (
+                                <img src={aiFile.rawBase64} alt="Preview" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6 }} />
+                              ) : (
+                                <FileText size={30} color="var(--gold)" />
+                              )}
+                              <div>
+                                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>{aiFile.name}</div>
+                                <div style={{ fontSize: 11, color: "var(--muted)" }}>{aiFile.size} • {aiFile.type.toUpperCase()}</div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setAiFile(null); setAiScanError(""); setAiScanRefund(""); }}
+                              style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4 }}
+                              title="Remove file"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+
+                          <Btn
+                            onClick={scanAiInventory}
+                            disabled={aiScanning}
+                            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                          >
+                            {aiScanning ? (
+                              <>
+                                <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Scanning & Extracting with AI...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles size={14} /> Scan & Extract Inventory with AI (2 Credits)
+                              </>
+                            )}
+                          </Btn>
+                        </div>
+                      )}
                     </div>
-                    {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {warnMsg}</div>}
-                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
-                      <Btn onClick={doPreview} disabled={!pasteN.trim() || !pasteC.trim() || !!warnMsg}>Preview import →</Btn>
-                      <Btn variant="ghost" onClick={() => setShowImport(false)}>Cancel</Btn>
+
+                    {/* OPTION B: EXCEL COPY-PASTE */}
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <FileSpreadsheet size={15} color="var(--muted)" />
+                        <span style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>Option B: Paste Columns from Excel</span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
+                        Open your Excel. Copy each column and paste into its own box. Only item names and cost per unit are required.
+                      </div>
+                      {importMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {importMsg}</div>}
+
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, marginBottom: 10 }}>
+                        <div>
+                          <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Item Names *</label>
+                          <textarea value={pasteN} onChange={e => { setPasteN(e.target.value); checkMatch(e.target.value, pasteC, pasteQ) }} placeholder={"Flour\nSugar\nOil\nEggs"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Unit (optional)</label>
+                          <textarea value={pasteU} onChange={e => setPasteU(e.target.value)} placeholder={"g\nml\nm\nkg"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                          <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default gram(g) millimeter (m)</div>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Opening Stock Quantity</label>
+                          <textarea value={pasteQ} onChange={e => { setPasteQ(e.target.value); checkMatch(pasteN, pasteC, e.target.value) }} placeholder={"50\n25\n10\n30"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                          <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default 0</div>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 10, color: "var(--gold)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Cost / Unit *</label>
+                          <textarea value={pasteC} onChange={e => { setPasteC(e.target.value); checkMatch(pasteN, e.target.value, pasteQ) }} placeholder={"1140\n1500\n3000\n700"} style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid #E8D5A3", background: "#FFF9EE", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }} />
+                        </div>
+                      </div>
+                      {warnMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {warnMsg}</div>}
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+                        <Btn onClick={doPreview} disabled={!pasteN.trim() || !pasteC.trim() || !!warnMsg}>Preview import →</Btn>
+                        <Btn variant="ghost" onClick={() => { setShowImport(false); setAiFile(null); setAiScanError(""); setAiScanRefund(""); }}>Cancel</Btn>
+                      </div>
                     </div>
                   </div>
                 )}
 
                 {importStep === 2 && (
                   <div>
-                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Toggle off anything you don't want to import.</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                        {aiFile ? `✨ Extracted ${prevItems.length} items from ${aiFile.name}. Toggle off anything you don't want to import.` : "Toggle off anything you don't want to import."}
+                      </div>
+                      <Badge color="gold">{prevItems.filter(p => p.on).length} of {prevItems.length} active</Badge>
+                    </div>
                     <div style={{ overflowY: "auto", maxHeight: 220, marginBottom: 12 }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
                         <thead>
@@ -1104,7 +2224,7 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
               <div style={{ display: "flex", gap: 8 }}>
-                <Btn small variant="outline" onClick={() => { setRecipeImportStep(1); setShowRecipeImport(true) }} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <Btn small variant="outline" onClick={() => openRecipeImport(null)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                   <FileSpreadsheet size={13} /> Import — Excel, PDF or a photo
                 </Btn>
                 <Btn small variant="outline" onClick={() => openRecipe(null)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -1136,68 +2256,537 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
             {/* RECIPE IMPORT MODAL */}
             {showRecipeImport && (
-              <Modal title="Import — Excel, PDF or a photo" onClose={() => setShowRecipeImport(false)}>
-                {recipeImportStep === 1 && (
-                  <div>
-                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
-                      Paste your recipe names (one per line) from Excel, PDF, or type them out.
-                    </div>
-                    {recipeImportMsg && <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /> {recipeImportMsg}</div>}
+              <Modal title="Import Recipe & Ingredients" onClose={() => { setShowRecipeImport(false); setRecipeAiFile(null); setRecipeAiScanError(""); setRecipeAiScanRefund(""); }}>
+                {recipeImportStep === 1 && (() => {
+                  const filteredPickInventory = inventory.filter(item =>
+                    !pickSearch || item.name.toLowerCase().includes(pickSearch.toLowerCase())
+                  )
+                  const selectedCount = Object.entries(pickedQty).filter(([iid, val]) => {
+                    const q = parseFloat(val)
+                    return q > 0 && inventory.some(it => it.id === iid)
+                  }).length
+                  const layerCost = Object.entries(pickedQty).reduce((sum, [iid, val]) => {
+                    const q = parseFloat(val) || 0
+                    const item = inventory.find(it => it.id === iid)
+                    return sum + (item ? item.cost * q : 0)
+                  }, 0)
 
-                    <textarea
-                      value={pasteRecipeNames}
-                      onChange={e => setPasteRecipeNames(e.target.value)}
-                      placeholder={"Chocolate Sponge\nRed Velvet Layer\nVanilla Cupcake"}
-                      style={{ width: "100%", minHeight: 150, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 13, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none", marginBottom: 12 }}
-                    />
+                  return (
+                    <div>
+                      {/* RECIPE NAME INPUT */}
+                      <div style={{ marginBottom: 14 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text)", display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                          Recipe Name *
+                        </label>
+                        <input
+                          type="text"
+                          value={recipeImportName}
+                          onChange={e => { setRecipeImportName(e.target.value); setRecipeImportMsg(""); }}
+                          placeholder="e.g. Chocolate Sponge, Red Velvet Cake, Vanilla Buttercream"
+                          style={{ ...iSt, width: "100%", fontSize: 13, padding: "8px 12px" }}
+                        />
+                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                          Enter the recipe name. If you scan a recipe photo or PDF, the AI can also detect the name automatically.
+                        </div>
+                      </div>
 
-                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                      <Btn onClick={doRecipePreview} disabled={!pasteRecipeNames.trim()}>Preview import →</Btn>
-                      <Btn variant="ghost" onClick={() => setShowRecipeImport(false)}>Cancel</Btn>
-                    </div>
-                  </div>
-                )}
+                      {/* TABS: IMPORT VS PICK FROM INVENTORY */}
+                      <div style={{ display: "flex", gap: 8, marginBottom: 16, borderBottom: "1px solid var(--border)", paddingBottom: 10 }}>
+                        <button
+                          type="button"
+                          onClick={() => { setRecipeImportTab("import"); setRecipeImportMsg(""); }}
+                          style={{
+                            padding: "8px 14px",
+                            borderRadius: 7,
+                            border: recipeImportTab === "import" ? "1.5px solid var(--gold)" : "1px solid var(--border)",
+                            background: recipeImportTab === "import" ? "#FFF8E7" : "transparent",
+                            color: recipeImportTab === "import" ? "var(--text)" : "var(--muted)",
+                            fontWeight: recipeImportTab === "import" ? 600 : 500,
+                            fontSize: 12.5,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6
+                          }}
+                        >
+                          <UploadCloud size={14} color={recipeImportTab === "import" ? "var(--gold)" : "var(--muted)"} />
+                          Import — Photo, PDF or Excel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setRecipeImportTab("pick"); setRecipeImportMsg(""); }}
+                          style={{
+                            padding: "8px 14px",
+                            borderRadius: 7,
+                            border: recipeImportTab === "pick" ? "1.5px solid var(--gold)" : "1px solid var(--border)",
+                            background: recipeImportTab === "pick" ? "#FFF8E7" : "transparent",
+                            color: recipeImportTab === "pick" ? "var(--text)" : "var(--muted)",
+                            fontWeight: recipeImportTab === "pick" ? 600 : 500,
+                            fontSize: 12.5,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6
+                          }}
+                        >
+                          <Check size={14} color={recipeImportTab === "pick" ? "var(--gold)" : "var(--muted)"} />
+                          Pick from Inventory List ({inventory.length})
+                        </button>
+                      </div>
 
-                {recipeImportStep === 2 && (
-                  <div>
-                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Toggle off anything you don't want to import.</div>
-                    <div style={{ overflowY: "auto", maxHeight: 220, marginBottom: 12 }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-                        <thead>
-                          <tr style={{ background: "#EDE5D6" }}>
-                            {["", "Recipe Name"].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>)}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {prevRecipes.map((r, i) => (
-                            <tr key={r.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA", opacity: r.on ? 1 : 0.35 }}>
-                              <td style={{ padding: "6px 10px", width: 50 }}>
-                                <div onClick={() => setPrevRecipes(prev => prev.map((x, j) => j === i ? { ...x, on: !x.on } : x))} style={{ width: 30, height: 16, borderRadius: 8, background: r.on ? "#357A52" : "var(--border)", cursor: "pointer", position: "relative" }}>
-                                  <div style={{ width: 12, height: 12, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: r.on ? 16 : 2, transition: "left 0.2s" }} />
+                      {/* TAB 1: PICK FROM INVENTORY LIST */}
+                      {recipeImportTab === "pick" && (
+                        <div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                            <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                              Select ingredients from your inventory list and enter the quantity for each.
+                            </div>
+                            <Badge color="gold">{selectedCount} selected • Cost: {fmt(layerCost)} / layer</Badge>
+                          </div>
+
+                          <div style={{ position: "relative", marginBottom: 10 }}>
+                            <Search size={14} style={{ position: "absolute", left: 10, top: 10, color: "var(--muted)" }} />
+                            <input
+                              type="text"
+                              placeholder="Search inventory items..."
+                              value={pickSearch}
+                              onChange={e => setPickSearch(e.target.value)}
+                              style={{ ...iSt, width: "100%", paddingLeft: 30, fontSize: 12.5, padding: "7px 10px 7px 30px" }}
+                            />
+                          </div>
+
+                          {recipeImportMsg && (
+                            <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}>
+                              <AlertTriangle size={12} /> {recipeImportMsg}
+                            </div>
+                          )}
+
+                          <div style={{ overflowY: "auto", maxHeight: 220, border: "1px solid var(--border)", borderRadius: 8, background: "#FFF", marginBottom: 14 }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                              <thead>
+                                <tr style={{ background: "#EDE5D6", position: "sticky", top: 0, zIndex: 1 }}>
+                                  <th style={{ padding: "7px 10px", width: 36, textAlign: "center" }}></th>
+                                  <th style={{ padding: "7px 10px", textAlign: "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>Ingredient</th>
+                                  <th style={{ padding: "7px 10px", textAlign: "right", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>Unit Cost</th>
+                                  <th style={{ padding: "7px 10px", textAlign: "right", width: 110, fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--gold)", fontWeight: 600 }}>Quantity</th>
+                                  <th style={{ padding: "7px 10px", textAlign: "right", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>Cost</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filteredPickInventory.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={5} style={{ padding: 18, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>
+                                      {inventory.length === 0 ? "No inventory items found. Add ingredients in Step 1 or import them." : "No matching inventory items."}
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  filteredPickInventory.map((item, idx) => {
+                                    const currentVal = pickedQty[item.id] !== undefined ? pickedQty[item.id] : ""
+                                    const hasQty = currentVal !== "" && parseFloat(currentVal) > 0
+                                    const itemCost = hasQty ? (parseFloat(currentVal) * item.cost) : 0
+
+                                    return (
+                                      <tr key={item.id} style={{ background: idx % 2 === 0 ? "#FFF" : "#FAF7F0", borderBottom: "1px solid #F0E8D8" }}>
+                                        <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                                          <input
+                                            type="checkbox"
+                                            checked={hasQty}
+                                            onChange={e => {
+                                              if (e.target.checked) {
+                                                setPickedQty(prev => ({ ...prev, [item.id]: prev[item.id] || "1" }))
+                                              } else {
+                                                setPickedQty(prev => {
+                                                  const updated = { ...prev }
+                                                  delete updated[item.id]
+                                                  return updated
+                                                })
+                                              }
+                                              setRecipeImportMsg("")
+                                            }}
+                                            style={{ cursor: "pointer", accentColor: "var(--gold)" }}
+                                          />
+                                        </td>
+                                        <td style={{ padding: "6px 10px", fontWeight: 500 }}>
+                                          {item.name} <span style={{ fontSize: 11, color: "var(--muted)" }}>({item.unit})</span>
+                                        </td>
+                                        <td style={{ padding: "6px 10px", textAlign: "right", color: "var(--muted)", fontSize: 11.5 }}>
+                                          {fmt(item.cost)}/{item.unit}
+                                        </td>
+                                        <td style={{ padding: "6px 10px", textAlign: "right" }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "flex-end" }}>
+                                            <input
+                                              type="number"
+                                              placeholder="0"
+                                              value={currentVal}
+                                              onChange={e => {
+                                                const val = e.target.value
+                                                setPickedQty(prev => ({ ...prev, [item.id]: val }))
+                                                setRecipeImportMsg("")
+                                              }}
+                                              style={{ ...iSt, width: 70, padding: "3px 6px", fontSize: 12, textAlign: "right" }}
+                                            />
+                                            <span style={{ fontSize: 11, color: "var(--muted)", width: 22 }}>{item.unit}</span>
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 500, color: itemCost > 0 ? "var(--gold)" : "var(--muted)", fontSize: 11.5 }}>
+                                          {itemCost > 0 ? fmt(itemCost) : "—"}
+                                        </td>
+                                      </tr>
+                                    )
+                                  })
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <Btn
+                              variant="success"
+                              onClick={savePickedFromInventory}
+                              disabled={!recipeImportName.trim() || selectedCount === 0}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                            >
+                              <Check size={13} /> Save Recipe ({selectedCount} Ingredients)
+                            </Btn>
+                            <Btn variant="ghost" onClick={() => { setShowRecipeImport(false); setRecipeAiFile(null); setRecipeAiScanError(""); setRecipeAiScanRefund(""); }}>
+                              Cancel
+                            </Btn>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* TAB 2: IMPORT — PHOTO, PDF OR EXCEL */}
+                      {recipeImportTab === "import" && (
+                        <div>
+                          {/* OPTION A: AI SCAN RECIPES & INGREDIENTS */}
+                          <div style={{ marginBottom: 16, padding: "12px 14px", background: "#FAF7F0", border: "1.5px dashed var(--gold)", borderRadius: 10 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <Sparkles size={15} color="var(--gold)" />
+                                <span style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>Option A: Scan Recipe Sheet or Card (PDF / Photo)</span>
+                              </div>
+                              <span style={{ fontSize: 10, background: "#FFF3D6", color: "#8A6318", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>2 Credits</span>
+                            </div>
+                            <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>
+                              Upload a photo of your recipe notebook, spec sheet, card, or PDF formula. AI will extract the recipe name and all ingredients with quantities.
+                            </div>
+
+                            {recipeAiScanRefund && (
+                              <div style={{ padding: "7px 10px", background: "#E8F5E9", borderRadius: 7, fontSize: 11.5, color: "#2E7D32", marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
+                                <Check size={12} /> {recipeAiScanRefund}
+                              </div>
+                            )}
+
+                            {recipeAiScanError && (
+                              <div style={{ padding: "7px 10px", background: "#FDEBE9", borderRadius: 7, fontSize: 11.5, color: "#B03A2E", marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
+                                <AlertTriangle size={12} /> {recipeAiScanError}
+                              </div>
+                            )}
+
+                            {!recipeAiFile ? (
+                              <div>
+                                <div
+                                  onDragOver={e => e.preventDefault()}
+                                  onDrop={e => {
+                                    e.preventDefault()
+                                    const file = e.dataTransfer.files?.[0]
+                                    if (file) handleRecipeAiFileSelect({ target: { files: [file] } })
+                                  }}
+                                  onClick={() => recipeAiFileInputRef.current?.click()}
+                                  style={{
+                                    border: "1.5px dashed #D5C29D",
+                                    borderRadius: 8,
+                                    padding: "16px 12px",
+                                    textAlign: "center",
+                                    cursor: "pointer",
+                                    background: "#FFFDF9",
+                                    marginBottom: 10,
+                                    transition: "border-color 0.2s"
+                                  }}
+                                >
+                                  <UploadCloud size={24} color="var(--gold)" style={{ margin: "0 auto 4px" }} />
+                                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>
+                                    Click or drop recipe PDF or photo here
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                    Supports .pdf, .jpg, .png, .webp (recipe sheets, notebooks, spec cards)
+                                  </div>
                                 </div>
-                              </td>
-                              <td style={{ padding: "6px 10px", fontWeight: 500 }}>{r.name}</td>
+
+                                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                                  <Btn small variant="outline" onClick={() => recipeAiFileInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                                    <UploadCloud size={13} /> Select PDF or Photo
+                                  </Btn>
+                                  <Btn small variant="outline" onClick={() => recipeAiCameraInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                                    <Camera size={13} /> Take photo
+                                  </Btn>
+                                </div>
+
+                                <input ref={recipeAiFileInputRef} type="file" accept=".pdf,image/*,application/pdf" onChange={handleRecipeAiFileSelect} style={{ display: "none" }} />
+                                <input ref={recipeAiCameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleRecipeAiFileSelect} style={{ display: "none" }} />
+                              </div>
+                            ) : (
+                              <div style={{ padding: 12, background: "#FFFFFF", borderRadius: 8, border: "1px solid var(--border)" }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    {recipeAiFile.type === "image" ? (
+                                      <img src={recipeAiFile.rawBase64} alt="Recipe Preview" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6 }} />
+                                    ) : (
+                                      <FileText size={30} color="var(--gold)" />
+                                    )}
+                                    <div>
+                                      <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>{recipeAiFile.name}</div>
+                                      <div style={{ fontSize: 11, color: "var(--muted)" }}>{recipeAiFile.size} • {recipeAiFile.type.toUpperCase()}</div>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setRecipeAiFile(null); setRecipeAiScanError(""); setRecipeAiScanRefund(""); }}
+                                    style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4 }}
+                                    title="Remove file"
+                                  >
+                                    <X size={16} />
+                                  </button>
+                                </div>
+
+                                <Btn
+                                  onClick={scanAiRecipes}
+                                  disabled={recipeAiScanning}
+                                  style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                                >
+                                  {recipeAiScanning ? (
+                                    <>
+                                      <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Scanning & Extracting Recipe...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles size={14} /> Scan & Extract Recipe & Ingredients (2 Credits)
+                                    </>
+                                  )}
+                                </Btn>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* OPTION B: PASTE COLUMNS FROM EXCEL (ONLY INGREDIENT & QUANTITY) */}
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                              <FileSpreadsheet size={15} color="var(--muted)" />
+                              <span style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>Option B: Paste Ingredient Columns from Excel</span>
+                            </div>
+                            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.7 }}>
+                              Paste the ingredient names and quantities from your recipe sheet.
+                            </div>
+
+                            {recipeImportMsg && (
+                              <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}>
+                                <AlertTriangle size={12} /> {recipeImportMsg}
+                              </div>
+                            )}
+
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                              <div>
+                                <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>
+                                  Ingredient Names *
+                                </label>
+                                <textarea
+                                  value={pasteRecipeIngN}
+                                  onChange={e => { setPasteRecipeIngN(e.target.value); setRecipeImportMsg(""); }}
+                                  placeholder={"Flour\nSugar\nEggs\nButter\nCocoa Powder"}
+                                  style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 10, color: "var(--gold)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>
+                                  Quantity *
+                                </label>
+                                <textarea
+                                  value={pasteRecipeIngQ}
+                                  onChange={e => { setPasteRecipeIngQ(e.target.value); setRecipeImportMsg(""); }}
+                                  placeholder={"500\n250\n4\n200\n50"}
+                                  style={{ width: "100%", minHeight: 120, padding: "8px", borderRadius: 8, border: "1px solid #E8D5A3", background: "#FFF9EE", fontSize: 12, fontFamily: "monospace", color: "var(--text)", boxSizing: "border-box", resize: "vertical", outline: "none" }}
+                                />
+                                <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Numbers (e.g. 500, 2.5)</div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+                              <Btn onClick={doRecipePreview} disabled={!recipeImportName.trim() || !pasteRecipeIngN.trim() || !pasteRecipeIngQ.trim()}>
+                                Preview import →
+                              </Btn>
+                              <Btn variant="ghost" onClick={() => { setShowRecipeImport(false); setRecipeAiFile(null); setRecipeAiScanError(""); setRecipeAiScanRefund(""); }}>
+                                Cancel
+                              </Btn>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {recipeImportStep === 2 && (() => {
+                  const activeIngs = recipeImportIngs.filter(p => p.on)
+                  const estimatedCost = activeIngs.reduce((sum, ing) => {
+                    let costPerUnit = 0
+                    if (ing.iid !== "new") {
+                      const it = inventory.find(x => x.id === ing.iid)
+                      if (it) costPerUnit = it.cost || 0
+                    }
+                    return sum + (costPerUnit * (parseFloat(ing.qty) || 0))
+                  }, 0)
+
+                  return (
+                    <div>
+                      {/* Recipe Name Header */}
+                      <div style={{ background: "#FAF7F0", padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border)", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--muted)", fontWeight: 500 }}>Importing Into Recipe</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{recipeImportName}</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 11, color: "var(--muted)" }}>Estimated Layer Cost</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--gold)" }}>{fmt(estimatedCost)} / layer</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                          Review ingredients & quantities. Match with your inventory or auto-create new items.
+                        </div>
+                        <Badge color="gold">{activeIngs.length} of {recipeImportIngs.length} active</Badge>
+                      </div>
+
+                      {recipeImportMsg && (
+                        <div style={{ padding: "7px 12px", background: "#FDEBE9", borderRadius: 7, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}>
+                          <AlertTriangle size={12} /> {recipeImportMsg}
+                        </div>
+                      )}
+
+                      <div style={{ overflowY: "auto", maxHeight: 220, marginBottom: 10 }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                          <thead>
+                            <tr style={{ background: "#EDE5D6" }}>
+                              {["", "Ingredient", "Quantity", "Unit", "Link to Inventory", "Est. Cost"].map(h => (
+                                <th key={h} style={{ padding: "7px 10px", textAlign: h === "Est. Cost" || h === "Quantity" ? "right" : "left", fontSize: 10, textTransform: "uppercase", letterSpacing: .8, color: "var(--muted)", fontWeight: 500 }}>{h}</th>
+                              ))}
                             </tr>
+                          </thead>
+                          <tbody>
+                            {recipeImportIngs.map((p, i) => {
+                              const matchedItem = p.iid !== "new" ? inventory.find(x => x.id === p.iid) : null
+                              const rowCost = matchedItem ? (matchedItem.cost * (parseFloat(p.qty) || 0)) : 0
+                              return (
+                                <tr key={p.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA", opacity: p.on ? 1 : 0.35 }}>
+                                  <td style={{ padding: "6px 8px", width: 40 }}>
+                                    <div onClick={() => setRecipeImportIngs(prev => prev.map((x, j) => j === i ? { ...x, on: !x.on } : x))} style={{ width: 28, height: 16, borderRadius: 8, background: p.on ? "#357A52" : "var(--border)", cursor: "pointer", position: "relative" }}>
+                                      <div style={{ width: 12, height: 12, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: p.on ? 14 : 2, transition: "left 0.2s" }} />
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: "6px 8px", fontWeight: 500 }}>{p.name}</td>
+                                  <td style={{ padding: "6px 8px", width: 80, textAlign: "right" }}>
+                                    <input
+                                      type="number"
+                                      value={p.qty}
+                                      onChange={e => {
+                                        const val = e.target.value
+                                        setRecipeImportIngs(prev => prev.map((x, j) => j === i ? { ...x, qty: val } : x))
+                                      }}
+                                      style={{ ...iSt, width: "100%", padding: "3px 6px", fontSize: 12, textAlign: "right" }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: "6px 8px", color: "var(--muted)", width: 50 }}>{p.unit}</td>
+                                  <td style={{ padding: "6px 8px" }}>
+                                    <select
+                                      value={p.iid}
+                                      onChange={e => {
+                                        const selectedVal = e.target.value
+                                        const match = inventory.find(it => it.id === selectedVal)
+                                        setRecipeImportIngs(prev => prev.map((x, j) => j === i ? {
+                                          ...x,
+                                          iid: selectedVal,
+                                          unit: match ? match.unit : x.unit
+                                        } : x))
+                                      }}
+                                      style={{ ...iSt, width: "100%", fontSize: 11.5, padding: "4px 6px" }}
+                                    >
+                                      <option value="new">+ Add as New Inventory Item ("{p.name}")</option>
+                                      {inventory.map(inv => (
+                                        <option key={inv.id} value={inv.id}>
+                                          {inv.name} ({inv.unit}) — {fmt(inv.cost)}/{inv.unit}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 500, color: rowCost > 0 ? "var(--gold)" : "var(--muted)" }}>
+                                    {rowCost > 0 ? fmt(rowCost) : "—"}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* QUICK ADD FROM INVENTORY ROW */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                        <select
+                          onChange={e => {
+                            const selectedId = e.target.value
+                            if (!selectedId) return
+                            const item = inventory.find(it => it.id === selectedId)
+                            if (item) {
+                              setRecipeImportIngs(prev => [
+                                ...prev,
+                                {
+                                  id: uid(),
+                                  name: item.name,
+                                  qty: 1,
+                                  unit: item.unit,
+                                  iid: item.id,
+                                  on: true
+                                }
+                              ])
+                            }
+                            e.target.value = ""
+                          }}
+                          style={{ ...iSt, fontSize: 11.5, padding: "5px 8px" }}
+                          defaultValue=""
+                        >
+                          <option value="" disabled>+ Add an ingredient from inventory...</option>
+                          {inventory.map(inv => (
+                            <option key={inv.id} value={inv.id}>
+                              {inv.name} ({inv.unit}) — {fmt(inv.cost)}/{inv.unit}
+                            </option>
                           ))}
-                        </tbody>
-                      </table>
+                        </select>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                        <Btn variant="success" onClick={confirmRecipeImport} disabled={!activeIngs.length} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                          <Check size={13} /> Import Recipe ({activeIngs.length} Ingredients)
+                        </Btn>
+                        <Btn variant="ghost" onClick={() => setRecipeImportStep(1)}>← Edit</Btn>
+                      </div>
                     </div>
-                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                      <Btn variant="success" onClick={confirmRecipeImport} disabled={!prevRecipes.some(r => r.on)} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                        <Check size={13} /> Import {prevRecipes.filter(r => r.on).length} Recipes
-                      </Btn>
-                      <Btn variant="ghost" onClick={() => setRecipeImportStep(1)}>← Edit</Btn>
-                    </div>
-                  </div>
-                )}
+                  )
+                })()}
 
                 {recipeImportStep === 3 && (
                   <div style={{ textAlign: "center", padding: "16px 0" }}>
                     <div style={{ fontSize: 16, color: "#357A52", fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      <Check size={18} /> Import complete!
+                      <Check size={18} /> Recipe imported successfully!
                     </div>
-                    <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>Recipes added to your list. You can edit their ingredients manually from the main list.</div>
-                    <Btn onClick={() => { setRecipeImportStep(1); setShowRecipeImport(false) }}>Done</Btn>
+                    <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>
+                      <strong>"{recipeImportName}"</strong> was saved with {recipeImportIngs.filter(i => i.on).length} ingredients.
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>
+                      Any new ingredients were automatically registered in your inventory list.
+                    </div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                      <Btn onClick={() => { setRecipeImportStep(1); setShowRecipeImport(false); }}>Done</Btn>
+                      <Btn variant="outline" onClick={() => openRecipeImport(null)}>Import Another Recipe</Btn>
+                    </div>
                   </div>
                 )}
               </Modal>
@@ -1219,7 +2808,12 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
                 <Inp label="Recipe Name *" value={recipeModal.name} onChange={v => { setRecipeModal({ ...recipeModal, name: v }); setRecipeModalError(null) }} placeholder="e.g. Chocolate Sponge" />
                 <Inp label="Notes" value={recipeModal.notes} onChange={v => setRecipeModal({ ...recipeModal, notes: v })} placeholder="e.g. Rich chocolate base" />
 
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, marginTop: 12 }}>Ingredients</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, marginTop: 12 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>Ingredients</div>
+                  <Btn small variant="outline" onClick={() => openRecipeImport(recipeModal)} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                    <UploadCloud size={12} /> Import Ingredients (Excel/PDF/Photo)
+                  </Btn>
+                </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 180, overflowY: "auto", marginBottom: 12 }}>
                   {recipeModal.ing.map((ing, idx) => {
                     const hasRowError = recipeModalError && (recipeModalError.fieldIndex === idx || (recipeModalError.field?.includes('ingredients') && (!ing.qty || parseFloat(ing.qty) <= 0)))

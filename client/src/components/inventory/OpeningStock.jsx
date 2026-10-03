@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react"
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Btn, Inp, Sel, Card, SHead, iSt, TH, Modal, Pagination } from "../common/ui.jsx"
-import { fmt, fmtCost, uid } from "../../lib/helpers.js"
+import { fmt, fmtCost, uid, callClaude, compressImage, extractAndRepairJson } from "../../lib/helpers.js"
 import {
   saveInventory,
   deleteOpeningStockOnServer,
@@ -15,9 +15,10 @@ import {
   fetchOpeningStockFromServer,
   migrateLocalStorageOpeningStockToDatabase,
   loadLocal,
-  calculateOrderUsages
+  calculateOrderUsages,
+  refundScanCredits
 } from "../../lib/data.js"
-import { PackageCheck, AlertTriangle, Lock, Unlock, Plus, Upload, Trash2, Search, Edit3, Check, Calculator, RefreshCw, Download } from "lucide-react"
+import { PackageCheck, AlertTriangle, Lock, Unlock, Plus, Upload, Trash2, Search, Edit3, Check, Calculator, RefreshCw, Download, Camera, Sparkles, UploadCloud, FileText, X, FileSpreadsheet, Image as ImageIcon } from "lucide-react"
 import { exportOpeningStockPDF } from "../../lib/pdfReportGenerator.js"
 
 // Module-level session tracking: months that have already been loaded/verified from backend in the current browser session
@@ -55,6 +56,28 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const [pasteC, setPasteC] = useState("")
   const [importItems, setImportItems] = useState([])
   const [warnMsg, setWarnMsg] = useState("")
+
+  // AI Document/Photo Scan States for Bulk Import
+  const [aiFile, setAiFile] = useState(null)
+  const [aiScanning, setAiScanning] = useState(false)
+  const [aiScanError, setAiScanError] = useState("")
+  const [aiScanRefund, setAiScanRefund] = useState("")
+  const aiFileInputRef = useRef(null)
+  const aiCameraInputRef = useRef(null)
+
+  // Single Item Photo Scan States
+  const [scanningItem, setScanningItem] = useState(null)
+  const [itemScanFile, setItemScanFile] = useState(null)
+  const [itemScanning, setItemScanning] = useState(false)
+  const [itemScanError, setItemScanError] = useState("")
+  const [itemScanResult, setItemScanResult] = useState(null)
+  const itemScanFileRef = useRef(null)
+  const itemScanCameraRef = useRef(null)
+
+  // Manual Add Item Photo Scan States
+  const [manualScanning, setManualScanning] = useState(false)
+  const [manualScanError, setManualScanError] = useState("")
+  const manualScanFileRef = useRef(null)
 
   // Search and pagination
   const [searchQuery, setSearchQuery] = useState("")
@@ -672,6 +695,419 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
     }
   }
 
+  // AI Document / Photo Scan Handlers for Bulk Import
+  const handleAiFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setAiScanError("")
+    setAiScanRefund("")
+
+    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
+    const isImg = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)
+
+    if (!isPdf && !isImg) {
+      setAiScanError("Please select a PDF document (.pdf) or an image photo (.jpg, .png, .webp).")
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setAiFile({
+        name: file.name,
+        size: (file.size / 1024).toFixed(1) + " KB",
+        type: isPdf ? "pdf" : "image",
+        rawBase64: ev.target.result
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const scanAiInventory = async () => {
+    if (!aiFile) return
+    setAiScanning(true)
+    setAiScanError("")
+    setAiScanRefund("")
+
+    try {
+      const content = []
+      if (aiFile.type === "pdf") {
+        const base64Data = aiFile.rawBase64.includes(",") ? aiFile.rawBase64.split(",")[1] : aiFile.rawBase64
+        content.push({
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: base64Data
+          }
+        })
+      } else {
+        const compressed = await compressImage(aiFile.rawBase64, 1920, 0.88, { enhanceContrast: true })
+        content.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/jpeg",
+            data: compressed
+          }
+        })
+      }
+
+      const promptText = `You are an expert AI inventory and stock-audit specialist for a bakery and cake business.
+Analyze this document or photo carefully. The input could be:
+1. An inventory list, stock-take sheet, or spreadsheet (printed or PDF).
+2. A supplier invoice, receipt, purchase order, or waybill (e.g. from flour mills, supermarket, packaging store).
+3. A handwritten inventory sheet, notebook page, or paper stock count.
+4. A photo of physical bakery stock, pantry shelves, ingredients (flour sacks, sugar bags, butter, eggs, flavour bottles, boxes, cake boards).
+5. A price list or quotation for bakery supplies.
+
+YOUR GOAL: Extract EVERY single distinct ingredient, material, packaging item, or supply item visible in this file.
+
+For each item, extract:
+- "name": Clean, standard ingredient/item name (e.g. "Flour", "Granulated Sugar", "Unsalted Butter", "Eggs", "Vanilla Flavour", "10-inch Cake Board", "Cocoa Powder", "Baking Powder").
+- "unit": Standard measurement unit. Use "g", "kg", "ml", "l", "pcs", "crate", "carton", "pack", or "bag". Never leave empty. Default dry goods to "g" or "kg", liquids to "ml" or "l", packaging/eggs to "pcs" or "crate".
+- "openingQty": Stock quantity or count visible. If it's a photo of physical items, count how many are visible (e.g. 2 sacks -> 2). If not specified or unknown, default to 1.
+- "cost": Cost or price per unit (in Nigerian Naira ₦ or number). If an invoice has a total price and quantity, calculate unit price = total / quantity. If cost is not visible or unknown, set cost to 0 so the user can enter it.
+- "category": Choose one of: "Dry Goods", "Dairy", "Flavours & Colours", "Packaging", "Decorations", "Other".
+
+Return ONLY valid JSON in this exact structure, with no markdown code fences or conversational text:
+{
+  "items": [
+    {
+      "name": "Flour",
+      "unit": "kg",
+      "openingQty": 50,
+      "cost": 1140,
+      "category": "Dry Goods"
+    }
+  ]
+}`
+
+      content.push({
+        type: "text",
+        text: promptText
+      })
+
+      const raw = await callClaude([
+        {
+          role: "user",
+          content: content
+        }
+      ], "You are an expert AI vision assistant for a bakery business. Extract inventory and opening stock items from documents or photos into JSON. Return valid JSON only.", 4000, { creditCost: 2, feature: "inventory_scanner" })
+
+      let result = null
+      try {
+        const cleanJson = raw.replace(/```json|```/g, "").trim()
+        result = JSON.parse(cleanJson)
+      } catch {
+        result = extractAndRepairJson(raw)
+      }
+
+      const extractedItems = result && (
+        Array.isArray(result.items) ? result.items :
+        Array.isArray(result.inventory) ? result.inventory :
+        Array.isArray(result.data) ? result.data :
+        Array.isArray(result) ? result : null
+      )
+
+      if (!extractedItems || extractedItems.length === 0) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, "Failed inventory scan: no readable items detected")
+            setAiScanRefund("Scan could not read any items. 2 credits refunded automatically.")
+          } catch (_) {}
+        }
+        setAiScanError("No inventory items could be detected in this file. Please make sure the photo or document is clear and readable.")
+        return
+      }
+
+      const parsedItems = extractedItems.map(it => {
+        const rawCost = it.cost !== undefined ? it.cost : (it.unit_price || it.price || 0)
+        const costNum = parseFloat(String(rawCost).replace(/[^0-9.]/g, "")) || 0
+        const rawQty = it.openingQty !== undefined ? it.openingQty : (it.stock !== undefined ? it.stock : (it.qty || 1))
+        const qtyNum = parseFloat(String(rawQty).replace(/[^0-9.]/g, "")) || 1
+        const cleanName = (it.name || it.item || "Unnamed Item").trim()
+        const match = items.find(existing => existing.name.trim().toLowerCase() === cleanName.toLowerCase())
+
+        return {
+          id: match ? match.id : "os_" + uid(),
+          name: match ? match.name : cleanName,
+          unit: it.unit || (match ? match.unit : "g"),
+          cost: costNum > 0 ? costNum : (match ? match.cost : 0),
+          openingQty: qtyNum,
+          isNew: !match,
+          on: true
+        }
+      }).filter(p => p.name)
+
+      if (parsedItems.length === 0) {
+        setAiScanError("No valid items could be parsed from the file.")
+        return
+      }
+
+      setImportItems(parsedItems)
+      setPasteN(parsedItems.map(p => p.name).join("\n"))
+      setPasteU(parsedItems.map(p => p.unit).join("\n"))
+      setPasteQ(parsedItems.map(p => p.openingQty).join("\n"))
+      setPasteC(parsedItems.map(p => p.cost).join("\n"))
+      setImportStep(2)
+    } catch (err) {
+      console.error("AI inventory scan failed:", err)
+      if (!err.message?.includes("DAILY_AI_CEILING_REACHED") && !err.message?.includes("Insufficient")) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, `Failed inventory scan: ${err.message}`)
+            setAiScanRefund("Scan failed. 2 credits refunded automatically.")
+          } catch (_) {}
+        }
+      }
+      setAiScanError(`Scan failed: ${err.message}`)
+    } finally {
+      setAiScanning(false)
+    }
+  }
+
+  // Single Item Photo Scan Handlers
+  const handleItemScanFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setItemScanError("")
+    setItemScanResult(null)
+
+    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
+    const isImg = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)
+
+    if (!isPdf && !isImg) {
+      setItemScanError("Please select an image photo (.jpg, .png, .webp) or PDF.")
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setItemScanFile({
+        name: file.name,
+        size: (file.size / 1024).toFixed(1) + " KB",
+        type: isPdf ? "pdf" : "image",
+        rawBase64: ev.target.result
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const scanSingleItemPhoto = async () => {
+    if (!itemScanFile || !scanningItem) return
+    setItemScanning(true)
+    setItemScanError("")
+    setItemScanResult(null)
+
+    try {
+      const content = []
+      if (itemScanFile.type === "pdf") {
+        const base64Data = itemScanFile.rawBase64.includes(",") ? itemScanFile.rawBase64.split(",")[1] : itemScanFile.rawBase64
+        content.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: base64Data }
+        })
+      } else {
+        const compressed = await compressImage(itemScanFile.rawBase64, 1920, 0.88, { enhanceContrast: true })
+        content.push({
+          type: "image",
+          source: { type: "base64", media_type: "image/jpeg", data: compressed }
+        })
+      }
+
+      content.push({
+        type: "text",
+        text: `You are an expert AI vision assistant for a bakery business.
+Analyze this photo of a bakery ingredient, packaging supply, or purchase receipt/label for the target inventory item: "${scanningItem.name}".
+Extract:
+- "name": Detected brand or item name.
+- "unit": Measurement unit ("kg", "g", "ml", "l", "pcs", "crate", "pack", "carton", "bag").
+- "cost": Unit price or amount paid per unit (in Naira ₦ or number). If total amount and quantity are shown, calculate cost per unit. If not visible, return 0.
+- "openingQty": Quantity visible or stated (default 1).
+
+Return ONLY valid JSON:
+{
+  "name": "${scanningItem.name}",
+  "unit": "${scanningItem.unit || 'g'}",
+  "cost": 0,
+  "openingQty": 1
+}`
+      })
+
+      const raw = await callClaude([
+        { role: "user", content }
+      ], "Extract inventory item cost and quantity from image into JSON. Return valid JSON only.", 2000, { creditCost: 2, feature: "inventory_scanner" })
+
+      let result = null
+      try {
+        const cleanJson = raw.replace(/```json|```/g, "").trim()
+        result = JSON.parse(cleanJson)
+      } catch {
+        result = extractAndRepairJson(raw)
+      }
+
+      const itemData = (result?.items && result.items[0]) || result || {}
+      const extractedCost = parseFloat(String(itemData.cost || itemData.unit_price || 0).replace(/[^0-9.]/g, "")) || 0
+      const extractedQty = parseFloat(String(itemData.openingQty || itemData.qty || itemData.stock || 1).replace(/[^0-9.]/g, "")) || 1
+      const extractedUnit = itemData.unit || scanningItem.unit || "g"
+
+      setItemScanResult({
+        cost: extractedCost,
+        openingQty: extractedQty,
+        unit: extractedUnit,
+        name: itemData.name || scanningItem.name
+      })
+    } catch (err) {
+      console.error("Item photo scan failed:", err)
+      if (!err.message?.includes("DAILY_AI_CEILING_REACHED") && !err.message?.includes("Insufficient")) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, `Failed item photo scan: ${err.message}`)
+          } catch (_) {}
+        }
+      }
+      setItemScanError(`Scan failed: ${err.message}`)
+    } finally {
+      setItemScanning(false)
+    }
+  }
+
+  const applyItemScanResult = async () => {
+    if (!scanningItem || !itemScanResult) return
+    const id = scanningItem.id
+    const newCost = itemScanResult.cost !== undefined ? itemScanResult.cost : scanningItem.cost
+    const newQty = itemScanResult.openingQty !== undefined ? itemScanResult.openingQty : scanningItem.openingQty
+    const newUnit = itemScanResult.unit || scanningItem.unit
+
+    const updated = items.map(item => item.id === id ? { ...item, cost: newCost, openingQty: newQty, unit: newUnit } : item)
+    setItems(updated)
+
+    if (id && !id.startsWith("os_")) {
+      try {
+        const p = updateOpeningStockItemOnServer(id, { cost: newCost, openingQty: newQty, unit: newUnit })
+        if (p && typeof p.catch === "function") p.catch(e => console.warn(e))
+      } catch (err) {
+        console.warn(err)
+      }
+    }
+
+    const forSaving = updated.map(it => ({ ...it, cost: parseFloat(it.cost) || 0, openingQty: it.openingQty === "" ? 0 : (parseFloat(it.openingQty) || 0) }))
+    await saveOpeningStock(forSaving, currentMonthStr, saved)
+
+    if (inventory && setInventory) {
+      const currentInv = Array.isArray(inventory) ? [...inventory] : []
+      const existingIdx = currentInv.findIndex(i =>
+        (scanningItem.itemId && i.id === scanningItem.itemId) ||
+        i.id === scanningItem.id ||
+        (i.name && i.name.toLowerCase() === scanningItem.name.toLowerCase())
+      )
+      if (existingIdx >= 0) {
+        const updatedInventory = currentInv.map((invItem, idx) =>
+          idx === existingIdx ? { ...invItem, stock: newQty, cost: newCost, unit: newUnit || invItem.unit } : invItem
+        )
+        setInventory(updatedInventory)
+        await saveInventory(updatedInventory)
+      }
+    }
+
+    setScanningItem(null)
+    setItemScanFile(null)
+    setItemScanResult(null)
+    setItemScanError("")
+  }
+
+  // Manual Add Item Photo Scan Handler
+  const handleManualPhotoScan = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setManualScanError("")
+    setManualScanning(true)
+
+    try {
+      const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
+      const reader = new FileReader()
+      const rawBase64 = await new Promise((resolve, reject) => {
+        reader.onload = ev => resolve(ev.target.result)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+
+      const content = []
+      if (isPdf) {
+        const base64Data = rawBase64.includes(",") ? rawBase64.split(",")[1] : rawBase64
+        content.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: base64Data }
+        })
+      } else {
+        const compressed = await compressImage(rawBase64, 1920, 0.88, { enhanceContrast: true })
+        content.push({
+          type: "image",
+          source: { type: "base64", media_type: "image/jpeg", data: compressed }
+        })
+      }
+
+      content.push({
+        type: "text",
+        text: `You are an expert AI vision assistant for a bakery business.
+Analyze this photo of a bakery ingredient, packaging supply, or purchase receipt/label.
+Extract:
+- "name": Clean item or brand name (e.g. "Dangote Sugar", "Simas Margarine", "Golden Penny Flour", "Egg Crate").
+- "unit": Measurement unit ("kg", "g", "ml", "l", "pcs", "crate", "pack", "carton", "bag").
+- "cost": Unit price or cost (in Naira ₦ or number). If total paid and quantity are shown, calculate unit price.
+- "openingQty": Starting stock quantity visible or stated (default 1).
+- "category": One of "Dry Goods", "Dairy", "Flavours & Colours", "Packaging", "Decorations", "Other".
+
+Return ONLY valid JSON:
+{
+  "name": "Item name",
+  "unit": "kg",
+  "cost": 1500,
+  "openingQty": 1,
+  "category": "Dry Goods"
+}`
+      })
+
+      const raw = await callClaude([
+        { role: "user", content }
+      ], "Extract inventory item details from photo into JSON. Return valid JSON only.", 2000, { creditCost: 2, feature: "inventory_scanner" })
+
+      let result = null
+      try {
+        const cleanJson = raw.replace(/```json|```/g, "").trim()
+        result = JSON.parse(cleanJson)
+      } catch {
+        result = extractAndRepairJson(raw)
+      }
+
+      const itemData = (result?.items && result.items[0]) || result || {}
+      const extractedCost = parseFloat(String(itemData.cost || itemData.unit_price || 0).replace(/[^0-9.]/g, "")) || ""
+      const extractedQty = parseFloat(String(itemData.openingQty || itemData.qty || itemData.stock || 1).replace(/[^0-9.]/g, "")) || ""
+
+      setCalcMode("manual")
+      setNewItem(m => ({
+        ...m,
+        name: itemData.name || m.name,
+        unit: itemData.unit || m.unit,
+        cost: extractedCost !== "" ? extractedCost : m.cost,
+        openingQty: extractedQty !== "" ? extractedQty : m.openingQty
+      }))
+    } catch (err) {
+      console.error("Manual add scan failed:", err)
+      if (!err.message?.includes("DAILY_AI_CEILING_REACHED") && !err.message?.includes("Insufficient")) {
+        if (typeof refundScanCredits === "function") {
+          try {
+            await refundScanCredits(2, `Failed manual item photo scan: ${err.message}`)
+          } catch (_) {}
+        }
+      }
+      setManualScanError(`Scan failed: ${err.message}`)
+    } finally {
+      setManualScanning(false)
+      if (manualScanFileRef.current) manualScanFileRef.current.value = ""
+    }
+  }
+
   return (
     <div>
       <SHead
@@ -768,8 +1204,8 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
             <Btn small onClick={() => setAddingItem(true)}>
               <Plus size={13} /> Add Item
             </Btn>
-            <Btn small variant="outline" onClick={() => { setShowImport(true); setImportStep(1); }}>
-              <Upload size={13} /> Import Excel
+            <Btn small variant="outline" onClick={() => { setShowImport(true); setImportStep(1); }} title="Import from Excel, PDF, or Photo">
+              <Upload size={13} /> Import Excel / Scan
             </Btn>
             <Btn
               small
@@ -861,7 +1297,47 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                       }}
                     >
                       <td style={{ padding: "10px 16px", color: "var(--muted)", fontSize: 12 }}>{globalIdx}</td>
-                      <td style={{ padding: "10px 16px", fontWeight: 600, color: "var(--text)" }}>{item.name}</td>
+                      <td style={{ padding: "10px 16px", fontWeight: 600, color: "var(--text)" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <span>{item.name}</span>
+                          {!isLocked && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setScanningItem(item)
+                                setItemScanFile(null)
+                                setItemScanError("")
+                                setItemScanResult(null)
+                              }}
+                              title={`Scan photo/receipt for ${item.name} (AI)`}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 3,
+                                padding: "2px 6px",
+                                borderRadius: 4,
+                                fontSize: 10.5,
+                                fontWeight: 600,
+                                background: "var(--panel)",
+                                border: "1px solid var(--border)",
+                                color: "var(--muted)",
+                                cursor: "pointer",
+                                transition: "all 0.15s"
+                              }}
+                              onMouseEnter={e => {
+                                e.currentTarget.style.color = "var(--gold)"
+                                e.currentTarget.style.borderColor = "var(--gold)"
+                              }}
+                              onMouseLeave={e => {
+                                e.currentTarget.style.color = "var(--muted)"
+                                e.currentTarget.style.borderColor = "var(--border)"
+                              }}
+                            >
+                              <Camera size={11} /> Scan
+                            </button>
+                          )}
+                        </div>
+                      </td>
                       <td style={{ padding: "10px 16px" }}>
                         {isEditable ? (
                           <input
@@ -963,8 +1439,54 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
 
       {/* ADD ITEM MODAL */}
       {addingItem && (
-        <Modal title="Add Item to Opening Stock" onClose={() => setAddingItem(false)}>
+        <Modal title="Add Item to Opening Stock" onClose={() => { setAddingItem(false); setManualScanError(""); }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {manualScanError && (
+              <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12, color: "#B03A2E", display: "flex", alignItems: "center", gap: 6 }}>
+                <AlertTriangle size={14} /> {manualScanError}
+              </div>
+            )}
+
+            {/* AI Photo Auto-Fill */}
+            <div>
+              <Btn
+                type="button"
+                small
+                variant="outline"
+                onClick={() => manualScanFileRef.current?.click()}
+                disabled={manualScanning}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  borderColor: "var(--gold)",
+                  color: "var(--gold)",
+                  background: "#FAF7F0",
+                  padding: "8px 12px",
+                  borderRadius: 8
+                }}
+              >
+                {manualScanning ? (
+                  <>
+                    <RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }} /> Scanning photo with AI...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={13} /> Scan Photo or Receipt to Auto-Fill (AI)
+                  </>
+                )}
+              </Btn>
+              <input
+                ref={manualScanFileRef}
+                type="file"
+                accept="image/*,.pdf"
+                onChange={handleManualPhotoScan}
+                style={{ display: "none" }}
+              />
+            </div>
+
             <Inp
               label="Ingredient / Item Name *"
               value={newItem.name}
@@ -1074,69 +1596,181 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
 
       {/* BULK PASTE IMPORT MODAL */}
       {showImport && (
-        <Modal title="Bulk Paste Opening Stock from Spreadsheet" onClose={() => setShowImport(false)}>
+        <Modal title="Import Opening Stock — Excel, PDF or a photo" onClose={() => { setShowImport(false); setAiFile(null); setAiScanError(""); setAiScanRefund(""); }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {importStep === 1 && (
               <>
-                <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.6 }}>
-                  Copy columns directly from Microsoft Excel, Google Sheets, or CSV and paste them into the respective fields below:
+                {/* OPTION A: AI SCAN (PDF OR PHOTO) */}
+                <div style={{ marginBottom: 18, padding: "14px 16px", background: "#FAF7F0", border: "1.5px dashed var(--gold)", borderRadius: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Sparkles size={16} color="var(--gold)" />
+                      <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text)" }}>Option A: Scan PDF or Photo with AI</span>
+                    </div>
+                    <span style={{ fontSize: 10.5, background: "#FFF3D6", color: "#8A6318", padding: "2px 7px", borderRadius: 4, fontWeight: 600 }}>2 Credits</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
+                    Upload a stock sheet PDF, supplier invoice, paper receipt, handwritten inventory list, or snap a photo of physical ingredients/supplies. AI will read all item names, units, stock quantities, and costs.
+                  </div>
+
+                  {aiScanError && (
+                    <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12, color: "#B03A2E", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                      <AlertTriangle size={14} /> {aiScanError}
+                    </div>
+                  )}
+
+                  {aiScanRefund && (
+                    <div style={{ padding: "8px 12px", background: "#E8F4FD", borderRadius: 8, fontSize: 12, color: "#0B5394", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                      <Check size={14} /> {aiScanRefund}
+                    </div>
+                  )}
+
+                  {!aiFile ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div
+                        onClick={() => aiFileInputRef.current?.click()}
+                        style={{
+                          border: "1.5px dashed #D5C29D",
+                          borderRadius: 10,
+                          padding: "18px 16px",
+                          textAlign: "center",
+                          cursor: "pointer",
+                          background: "#FFFFFF",
+                          transition: "all 0.2s"
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = "var(--gold)"}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = "#D5C29D"}
+                      >
+                        <UploadCloud size={26} color="var(--gold)" style={{ margin: "0 auto 6px" }} />
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>
+                          Click or drop PDF document or photo here
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                          Supports .pdf, .jpg, .png, .webp (invoices, stock sheets, photos)
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                        <Btn small variant="outline" onClick={() => aiFileInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                          <UploadCloud size={13} /> Select PDF or Photo
+                        </Btn>
+                        <Btn small variant="outline" onClick={() => aiCameraInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                          <Camera size={13} /> Take photo
+                        </Btn>
+                      </div>
+
+                      <input ref={aiFileInputRef} type="file" accept=".pdf,image/*,application/pdf" onChange={handleAiFileSelect} style={{ display: "none" }} />
+                      <input ref={aiCameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleAiFileSelect} style={{ display: "none" }} />
+                    </div>
+                  ) : (
+                    <div style={{ padding: 12, background: "#FFFFFF", borderRadius: 8, border: "1px solid var(--border)" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {aiFile.type === "image" ? (
+                            <img src={aiFile.rawBase64} alt="Preview" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6 }} />
+                          ) : (
+                            <FileText size={30} color="var(--gold)" />
+                          )}
+                          <div>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>{aiFile.name}</div>
+                            <div style={{ fontSize: 11, color: "var(--muted)" }}>{aiFile.size} • {aiFile.type.toUpperCase()}</div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setAiFile(null); setAiScanError(""); setAiScanRefund(""); }}
+                          style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4 }}
+                          title="Remove file"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+
+                      <Btn
+                        onClick={scanAiInventory}
+                        disabled={aiScanning}
+                        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                      >
+                        {aiScanning ? (
+                          <>
+                            <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Scanning & Extracting with AI...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={14} /> Scan & Extract Inventory with AI (2 Credits)
+                          </>
+                        )}
+                      </Btn>
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                      Item Names * (Column 1)
-                    </label>
-                    <textarea
-                      rows={6}
-                      value={pasteN}
-                      onChange={e => setPasteN(e.target.value)}
-                      placeholder={"Flour\nSugar\nButter"}
-                      style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
-                    />
+
+                {/* OPTION B: EXCEL COPY-PASTE */}
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <FileSpreadsheet size={15} color="var(--muted)" />
+                    <span style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>Option B: Paste Columns from Excel</span>
                   </div>
-                  <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                      Units (g, ml, m, kg, pcs)
-                    </label>
-                    <textarea
-                      rows={6}
-                      value={pasteU}
-                      onChange={e => setPasteU(e.target.value)}
-                      placeholder={"g\nml\nm\nkg"}
-                      style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
-                    />
-                    <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default gram(g) millimeter (m)</div>
+                  <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>
+                    Copy columns directly from Microsoft Excel, Google Sheets, or CSV and paste them into the respective fields below:
                   </div>
-                  <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                      Opening Quantities
-                    </label>
-                    <textarea
-                      rows={6}
-                      value={pasteQ}
-                      onChange={e => setPasteQ(e.target.value)}
-                      placeholder={"50\n25\n10"}
-                      style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
-                    />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>
+                        Item Names * (Column 1)
+                      </label>
+                      <textarea
+                        rows={6}
+                        value={pasteN}
+                        onChange={e => setPasteN(e.target.value)}
+                        placeholder={"Flour\nSugar\nButter"}
+                        style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>
+                        Units (g, ml, m, kg, pcs)
+                      </label>
+                      <textarea
+                        rows={6}
+                        value={pasteU}
+                        onChange={e => setPasteU(e.target.value)}
+                        placeholder={"g\nml\nm\nkg"}
+                        style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+                      />
+                      <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>Default gram(g) millimeter (m)</div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>
+                        Opening Quantities
+                      </label>
+                      <textarea
+                        rows={6}
+                        value={pasteQ}
+                        onChange={e => setPasteQ(e.target.value)}
+                        placeholder={"50\n25\n10"}
+                        style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>
+                        Unit Costs (₦)
+                      </label>
+                      <textarea
+                        rows={6}
+                        value={pasteC}
+                        onChange={e => setPasteC(e.target.value)}
+                        placeholder={"1800\n2400\n4500"}
+                        style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                      Unit Costs (₦)
-                    </label>
-                    <textarea
-                      rows={6}
-                      value={pasteC}
-                      onChange={e => setPasteC(e.target.value)}
-                      placeholder={"1800\n2400\n4500"}
-                      style={{ ...iSt, height: 110, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
-                    />
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+                    <Btn variant="ghost" onClick={() => setShowImport(false)}>Cancel</Btn>
+                    <Btn onClick={doPreview} disabled={loadingAction === "doPreview"}>
+                      {loadingAction === "doPreview" ? "Parsing..." : "Preview Import Rows →"}
+                    </Btn>
                   </div>
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
-                  <Btn variant="ghost" onClick={() => setShowImport(false)}>Cancel</Btn>
-                  <Btn onClick={doPreview} disabled={loadingAction === "doPreview"}>
-                    {loadingAction === "doPreview" ? "Parsing..." : "Preview Import Rows →"}
-                  </Btn>
                 </div>
               </>
             )}
@@ -1204,6 +1838,130 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
                 </div>
                 <Btn onClick={() => setShowImport(false)}>Close Window</Btn>
               </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* SINGLE ITEM PHOTO SCAN MODAL */}
+      {scanningItem && (
+        <Modal title={`Scan Photo for ${scanningItem.name}`} onClose={() => { setScanningItem(null); setItemScanFile(null); setItemScanResult(null); setItemScanError(""); }}>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.6 }}>
+            Upload or snap a photo of your <strong>{scanningItem.name}</strong> bag, packaging, price label, or purchase receipt. AI will extract the unit cost and stock count.
+          </div>
+
+          {itemScanError && (
+            <div style={{ padding: "8px 12px", background: "#FDEBE9", borderRadius: 8, fontSize: 12, color: "#B03A2E", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={14} /> {itemScanError}
+            </div>
+          )}
+
+          {!itemScanFile ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              <div
+                onClick={() => itemScanFileRef.current?.click()}
+                style={{
+                  border: "2px dashed var(--border)",
+                  borderRadius: 12,
+                  padding: "22px 16px",
+                  textAlign: "center",
+                  cursor: "pointer",
+                  background: "#FAF7F0",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = "var(--gold)"}
+                onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
+              >
+                <Camera size={26} color="var(--gold)" style={{ margin: "0 auto 8px" }} />
+                <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)", marginBottom: 4 }}>
+                  Click to upload photo or document
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                  Supports JPG, PNG, WEBP or PDF receipt
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                <Btn small variant="outline" onClick={() => itemScanFileRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <UploadCloud size={13} /> Select Photo or PDF
+                </Btn>
+                <Btn small variant="outline" onClick={() => itemScanCameraRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <Camera size={13} /> Take photo
+                </Btn>
+              </div>
+
+              <input ref={itemScanFileRef} type="file" accept="image/*,.pdf" onChange={handleItemScanFileSelect} style={{ display: "none" }} />
+              <input ref={itemScanCameraRef} type="file" accept="image/*" capture="environment" onChange={handleItemScanFileSelect} style={{ display: "none" }} />
+            </div>
+          ) : (
+            <div style={{ marginBottom: 16, padding: 12, background: "#FAF7F0", borderRadius: 10, border: "1px solid var(--border)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {itemScanFile.type === "image" ? (
+                    <img src={itemScanFile.rawBase64} alt="Preview" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6 }} />
+                  ) : (
+                    <FileText size={30} color="var(--gold)" />
+                  )}
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>{itemScanFile.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{itemScanFile.size} • {itemScanFile.type.toUpperCase()}</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setItemScanFile(null); setItemScanResult(null); }}
+                  style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4 }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {!itemScanResult && (
+                <Btn
+                  onClick={scanSingleItemPhoto}
+                  disabled={itemScanning}
+                  style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                >
+                  {itemScanning ? (
+                    <>
+                      <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Scanning photo with AI...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={14} /> Scan Photo with AI (2 Credits)
+                    </>
+                  )}
+                </Btn>
+              )}
+            </div>
+          )}
+
+          {itemScanResult && (
+            <div style={{ padding: 14, background: "#F5FBF6", border: "1.5px solid #C3E6CB", borderRadius: 10, marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: "#155724", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                <Check size={16} color="#28A745" /> AI Scan Detected Details
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12.5 }}>
+                <div>
+                  <span style={{ color: "var(--muted)" }}>Unit Cost:</span>{" "}
+                  <strong>{fmtCost(itemScanResult.cost)}</strong>
+                </div>
+                <div>
+                  <span style={{ color: "var(--muted)" }}>Stock Count:</span>{" "}
+                  <strong>{itemScanResult.openingQty} {itemScanResult.unit}</strong>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Btn variant="ghost" onClick={() => { setScanningItem(null); setItemScanFile(null); setItemScanResult(null); }}>
+              Cancel
+            </Btn>
+            {itemScanResult && (
+              <Btn onClick={applyItemScanResult} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <Check size={14} /> Apply to {scanningItem.name}
+              </Btn>
             )}
           </div>
         </Modal>

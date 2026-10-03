@@ -470,5 +470,79 @@ export function parseCSV(text) {
   }).filter(Boolean).filter(i => i.name)
 }
 
+// Robust JSON extraction and repair for AI responses (receipts, stock sheets, invoices)
+export function extractAndRepairJson(rawText) {
+  if (!rawText) return null
+  let str = rawText.trim()
+  str = str.replace(/```json|```/g, "").trim()
+
+  const jsonMatch = str.match(/\{[\s\S]*\}/) || str.match(/\[[\s\S]*\]/)
+  if (jsonMatch) {
+    str = jsonMatch[0]
+  }
+
+  // Attempt 1: Direct JSON parse
+  try {
+    const res = JSON.parse(str)
+    return Array.isArray(res) ? { items: res } : res
+  } catch {
+    // Attempt 2: Strip comments and trailing commas
+    try {
+      let cleaned = str
+        .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
+        .replace(/,\s*([\]\}])/g, "$1")
+      const res = JSON.parse(cleaned)
+      return Array.isArray(res) ? { items: res } : res
+    } catch {
+      // Attempt 3: Quote unquoted keys
+      try {
+        let cleaned = str
+          .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
+          .replace(/,\s*([\]\}])/g, "$1")
+          .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+        const res = JSON.parse(cleaned)
+        return Array.isArray(res) ? { items: res } : res
+      } catch {
+        // Attempt 4: Partial / Truncated JSON recovery
+        try {
+          if ((str.includes('"items"') || str.includes('"inventory"')) && !str.endsWith('}')) {
+            const lastObjIdx = str.lastIndexOf('}')
+            if (lastObjIdx !== -1) {
+              let rescued = str.slice(0, lastObjIdx + 1)
+              if (!rescued.includes(']')) rescued += ']'
+              if (!rescued.endsWith('}')) rescued += '}'
+              let cleaned = rescued
+                .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
+                .replace(/,\s*([\]\}])/g, "$1")
+              const res = JSON.parse(cleaned)
+              return Array.isArray(res) ? { items: res } : res
+            }
+          }
+        } catch {}
+
+        // Attempt 5: Fallback regex extraction of individual item objects
+        try {
+          const itemRegex = /\{[^{}]*?(?:"item_on_receipt"|"name")[^{}]*?\}/g
+          const matches = str.match(itemRegex)
+          if (matches && matches.length > 0) {
+            const rescuedItems = []
+            for (const m of matches) {
+              try {
+                const item = JSON.parse(m.replace(/,\s*([\]\}])/g, "$1"))
+                if (item) rescuedItems.push(item)
+              } catch {}
+            }
+            if (rescuedItems.length > 0) {
+              return { items: rescuedItems }
+            }
+          }
+        } catch {}
+
+        return null
+      }
+    }
+  }
+}
+
 export { formatApiError, parseValidationMessage } from "./errorHandler.js"
 
