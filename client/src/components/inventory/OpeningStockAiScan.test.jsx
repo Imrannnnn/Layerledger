@@ -125,7 +125,7 @@ describe("OpeningStock AI Scan & Vision Features", () => {
     jest.clearAllMocks()
   })
 
-  test("renders Scan button next to item name and opens single-item scan modal", async () => {
+  test("does not render Scan button next to item name in table rows", async () => {
     await act(async () => {
       root.render(
         <OpeningStock
@@ -136,72 +136,12 @@ describe("OpeningStock AI Scan & Vision Features", () => {
       )
     })
 
-    const buttons = Array.from(container.querySelectorAll("button"))
+    const buttons = Array.from(container.querySelectorAll("tbody button"))
     const scanBtn = buttons.find(b => b.textContent.trim() === "Scan")
-    expect(scanBtn).toBeTruthy()
-
-    await act(async () => {
-      scanBtn.click()
-    })
-
-    expect(container.textContent).toContain("Scan Photo for Flour")
-    expect(container.textContent).toContain("Click to upload photo or document")
+    expect(scanBtn).toBeUndefined()
   })
 
-  test("single-item scan triggers Claude API and applies detected cost and quantity", async () => {
-    helpers.callClaude.mockResolvedValueOnce(JSON.stringify({
-      name: "Flour",
-      unit: "kg",
-      cost: 1450,
-      openingQty: 80
-    }))
 
-    await act(async () => {
-      root.render(
-        <OpeningStock
-          inventory={mockInventory}
-          setInventory={mockSetInventory}
-          company={{}}
-        />
-      )
-    })
-
-    const buttons = Array.from(container.querySelectorAll("button"))
-    const scanBtn = buttons.find(b => b.textContent.trim() === "Scan")
-
-    await act(async () => {
-      scanBtn.click()
-    })
-
-    expect(container.textContent).toContain("Scan Photo for Flour")
-
-    // Simulate file selection
-    const fileInput = container.querySelector('input[type="file"][accept="image/*,.pdf"]')
-    expect(fileInput).toBeTruthy()
-
-    const mockFile = new File(["dummy"], "flour.jpg", { type: "image/jpeg" })
-    await act(async () => {
-      const event = { target: { files: [mockFile] } }
-      fileInput.dispatchEvent(new Event("change", { bubbles: true }))
-      // Directly invoke onChange
-      fileInput.onchange ? fileInput.onchange(event) : fileInput.dispatchEvent(new Event("change"))
-    })
-
-    // Now trigger scan button
-    const scanPhotoBtn = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Scan Photo with AI"))
-    if (scanPhotoBtn) {
-      await act(async () => {
-        scanPhotoBtn.click()
-      })
-
-      expect(helpers.callClaude).toHaveBeenCalledWith(
-        expect.any(Array),
-        expect.any(String),
-        expect.any(Number),
-        expect.objectContaining({ creditCost: 2, feature: "inventory_scanner" })
-      )
-    }
-  })
 
   test("bulk import modal displays Option A (AI PDF/Photo) and Option B (Excel)", async () => {
     await act(async () => {

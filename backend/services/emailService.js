@@ -735,6 +735,99 @@ Bakewealth`;
 
     return this.sendMail({ to, toName: displayName, subject, html, text });
   }
+
+  /**
+   * 6. Send Premium Access Granted Notification
+   */
+  async sendPremiumAccessGrantedEmail({ to, name, companyName, daysGranted, expiresAt, bonusCredits = 0, dashboardUrl }) {
+    const appUrl = this.getAppUrl();
+    const finalDashboardUrl = this.sanitizeUrl(dashboardUrl || appUrl);
+    const displayName = name || 'Bakery Owner';
+    const dayLabel = `${daysGranted} day${Number(daysGranted) === 1 ? '' : 's'}`;
+    const formattedExpires = expiresAt ? new Date(expiresAt).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }) : 'Soon';
+
+    const subject = `🎉 You've Been Granted ${dayLabel} of Premium Plan Access - BakeWealth`;
+    const preheader = `Your account now has full access to the BakeWealth Premium Plan until ${formattedExpires}.`;
+
+    const content = `
+          <p>Hello <strong>${displayName}</strong>,</p>
+          <p>Great news! Your account for <strong>${companyName || 'your bakery'}</strong> has been granted complimentary <strong>Premium Plan Access</strong> for <strong>${dayLabel}</strong> by our platform team.</p>
+          
+          <div class="info-card">
+            <div class="info-row">
+              <span style="color:#7B5A3A;font-weight:600;">Plan Level:</span>
+              <strong style="color:#c8912a;font-size:15px;">PREMIUM PLAN ⭐</strong>
+            </div>
+            <div class="info-row">
+              <span style="color:#7B5A3A;font-weight:600;">Access Duration:</span>
+              <strong style="color:#291608;">${dayLabel}</strong>
+            </div>
+            <div class="info-row">
+              <span style="color:#7B5A3A;font-weight:600;">Valid Until:</span>
+              <strong style="color:#2e7d32;">${formattedExpires}</strong>
+            </div>
+            ${bonusCredits > 0 ? `
+            <div class="info-row">
+              <span style="color:#7B5A3A;font-weight:600;">Bonus AI Scan Credits:</span>
+              <strong style="color:#c8912a;">+${bonusCredits} Credits</strong>
+            </div>` : ''}
+            <div class="info-row">
+              <span style="color:#7B5A3A;font-weight:600;">Status:</span>
+              <strong style="color:#2e7d32;">ACTIVE (COMPLIMENTARY ACCESS)</strong>
+            </div>
+          </div>
+
+          <h3 style="font-family:'Playfair Display',Georgia,serif;font-size:17px;color:#291608;margin:24px 0 10px;">What's unlocked on your Premium account:</h3>
+          <ul style="padding-left:20px;color:#382415;line-height:1.7;">
+            <li><strong>AI Financial Assistant & Complete Margin Analysis:</strong> Instant conversational queries into your revenue, batch ingredient costs, and overall profit margins.</li>
+            <li><strong>Unlimited Records:</strong> Unlimited recipes, production orders, inventory tracking, and client profiles.</li>
+            <li><strong>Team Logins:</strong> Add up to 4 staff accounts with customized role permissions.</li>
+            <li><strong>Custom Invoicing:</strong> Remove BakeWealth branding and use your own bakery logo on all quotes and receipts.</li>
+          </ul>
+
+          <p>Log in now to experience all premium features immediately. No credit card required.</p>
+        `;
+
+    const text = `Hello ${displayName},
+
+Great news! Your account for ${companyName || 'your bakery'} has been granted complimentary Premium Plan Access for ${dayLabel} by our platform team.
+
+Access Details:
+- Plan: PREMIUM PLAN
+- Duration: ${dayLabel}
+- Valid Until: ${formattedExpires}
+${bonusCredits > 0 ? `- Bonus AI Scan Credits: +${bonusCredits}\n` : ''}- Status: ACTIVE
+
+Unlocked Features:
+* AI Financial Assistant with complete margin & profit analytics
+* Unlimited recipes, orders, inventory, and clients
+* Up to 4 team staff logins
+* Custom branding on invoices and quotes
+
+Log in to your BakeWealth workspace here:
+${finalDashboardUrl}
+
+Best regards,
+The BakeWealth Platform Team`;
+
+    const html = this.wrapTemplate({
+      preheader,
+      heading: `Complimentary Premium Plan Access!`,
+      content,
+      ctaText: 'Access Premium Workspace',
+      ctaUrl: finalDashboardUrl,
+      footerNote: `Enjoy your premium experience! When your complimentary access ends, your account will safely return to the Free plan with all your data completely preserved.`
+    });
+
+    return this.sendMail({ to, toName: displayName, subject, html, text });
+  }
 }
 
 module.exports = new EmailService();

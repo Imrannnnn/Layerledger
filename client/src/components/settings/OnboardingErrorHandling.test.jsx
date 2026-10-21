@@ -186,7 +186,7 @@ describe("Onboarding Error Handling & User Feedback", () => {
         nextBtn2.click()
       })
 
-      const nextBtn3 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next: Profit Margin"))
+      const nextBtn3 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Set Margin") || b.textContent.includes("Next: Profit Margin"))
       await act(async () => {
         nextBtn3.click()
       })
@@ -255,7 +255,7 @@ describe("Onboarding Error Handling & User Feedback", () => {
       await act(async () => { nextBtn1.click() })
       const nextBtn2 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next Step"))
       await act(async () => { nextBtn2.click() })
-      const nextBtn3 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next: Profit Margin"))
+      const nextBtn3 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Set Margin") || b.textContent.includes("Next: Profit Margin"))
       await act(async () => { nextBtn3.click() })
       const nextBtn4 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Save & Finish"))
       await act(async () => { nextBtn4.click() })
@@ -300,7 +300,7 @@ describe("Onboarding Error Handling & User Feedback", () => {
       await act(async () => { nextBtn1.click() })
       const nextBtn2 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next Step"))
       await act(async () => { nextBtn2.click() })
-      const nextBtn3 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Next: Profit Margin"))
+      const nextBtn3 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Set Margin") || b.textContent.includes("Next: Profit Margin"))
       await act(async () => { nextBtn3.click() })
       const nextBtn4 = Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Save & Finish"))
       await act(async () => { nextBtn4.click() })

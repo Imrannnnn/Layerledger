@@ -93,20 +93,31 @@ const mapServerRecipeToLocal = (rec) => ({
   type: rec.type || "layer",
   batchWeight: rec.batchWeight || null,
   batchSize: rec.batchSize || null,
+  application: rec.application || "spread",
+  fill_rate: rec.fillRate !== undefined ? rec.fillRate : (rec.fill_rate !== undefined ? rec.fill_rate : null),
+  crumb_rate: rec.crumbRate !== undefined ? rec.crumbRate : (rec.crumb_rate !== undefined ? rec.crumb_rate : 0),
+  cover_rate: rec.coverRate !== undefined ? rec.coverRate : (rec.cover_rate !== undefined ? rec.cover_rate : null),
+  sheet_overhang_in: rec.sheetOverhangIn !== undefined ? rec.sheetOverhangIn : (rec.sheet_overhang_in !== undefined ? rec.sheet_overhang_in : null),
+  is_calibrated: rec.isCalibrated !== undefined ? !!rec.isCalibrated : (rec.is_calibrated !== undefined ? !!rec.is_calibrated : false),
   ing: (rec.ingredients || []).map(ri => ({
     iid: ri.inventoryItemId,
     qty: ri.quantity
   }))
 })
 
-const mapServerExpenseToLocal = (exp) => ({
-  id: exp.id,
-  date: exp.date ? exp.date.split("T")[0] : new Date().toISOString().split("T")[0],
-  amount: exp.amount,
-  category: exp.category,
-  description: exp.description || "",
-  receiptUrl: exp.receiptUrl || ""
-})
+const mapServerExpenseToLocal = (exp) => {
+  const desc = String(exp.description || "").trim().toLowerCase()
+  const isPurchase = exp.category === "Purchases" || desc.startsWith("purchase:") || desc.startsWith("purchase :")
+  return {
+    id: exp.id,
+    date: exp.date ? exp.date.split("T")[0] : new Date().toISOString().split("T")[0],
+    amount: exp.amount,
+    category: exp.category,
+    description: exp.description || "",
+    receiptUrl: exp.receiptUrl || "",
+    source: isPurchase ? "purchase" : (exp.source || undefined)
+  }
+}
 
 const mapServerPurchaseToLocal = (pur) => ({
   id: pur.id,
@@ -274,21 +285,24 @@ export const checkPlanLimit = (limitType) => {
       recipes: 10,
       inventoryItems: 50,
       clients: 20,
-      staffLogins: 0
+      staffLogins: 0,
+      financialAiAssistant: 0
     },
     standard: {
       ordersPerMonth: Infinity,
       recipes: 60,
       inventoryItems: 250,
       clients: 150,
-      staffLogins: 2
+      staffLogins: 2,
+      financialAiAssistant: 0
     },
     premium: {
       ordersPerMonth: Infinity,
       recipes: Infinity,
       inventoryItems: Infinity,
       clients: Infinity,
-      staffLogins: 4
+      staffLogins: 4,
+      financialAiAssistant: Infinity
     }
   }
 
@@ -350,6 +364,9 @@ export const checkPlanLimit = (limitType) => {
     switch (limitType) {
       case "ordersPerMonth":
         message = `You have reached your Free plan limit of ${planLimit} orders and quotes this month (${currentCount}/${planLimit} used). Upgrade to Standard (₦5,000/mo) to generate and save more quotes and orders.`
+        break
+      case "financialAiAssistant":
+        message = `The AI Financial Intelligence Assistant is exclusively available on the Premium plan. Please upgrade your subscription to access conversational financial analysis, profit margins, and business intelligence.`
         break
       case "recipes":
         message = `You have reached your ${plan} plan limit of ${planLimit} recipes (${currentCount}/${planLimit} used). Upgrade your plan to add more recipes.`
@@ -624,26 +641,30 @@ const syncInventoryItems = async (headers, localInv) => {
   // Create/Update in parallel
   const itemTasks = updatedLocalInv.map(async (item, i) => {
     const sItem = serverItems.find(x => x.id === item.id)
+    const safeCost = isNaN(parseFloat(item.cost)) ? 0 : Math.max(0, parseFloat(item.cost))
+    const safeStock = isNaN(parseFloat(item.stock)) ? 0 : Math.max(0, parseFloat(item.stock))
+    const safeMinStock = isNaN(parseFloat(item.minStock)) ? 0 : Math.max(0, parseFloat(item.minStock))
+
     if (sItem) {
       const body = {
         id: item.id,
         name: item.name || "Item",
         category: item.cat || "Other",
         unit: item.unit || "unit",
-        minStock: Number(item.minStock || 0)
+        minStock: safeMinStock
       }
-      const stockChanged = item.stock !== sItem.stock
-      const costChanged = item.cost !== sItem.cost
+      const stockChanged = Math.abs(safeStock - (parseFloat(sItem.stock) || 0)) > 0.0001
+      const costChanged = Math.abs(safeCost - (parseFloat(sItem.cost) || 0)) > 0.0001
 
       if (sItem.name !== body.name || sItem.category !== body.category || sItem.unit !== body.unit || sItem.minStock !== body.minStock || stockChanged || costChanged) {
         try {
-          const updateRes = await fetch(`${apiUrl}/api/inventory/${item.id}`, {
+          const updateRes = await fetch(`${apiUrl}/api/inventory/${encodeURIComponent(item.id)}`, {
             method: "PUT",
             headers,
             body: JSON.stringify({
               ...body,
-              cost: Number(item.cost),
-              stock: Number(item.stock)
+              cost: safeCost,
+              stock: safeStock
             })
           })
           if (updateRes.ok) {
@@ -656,7 +677,7 @@ const syncInventoryItems = async (headers, localInv) => {
         }
       }
 
-      if (item.cost !== sItem.cost || item.stock !== sItem.stock) {
+      if (safeCost !== sItem.cost || safeStock !== sItem.stock) {
         updatedLocalInv[i] = {
           ...item,
           cost: sItem.cost,
@@ -670,13 +691,13 @@ const syncInventoryItems = async (headers, localInv) => {
           method: "POST",
           headers,
           body: JSON.stringify({
-            id: item.id,
+            id: item.id && !String(item.id).startsWith("os_") ? item.id : undefined,
             name: item.name || "Item",
             category: item.cat || "Other",
             unit: item.unit || "unit",
-            cost: Number(item.cost) || 0,
-            stock: Number(item.stock || 0),
-            minStock: Number(item.minStock || 0)
+            cost: safeCost,
+            stock: safeStock,
+            minStock: safeMinStock
           })
         })
       } catch (e) {
@@ -3012,6 +3033,12 @@ export const createRecipeOnServer = async (rec) => {
     type: rec.type || "layer",
     batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null && rec.batchWeight !== "" ? Number(rec.batchWeight) : null,
     batchSize: rec.batchSize !== undefined && rec.batchSize !== null && rec.batchSize !== "" ? Number(rec.batchSize) : null,
+    application: rec.application !== undefined ? rec.application : "spread",
+    fill_rate: rec.fill_rate !== undefined ? rec.fill_rate : (rec.fillRate !== undefined ? rec.fillRate : null),
+    crumb_rate: rec.crumb_rate !== undefined ? rec.crumb_rate : (rec.crumbRate !== undefined ? rec.crumbRate : 0),
+    cover_rate: rec.cover_rate !== undefined ? rec.cover_rate : (rec.coverRate !== undefined ? rec.coverRate : null),
+    sheet_overhang_in: rec.sheet_overhang_in !== undefined ? rec.sheet_overhang_in : (rec.sheetOverhangIn !== undefined ? rec.sheetOverhangIn : null),
+    is_calibrated: rec.is_calibrated !== undefined ? !!rec.is_calibrated : (rec.isCalibrated !== undefined ? !!rec.isCalibrated : false),
     ingredients: (rec.ing || []).filter(i => i && i.iid && typeof i.iid === "string" && i.iid.trim() !== "" && i.iid !== "item" && Number(i.qty) > 0).map(i => ({
       item: i.iid.trim(),
       quantity: Number(i.qty)
@@ -3057,6 +3084,12 @@ export const updateRecipeOnServer = async (id, rec) => {
     type: rec.type || "layer",
     batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null && rec.batchWeight !== "" ? Number(rec.batchWeight) : null,
     batchSize: rec.batchSize !== undefined && rec.batchSize !== null && rec.batchSize !== "" ? Number(rec.batchSize) : null,
+    application: rec.application !== undefined ? rec.application : "spread",
+    fill_rate: rec.fill_rate !== undefined ? rec.fill_rate : (rec.fillRate !== undefined ? rec.fillRate : null),
+    crumb_rate: rec.crumb_rate !== undefined ? rec.crumb_rate : (rec.crumbRate !== undefined ? rec.crumbRate : 0),
+    cover_rate: rec.cover_rate !== undefined ? rec.cover_rate : (rec.coverRate !== undefined ? rec.coverRate : null),
+    sheet_overhang_in: rec.sheet_overhang_in !== undefined ? rec.sheet_overhang_in : (rec.sheetOverhangIn !== undefined ? rec.sheetOverhangIn : null),
+    is_calibrated: rec.is_calibrated !== undefined ? !!rec.is_calibrated : (rec.isCalibrated !== undefined ? !!rec.isCalibrated : false),
     ingredients: (rec.ing || []).filter(i => i && i.iid && typeof i.iid === "string" && i.iid.trim() !== "" && i.iid !== "item" && Number(i.qty) > 0).map(i => ({
       item: i.iid.trim(),
       quantity: Number(i.qty)
@@ -3509,6 +3542,38 @@ export const fetchOpeningStockFromServer = async (month) => {
   return null
 }
 
+let pendingBulkSyncTimer = null
+let bulkSyncInFlight = false
+let queuedBulkSync = null
+
+const executeBulkSync = async (apiUrl, headers, payload) => {
+  if (bulkSyncInFlight) {
+    queuedBulkSync = { apiUrl, headers, payload }
+    return
+  }
+  bulkSyncInFlight = true
+  try {
+    const res = await fetch(`${apiUrl}/api/opening-stock/bulk`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      console.warn("saveOpeningStock server response error:", res.status, err)
+    }
+  } catch (err) {
+    console.warn("saveOpeningStock server sync network error:", err)
+  } finally {
+    bulkSyncInFlight = false
+    if (queuedBulkSync) {
+      const next = queuedBulkSync
+      queuedBulkSync = null
+      executeBulkSync(next.apiUrl, next.headers, next.payload).catch(() => {})
+    }
+  }
+}
+
 export const saveOpeningStock = async (items, month, locked) => {
   const currentMonthStr = month || new Date().toISOString().slice(0, 7)
   const currentlyLocked = isOpeningStockLocked(currentMonthStr)
@@ -3536,23 +3601,18 @@ export const saveOpeningStock = async (items, month, locked) => {
     } catch { /* ignore storage error */ }
   }
 
-  // Persist directly to PostgreSQL backend
+  // Persist directly to PostgreSQL backend with debouncing and serialization to prevent write conflicts
   const headers = getAuthHeaders()
   const apiUrl = import.meta.env.VITE_API_URL
   if (headers && apiUrl) {
-    try {
-      await fetch(`${apiUrl}/api/opening-stock/bulk`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          month: currentMonthStr,
-          items: dedupedItems,
-          locked: isLocked
-        })
-      })
-    } catch (err) {
-      console.warn("saveOpeningStock server sync error:", err)
-    }
+    if (pendingBulkSyncTimer) clearTimeout(pendingBulkSyncTimer)
+    pendingBulkSyncTimer = setTimeout(() => {
+      executeBulkSync(apiUrl, headers, {
+        month: currentMonthStr,
+        items: dedupedItems,
+        locked: isLocked
+      }).catch(err => console.warn("executeBulkSync error:", err))
+    }, 200)
   }
 
   return payload
@@ -4480,6 +4540,83 @@ export const requestPaymentRefund = async ({
   }
 
   return data
+}
+
+/**
+ * ----------------------------------------------------------------------
+ * AI Financial Assistant Data Layer
+ * ----------------------------------------------------------------------
+ */
+export const fetchAssistantStatus = async () => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) {
+    return { hasAccess: false, plan: "free", message: "Authentication required" }
+  }
+
+  try {
+    const res = await fetch(`${apiUrl}/api/financial-assistant/status`, { headers })
+    const data = await res.json()
+    return data
+  } catch (err) {
+    console.error("fetchAssistantStatus error:", err)
+    return { hasAccess: false, plan: "free", error: err.message }
+  }
+}
+
+export const fetchFinancialOverview = async (month = null) => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) {
+    return { success: false, message: "Authentication required" }
+  }
+
+  try {
+    const query = month ? `?month=${encodeURIComponent(month)}` : ""
+    const res = await fetch(`${apiUrl}/api/financial-assistant/overview${query}`, { headers })
+    const data = await res.json()
+    return data
+  } catch (err) {
+    console.error("fetchFinancialOverview error:", err)
+    return { success: false, error: err.message }
+  }
+}
+
+export const sendAssistantChat = async ({ message, question, conversationHistory = [], month = null }) => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  const headers = getAuthHeaders()
+  if (!apiUrl || !headers) {
+    return { success: false, message: "Authentication required" }
+  }
+
+  try {
+    const res = await fetch(`${apiUrl}/api/financial-assistant/chat`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        message: message || question,
+        question: question || message,
+        conversationHistory,
+        month
+      })
+    })
+
+    const data = await res.json()
+    if (!res.ok) {
+      return {
+        success: false,
+        status: res.status,
+        code: data.code,
+        message: data.message || "Failed to communicate with AI Financial Assistant",
+        ...data
+      }
+    }
+
+    return data
+  } catch (err) {
+    console.error("sendAssistantChat error:", err)
+    return { success: false, error: err.message }
+  }
 }
 
 

@@ -69,7 +69,9 @@ export function HomePage({
   onRegisterClick,
   onGoToDashboard,
   currentUser,
-  onLogout
+  onLogout,
+  onOpenPrivacy,
+  onOpenTerms
 }) {
   const [scrolled, setScrolled] = useState(false)
 
@@ -1862,7 +1864,31 @@ export function HomePage({
 
           <div className="foot-base">
             <span>© 2026 BakeWealth. Built by Iye Ibe Achem.</span>
-            <span>Terms · Privacy · Refund policy</span>
+            <span style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>
+              <a
+                href="#terms"
+                onClick={(e) => { e.preventDefault(); onOpenTerms && onOpenTerms(); }}
+                style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
+              >
+                Terms of Service
+              </a>
+              <span>·</span>
+              <a
+                href="#privacy"
+                onClick={(e) => { e.preventDefault(); onOpenPrivacy && onOpenPrivacy(); }}
+                style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
+              >
+                Privacy Policy
+              </a>
+              <span>·</span>
+              <a
+                href="#terms"
+                onClick={(e) => { e.preventDefault(); onOpenTerms && onOpenTerms(); }}
+                style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
+              >
+                Refund Policy
+              </a>
+            </span>
           </div>
         </div>
       </footer>

@@ -56,7 +56,12 @@ export function PandL({ productions, expenses, company }) {
   }, {}), [mRevenue])
 
   // Overhead expenses: non-ingredient purchases starting in selected month
-  const mExp = useMemo(() => expenses.filter(e => isDateInMonth(e.date, sel) && e.source !== "purchase"), [expenses, sel])
+  const mExp = useMemo(() => expenses.filter(e => {
+    if (!isDateInMonth(e.date, sel)) return false
+    const desc = String(e.description || "").trim().toLowerCase()
+    const isPurchase = e.source === "purchase" || e.purchaseId || e.category === "Purchases" || desc.startsWith("purchase:") || desc.startsWith("purchase :")
+    return !isPurchase
+  }), [expenses, sel])
   const overhead = useMemo(() => mExp.reduce((s, e) => s + (e.amount || 0), 0), [mExp])
 
   // Group overheads by category

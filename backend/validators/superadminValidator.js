@@ -22,8 +22,23 @@ const adjustTenantTokensSchema = z.object({
     })
 });
 
+const grantPremiumSchema = z.object({
+    body: z.object({
+        days: z.union([z.number(), z.string()])
+            .transform(val => parseInt(val, 10))
+            .refine(val => !isNaN(val) && val >= 1, 'Duration must be at least 1 day'),
+        bonusCredits: z.union([z.number(), z.string()])
+            .optional()
+            .transform(val => (val !== undefined && val !== '') ? parseInt(val, 10) : 0)
+            .refine(val => !isNaN(val) && val >= 0, 'Bonus credits must be a valid number'),
+        notifyEmail: z.boolean().optional().default(true),
+        note: z.string().optional()
+    })
+});
+
 module.exports = {
     superadminLoginSchema,
     updateTenantStatusSchema,
-    adjustTenantTokensSchema
+    adjustTenantTokensSchema,
+    grantPremiumSchema
 };

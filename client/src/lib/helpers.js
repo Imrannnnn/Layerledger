@@ -13,6 +13,7 @@
  *   - mapCategory()   categorizes inventory item by category/name
  * ----------------------------------------------------------------------------
  */
+import * as XLSX from "xlsx"
 import { FLAVOR_EXTRAS, DECORATION_ITEMS } from "../constants.js"
 import { getAuthHeaders, loadLocal, saveLocal } from "./data.js"
 
@@ -545,4 +546,270 @@ export function extractAndRepairJson(rawText) {
 }
 
 export { formatApiError, parseValidationMessage } from "./errorHandler.js"
+
+/**
+ * Automatically normalizes ingredient/stock quantities and costs to grams ('g').
+ * For items measured in kg, lb, oz, mg, converts quantity to grams and adjusts unit cost to per-gram.
+ * Non-mass units (pcs, ml, crate, etc.) retain their appropriate unit, or default to 'g' if empty.
+ */
+export function convertToGrams(qty, unit, cost) {
+  const rawUnit = String(unit || "").toLowerCase().trim()
+  const numericQty = parseFloat(qty) || 0
+  const numericCost = parseFloat(cost) || 0
+
+  if (rawUnit === "kg" || rawUnit === "kilogram" || rawUnit === "kilograms" || rawUnit === "kilo" || rawUnit === "kilos") {
+    return {
+      qty: Math.round(numericQty * 1000),
+      unit: "g",
+      cost: Number((numericCost / 1000).toFixed(4))
+    }
+  }
+
+  if (rawUnit === "lb" || rawUnit === "lbs" || rawUnit === "pound" || rawUnit === "pounds") {
+    return {
+      qty: Math.round(numericQty * 453.592),
+      unit: "g",
+      cost: Number((numericCost / 453.592).toFixed(4))
+    }
+  }
+
+  if (rawUnit === "oz" || rawUnit === "ounce" || rawUnit === "ounces") {
+    return {
+      qty: Math.round(numericQty * 28.3495),
+      unit: "g",
+      cost: Number((numericCost / 28.3495).toFixed(4))
+    }
+  }
+
+  if (rawUnit === "mg" || rawUnit === "milligram" || rawUnit === "milligrams") {
+    return {
+      qty: numericQty / 1000,
+      unit: "g",
+      cost: Number((numericCost * 1000).toFixed(4))
+    }
+  }
+
+  if (rawUnit === "g" || rawUnit === "gram" || rawUnit === "grams") {
+    return {
+      qty: numericQty,
+      unit: "g",
+      cost: numericCost
+    }
+  }
+
+  // If unit is missing or undefined, default to 'g'
+  if (!rawUnit) {
+    return {
+      qty: numericQty,
+      unit: "g",
+      cost: numericCost
+    }
+  }
+
+  return {
+    qty: numericQty,
+    unit: unit,
+    cost: numericCost
+  }
+}
+
+/**
+ * Parses an Excel (.xlsx, .xls) or CSV spreadsheet file into clean text format
+ * suitable for feeding directly to Claude/LLM extraction.
+ */
+export async function parseExcelOrSpreadsheet(file) {
+  if (!file) return ""
+  const isCsv = file.name.toLowerCase().endsWith(".csv") || file.type === "text/csv"
+  if (isCsv) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = ev => resolve(ev.target.result || "")
+      reader.onerror = reject
+      reader.readAsText(file)
+    })
+  }
+
+  const arrayBuffer = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = ev => resolve(ev.target.result)
+    reader.onerror = reject
+    reader.readAsArrayBuffer(file)
+  })
+
+  const workbook = XLSX.read(arrayBuffer, { type: "array" })
+  let combinedCsv = ""
+  for (const sheetName of workbook.SheetNames) {
+    const worksheet = workbook.Sheets[sheetName]
+    const csv = XLSX.utils.sheet_to_csv(worksheet)
+    if (csv && csv.trim()) {
+      combinedCsv += `\n--- SHEET: ${sheetName} ---\n` + csv
+    }
+  }
+  return combinedCsv.trim()
+}
+
+/**
+ * ─── COVERING & FILLING COVERAGE CALCULATION ENGINE ───
+ * Technical Spec (BakeWealth 6 October 2026):
+ * D = cake size in inches
+ * L = layer count
+ * H = height in inches = 2L
+ *
+ * Round:
+ * gap_area      = (π · D² / 4) · (L − 1)
+ * surface_area  = (π · D² / 4) + (π · D · H)
+ * sheet_area    = (π / 4) · (D + 2H + overhang)²
+ *
+ * Square:
+ * gap_area      = D² · (L − 1)
+ * surface_area  = D² + (4 · D · H)
+ * sheet_area    = (D + 2H + overhang)²
+ */
+export const COVERAGE_PRESETS = [
+  {
+    id: "buttercream",
+    label: "Like buttercream",
+    subtext: "Thick, holds its shape, spread with a knife",
+    application: "spread",
+    fill_rate: 3.00,
+    crumb_rate: 1.64,
+    cover_rate: 3.263,
+    sheet_overhang_in: null
+  },
+  {
+    id: "whipped_cream",
+    label: "Light and airy",
+    subtext: "Whipped cream, mousse. Weighs very little",
+    application: "spread",
+    fill_rate: 1.68,
+    crumb_rate: 0,
+    cover_rate: 1.344,
+    sheet_overhang_in: null
+  },
+  {
+    id: "dense_ganache",
+    label: "Rich and dense",
+    subtext: "Ganache, fudge. Heavier than buttercream",
+    application: "spread",
+    fill_rate: 2.90,
+    crumb_rate: 1.50,
+    cover_rate: 2.90,
+    sheet_overhang_in: null
+  },
+  {
+    id: "fondant",
+    label: "Rolled out flat",
+    subtext: "Fondant, marzipan. Draped over the cake",
+    application: "rolled",
+    fill_rate: null,
+    crumb_rate: 0,
+    cover_rate: 4.435,
+    sheet_overhang_in: 2.4
+  }
+]
+
+export function getRecipeCoverageValues(recipe) {
+  if (!recipe) return {
+    application: "spread",
+    fill_rate: 3.00,
+    crumb_rate: 1.64,
+    cover_rate: 3.263,
+    sheet_overhang_in: null,
+    is_calibrated: false
+  }
+
+  const name = (recipe.name || "").toLowerCase()
+  let defaultPreset = COVERAGE_PRESETS[0] // buttercream
+  if (name.includes("fondant") || name.includes("marzipan") || recipe.application === "rolled") {
+    defaultPreset = COVERAGE_PRESETS[3] // fondant
+  } else if (name.includes("whipped") || name.includes("mousse")) {
+    defaultPreset = COVERAGE_PRESETS[1] // whipped cream
+  } else if (name.includes("ganache") || name.includes("fudge")) {
+    defaultPreset = COVERAGE_PRESETS[2] // rich and dense
+  }
+
+  const application = recipe.application || defaultPreset.application || "spread"
+  const fill_rate = recipe.fill_rate !== undefined && recipe.fill_rate !== null ? recipe.fill_rate : (recipe.fillRate !== undefined && recipe.fillRate !== null ? recipe.fillRate : (recipe.fill_rate === null || recipe.fillRate === null ? null : defaultPreset.fill_rate))
+  const crumb_rate = recipe.crumb_rate !== undefined ? recipe.crumb_rate : (recipe.crumbRate !== undefined ? recipe.crumbRate : defaultPreset.crumb_rate)
+  const cover_rate = recipe.cover_rate !== undefined && recipe.cover_rate !== null ? recipe.cover_rate : (recipe.coverRate !== undefined && recipe.coverRate !== null ? recipe.coverRate : (recipe.cover_rate === null || recipe.coverRate === null ? null : defaultPreset.cover_rate))
+  const sheet_overhang_in = recipe.sheet_overhang_in !== undefined ? recipe.sheet_overhang_in : (recipe.sheetOverhangIn !== undefined ? recipe.sheetOverhangIn : defaultPreset.sheet_overhang_in)
+  const is_calibrated = recipe.is_calibrated !== undefined ? !!recipe.is_calibrated : (recipe.isCalibrated !== undefined ? !!recipe.isCalibrated : false)
+
+  return {
+    application,
+    fill_rate,
+    crumb_rate,
+    cover_rate,
+    sheet_overhang_in,
+    is_calibrated
+  }
+}
+
+export function calculateCakeGeometry(sizeInches, layerCount = 1, shape = "Round", overhangInches = 0) {
+  const D = Math.max(0, parseFloat(sizeInches) || 0)
+  const L = Math.max(1, parseInt(layerCount, 10) || 1)
+  const H = 2 * L
+  const overhang = parseFloat(overhangInches) || 0
+  const isSquare = String(shape || "").toLowerCase() === "square"
+
+  let gap_area = 0
+  let surface_area = 0
+  let sheet_area = 0
+
+  if (isSquare) {
+    gap_area = (D * D) * (L - 1)
+    surface_area = (D * D) + (4 * D * H)
+    sheet_area = Math.pow(D + 2 * H + overhang, 2)
+  } else {
+    gap_area = ((Math.PI * D * D) / 4) * (L - 1)
+    surface_area = ((Math.PI * D * D) / 4) + (Math.PI * D * H)
+    sheet_area = (Math.PI / 4) * Math.pow(D + 2 * H + overhang, 2)
+  }
+
+  return { D, L, H, shape: isSquare ? "Square" : "Round", gap_area, surface_area, sheet_area }
+}
+
+export function calculateFillingGrams(recipe, geometry) {
+  if (!recipe) return 0
+  const cov = getRecipeCoverageValues(recipe)
+  if (cov.fill_rate === null || cov.fill_rate === undefined) return 0
+  const fill_rate = Number(cov.fill_rate) || 0
+  const crumb_rate = Number(cov.crumb_rate) || 0
+  return (fill_rate * geometry.gap_area) + (crumb_rate * geometry.surface_area)
+}
+
+export function calculateCoveringGrams(recipe, geometry) {
+  if (!recipe) return 0
+  const cov = getRecipeCoverageValues(recipe)
+  if (cov.cover_rate === null || cov.cover_rate === undefined) return 0
+  const cover_rate = Number(cov.cover_rate) || 0
+  const targetArea = cov.application === "rolled" ? geometry.sheet_area : geometry.surface_area
+  return cover_rate * targetArea
+}
+
+export function calibrateCoverageRates(recipe, { sizeInches = 10, layerCount = 2, shape = "Round", enteredGrams = 0 }) {
+  const cov = getRecipeCoverageValues(recipe)
+  const overhang = cov.application === "rolled" ? (Number(cov.sheet_overhang_in) || 2.4) : 0
+  const geometry = calculateCakeGeometry(sizeInches, layerCount, shape, overhang)
+
+  const fill_rate = cov.fill_rate !== null ? (Number(cov.fill_rate) || 0) : 0
+  const crumb_rate = Number(cov.crumb_rate) || 0
+  const cover_rate = cov.cover_rate !== null ? (Number(cov.cover_rate) || 0) : 0
+  const cover_area = cov.application === "rolled" ? geometry.sheet_area : geometry.surface_area
+
+  const baseline = (fill_rate * geometry.gap_area) + (crumb_rate * geometry.surface_area) + (cover_rate * cover_area)
+  const g = Number(enteredGrams) || 0
+  const scale = baseline > 0 && g > 0 ? (g / baseline) : 1
+
+  return {
+    baseline,
+    scale,
+    fill_rate: cov.fill_rate !== null ? fill_rate * scale : null,
+    crumb_rate: crumb_rate * scale,
+    cover_rate: cov.cover_rate !== null ? cover_rate * scale : null,
+    is_calibrated: true
+  }
+}
+
+
 

@@ -116,5 +116,20 @@ describe('Bakewealth Brevo EmailService Tests', () => {
         expect(smtpCheck).toHaveProperty('configured');
         expect(smtpCheck.configured).toBe(false);
     });
+
+    test('8. sendPremiumAccessGrantedEmail includes days granted, expiration date, unlocked features and CTA', async () => {
+        const res = await emailService.sendPremiumAccessGrantedEmail({
+            to: 'owner@example.com',
+            name: 'Alice Baker',
+            companyName: 'Sweet Tooth Confectionery',
+            daysGranted: 2,
+            expiresAt: '2026-10-16T23:59:59.000Z',
+            bonusCredits: 10,
+            dashboardUrl: 'http://localhost:5173'
+        });
+
+        expect(res.success).toBe(true);
+        expect(res.messageId).toBeDefined();
+    });
 });
 

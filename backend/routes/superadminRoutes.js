@@ -13,10 +13,16 @@ const {
   getDashboardStats,
   updateTenantStatus,
   adjustTenantTokens,
+  grantTenantPremium,
   deleteTenantAccount
 } = require('../controller/superadminController')
 const { validate } = require('../middleware/validationMiddleware');
-const { superadminLoginSchema, updateTenantStatusSchema, adjustTenantTokensSchema } = require('../validators/superadminValidator');
+const {
+  superadminLoginSchema,
+  updateTenantStatusSchema,
+  adjustTenantTokensSchema,
+  grantPremiumSchema
+} = require('../validators/superadminValidator');
 
 // Protect admin actions by verifying token role claim
 const superadminAuth = (req, res, next) => {
@@ -43,6 +49,7 @@ router.post('/login', validate(superadminLoginSchema), superadminLogin)
 router.get('/dashboard', superadminAuth, getDashboardStats)
 router.put('/tenants/:id/status', superadminAuth, validate(updateTenantStatusSchema), updateTenantStatus)
 router.post('/tenants/:id/tokens', superadminAuth, validate(adjustTenantTokensSchema), adjustTenantTokens)
+router.post('/tenants/:id/grant-premium', superadminAuth, validate(grantPremiumSchema), grantTenantPremium)
 router.delete('/tenants/:id', superadminAuth, deleteTenantAccount)
 
 module.exports = router

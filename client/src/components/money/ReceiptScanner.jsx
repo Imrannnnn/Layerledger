@@ -1042,15 +1042,11 @@ Return ONLY valid JSON with this exact structure, no preamble:
       if (amt > 0) {
         const categoriesMap = {}
         approved.forEach(r => {
-          let cat = "Other"
+          // Disconnect: purchases go to Purchases & Inventory only, never to Expenses
+          if (r.type === "purchase") return
+
+          let cat = r.category || "Miscellaneous"
           let source = "receipt"
-          if (r.type === "purchase") {
-            cat = "Ingredients / Supplies"
-            source = "purchase"
-          } else {
-            cat = r.category || "Miscellaneous"
-            source = "receipt"
-          }
           const key = `${cat}::${source}`
           if (!categoriesMap[key]) {
             categoriesMap[key] = { cat, source, amount: 0, items: [] }

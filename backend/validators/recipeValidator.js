@@ -24,6 +24,17 @@ const createRecipeSchema = z.object({
         type: z.string().optional().default('layer'),
         batchWeight: z.number().optional().nullable(),
         batchSize: z.number().optional().nullable(),
+        application: z.string().optional().nullable(),
+        fill_rate: z.number().optional().nullable(),
+        fillRate: z.number().optional().nullable(),
+        crumb_rate: z.number().optional().nullable(),
+        crumbRate: z.number().optional().nullable(),
+        cover_rate: z.number().optional().nullable(),
+        coverRate: z.number().optional().nullable(),
+        sheet_overhang_in: z.number().optional().nullable(),
+        sheetOverhangIn: z.number().optional().nullable(),
+        is_calibrated: z.boolean().optional(),
+        isCalibrated: z.boolean().optional(),
         id: z.string().optional()
     })
 });
@@ -35,7 +46,18 @@ const updateRecipeSchema = z.object({
         ingredients: z.preprocess(sanitizeIngredients, z.array(recipeIngredientSchema)).optional(),
         type: z.string().optional(),
         batchWeight: z.number().optional().nullable(),
-        batchSize: z.number().optional().nullable()
+        batchSize: z.number().optional().nullable(),
+        application: z.string().optional().nullable(),
+        fill_rate: z.number().optional().nullable(),
+        fillRate: z.number().optional().nullable(),
+        crumb_rate: z.number().optional().nullable(),
+        crumbRate: z.number().optional().nullable(),
+        cover_rate: z.number().optional().nullable(),
+        coverRate: z.number().optional().nullable(),
+        sheet_overhang_in: z.number().optional().nullable(),
+        sheetOverhangIn: z.number().optional().nullable(),
+        is_calibrated: z.boolean().optional(),
+        isCalibrated: z.boolean().optional()
     })
 });
 

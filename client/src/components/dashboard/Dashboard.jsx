@@ -48,6 +48,38 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
     } catch {}
   }
 
+  // Complimentary Premium Trial banner state & calculations
+  const trialInfo = tenantInfo?.settings?.grantedTrial || null
+  const planExpiresAt = tenantInfo?.settings?.planExpiresAt || null
+  const isPremiumTrialActive = Boolean(
+    trialInfo &&
+    planExpiresAt &&
+    new Date(planExpiresAt).getTime() > Date.now()
+  )
+
+  const trialDaysRemaining = planExpiresAt
+    ? Math.max(0, Math.ceil((new Date(planExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : null
+
+  const formattedTrialExpiry = planExpiresAt
+    ? new Date(planExpiresAt).toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
+      })
+    : 'Soon'
+
+  const [trialBannerDismissed, setTrialBannerDismissed] = useState(() => {
+    const key = `ll_dismiss_trial_${trialInfo?.grantedAt || planExpiresAt || 'active'}`
+    return loadLocal(key, false)
+  })
+
+  const dismissTrialBanner = () => {
+    const key = `ll_dismiss_trial_${trialInfo?.grantedAt || planExpiresAt || 'active'}`
+    setTrialBannerDismissed(true)
+    saveLocal(key, true)
+  }
+
   // 1. This week at a glance calculations
   const next7Days = new Date()
   next7Days.setDate(today.getDate() + 7)
@@ -287,6 +319,77 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
         <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4, fontStyle: "italic" }}>"{quote}"</div>
       </div>
 
+      {/* Complimentary Premium Plan Trial Active Banner */}
+      {isPremiumTrialActive && !trialBannerDismissed && (
+        <div style={{
+          marginBottom: 16,
+          background: "linear-gradient(135deg, #FFFDF8, #FAF2E3)",
+          border: "2px solid var(--gold)",
+          borderRadius: 12,
+          padding: "16px 20px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 14,
+          flexWrap: "wrap",
+          boxShadow: "0 4px 18px rgba(200,145,42,0.15)"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              background: "linear-gradient(135deg, #c8912a, #7B5A3A)",
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+            }}>
+              <Sparkles size={22} />
+            </div>
+            <div>
+              <div style={{ fontSize: 14.5, fontWeight: 700, color: "#291608", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span>Complimentary Premium Plan Active!</span>
+                <Badge color="gold">
+                  {trialDaysRemaining !== null ? `${trialDaysRemaining} Day${trialDaysRemaining === 1 ? '' : 's'} Left` : `${trialInfo?.days || 2} Days Granted`}
+                </Badge>
+              </div>
+              <div style={{ fontSize: 12.5, color: "#7B5A3A", marginTop: 3, lineHeight: 1.5 }}>
+                You have full access to the <strong>AI Financial Assistant & Complete Margin Analysis</strong>, unlimited recipes, and team logins until <strong>{formattedTrialExpiry}</strong>.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Btn
+              small
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("ll:open-financial-assistant"))
+              }}
+              style={{
+                background: "linear-gradient(135deg, #c8912a, #7B5A3A)",
+                color: "#fff",
+                fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5
+              }}
+            >
+              <Sparkles size={13} />
+              <span>Ask AI Financial Assistant</span>
+            </Btn>
+            <span
+              onClick={dismissTrialBanner}
+              style={{ fontSize: 11.5, color: "var(--muted)", cursor: "pointer", textDecoration: "underline", marginLeft: 4 }}
+              title="Dismiss banner"
+            >
+              Dismiss
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Onboarding Incomplete Banner for Skipped Users */}
       {!isUserOnboarded && isSetupPending && (
         <div style={{
@@ -426,6 +529,96 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
             </Card>
           ))}
         </div>
+      )}
+
+      {/* AI Financial Intelligence Advisor Banner (Owner Only) */}
+      {user?.role === "owner" && (
+        <Card
+          id="dashboard-ai-financial-advisor-card"
+          style={{
+            marginBottom: 14,
+            background: "linear-gradient(135deg, #1E1712 0%, #2A1D14 50%, #1C130D 100%)",
+            borderRadius: 14,
+            padding: "16px 20px",
+            color: "#FFF",
+            border: "1px solid rgba(200, 145, 42, 0.35)",
+            boxShadow: "0 4px 18px rgba(0, 0, 0, 0.08)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 14
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 260, flex: 1 }}>
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #C8912A, #8C6E52)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#FFF",
+                boxShadow: "0 2px 10px rgba(200, 145, 42, 0.4)",
+                flexShrink: 0
+              }}
+            >
+              <Sparkles size={20} />
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 16, fontWeight: 700, color: "#FFF" }}>
+                  AI Financial Intelligence & Profit Advisor
+                </span>
+                <span
+                  style={{
+                    background: "rgba(200, 145, 42, 0.25)",
+                    border: "1px solid rgba(200, 145, 42, 0.5)",
+                    color: "var(--gold)",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 12,
+                    letterSpacing: 0.8
+                  }}
+                >
+                  PREMIUM
+                </span>
+              </div>
+              <div style={{ fontSize: 12.5, color: "#E0D3BB", marginTop: 3, lineHeight: 1.5 }}>
+                Get an instant estimate of how much you’ve earned and a full margin analysis without hopping between dashboards.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <button
+              onClick={() => setView("assistant")}
+              style={{
+                background: "linear-gradient(135deg, #C8912A, #A6751E)",
+                border: "none",
+                borderRadius: 8,
+                padding: "9px 18px",
+                color: "#FFF",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                boxShadow: "0 3px 12px rgba(200, 145, 42, 0.35)",
+                transition: "all 0.15s"
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
+              onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0)")}
+            >
+              <span>Ask AI Advisor</span>
+              <span>→</span>
+            </button>
+          </div>
+        </Card>
       )}
 
       {/* Next 3 Orders Due & Quick Actions Grid */}

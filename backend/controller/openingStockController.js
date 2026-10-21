@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
 
@@ -211,88 +212,100 @@ const bulkSyncOpeningStock = asyncHandler(async (req, res) => {
         invMapById.set(inv.id, inv);
     }
 
-    await prisma.$transaction(async (tx) => {
-        // Clear existing records for this tenant & month
-        await tx.openingStock.deleteMany({
-            where: { tenantId, month: targetMonth }
+    try {
+        await prisma.$transaction(async (tx) => {
+            // Clear existing records for this tenant & month
+            await tx.openingStock.deleteMany({
+                where: { tenantId, month: targetMonth }
+            });
+
+            // Insert new opening stock rows and feed to inventory
+            if (items.length > 0) {
+                const rawValid = items.filter(it => it && it.name && it.name.trim());
+                const seenKeys = new Set();
+                const validItems = [];
+                for (const it of rawValid) {
+                    const norm = it.name.trim().toLowerCase();
+                    if (!seenKeys.has(norm)) {
+                        seenKeys.add(norm);
+                        validItems.push(it);
+                    }
+                }
+                const createData = [];
+
+                for (const it of validItems) {
+                    const parsedCost = parseFloat(it.cost);
+                    const parsedQty = parseFloat(it.openingQty);
+                    const numCost = isNaN(parsedCost) ? 0 : Math.max(0, parsedCost);
+                    const numQty = isNaN(parsedQty) ? 0 : Math.max(0, parsedQty);
+                    const totalValue = isNaN(numCost * numQty) ? 0 : numCost * numQty;
+                    const trimmedName = it.name.trim();
+                    const cleanKey = trimmedName.toLowerCase();
+
+                    let invMatch = (it.itemId && invMapById.get(it.itemId)) ||
+                        (it.id && invMapById.get(it.id)) ||
+                        invMapByName.get(cleanKey);
+
+                    let linkedItemId = invMatch ? invMatch.id : null;
+
+                    if (invMatch) {
+                        const newCost = numCost > 0 ? numCost : (invMatch.cost || 0);
+                        await tx.inventoryItem.update({
+                            where: { id: invMatch.id },
+                            data: {
+                                stock: numQty,
+                                cost: newCost,
+                                unit: it.unit || invMatch.unit || 'g',
+                                totalValueOnHand: isNaN(numQty * newCost) ? 0 : numQty * newCost
+                            }
+                        });
+                    } else {
+                        const newInv = await tx.inventoryItem.create({
+                            data: {
+                                tenantId,
+                                name: trimmedName,
+                                category: 'Dry Goods',
+                                unit: it.unit || 'g',
+                                cost: numCost,
+                                stock: numQty,
+                                totalValueOnHand: totalValue,
+                                minStock: 5
+                            }
+                        });
+                        linkedItemId = newInv.id;
+                        invMapByName.set(cleanKey, newInv);
+                        invMapById.set(newInv.id, newInv);
+                    }
+
+                    createData.push({
+                        id: crypto.randomUUID(),
+                        tenantId,
+                        itemId: linkedItemId,
+                        name: trimmedName,
+                        unit: it.unit || 'kg',
+                        cost: numCost,
+                        openingQty: numQty,
+                        totalValue,
+                        month: targetMonth,
+                        locked: effectiveLocked ? true : (it.locked !== undefined ? !!it.locked : false)
+                    });
+                }
+
+                if (createData.length > 0) {
+                    await tx.openingStock.createMany({
+                        data: createData
+                    });
+                }
+            }
+        }, {
+            timeout: 20000,
+            maxWait: 10000
         });
-
-        // Insert new opening stock rows and feed to inventory
-        if (items.length > 0) {
-            const rawValid = items.filter(it => it && it.name && it.name.trim());
-            const seenKeys = new Set();
-            const validItems = [];
-            for (const it of rawValid) {
-                const norm = it.name.trim().toLowerCase();
-                if (!seenKeys.has(norm)) {
-                    seenKeys.add(norm);
-                    validItems.push(it);
-                }
-            }
-            const createData = [];
-
-            for (const it of validItems) {
-                const numCost = parseFloat(it.cost) || 0;
-                const numQty = parseFloat(it.openingQty) || 0;
-                const trimmedName = it.name.trim();
-                const cleanKey = trimmedName.toLowerCase();
-
-                let invMatch = (it.itemId && invMapById.get(it.itemId)) ||
-                    (it.id && invMapById.get(it.id)) ||
-                    invMapByName.get(cleanKey);
-
-                let linkedItemId = invMatch ? invMatch.id : null;
-
-                if (invMatch) {
-                    const newCost = numCost > 0 ? numCost : invMatch.cost;
-                    await tx.inventoryItem.update({
-                        where: { id: invMatch.id },
-                        data: {
-                            stock: numQty,
-                            cost: newCost,
-                            unit: it.unit || invMatch.unit,
-                            totalValueOnHand: numQty * newCost
-                        }
-                    });
-                } else {
-                    const newInv = await tx.inventoryItem.create({
-                        data: {
-                            tenantId,
-                            name: trimmedName,
-                            category: 'Dry Goods',
-                            unit: it.unit || 'g',
-                            cost: numCost,
-                            stock: numQty,
-                            totalValueOnHand: numCost * numQty,
-                            minStock: 5
-                        }
-                    });
-                    linkedItemId = newInv.id;
-                    invMapByName.set(cleanKey, newInv);
-                    invMapById.set(newInv.id, newInv);
-                }
-
-                createData.push({
-                    id: it.id && it.id.length >= 10 && !it.id.startsWith('os_') ? it.id : undefined,
-                    tenantId,
-                    itemId: linkedItemId,
-                    name: trimmedName,
-                    unit: it.unit || 'kg',
-                    cost: numCost,
-                    openingQty: numQty,
-                    totalValue: numCost * numQty,
-                    month: targetMonth,
-                    locked: effectiveLocked ? true : (it.locked !== undefined ? !!it.locked : false)
-                });
-            }
-
-            if (createData.length > 0) {
-                await tx.openingStock.createMany({
-                    data: createData
-                });
-            }
-        }
-    });
+    } catch (txErr) {
+        console.error("bulkSyncOpeningStock transaction error:", txErr);
+        res.status(500);
+        throw new Error(txErr.message || "Failed to batch sync opening stock records");
+    }
 
     const refreshed = await prisma.openingStock.findMany({
         where: { tenantId, month: targetMonth },

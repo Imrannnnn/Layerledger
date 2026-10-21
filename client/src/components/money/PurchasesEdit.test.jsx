@@ -252,15 +252,9 @@ describe("Purchases Edit & Cross-System Synchronization", () => {
     ])
     expect(dataLib.saveInventory).toHaveBeenCalled()
 
-    // Verify expense update:
-    expect(mockSetExpenses).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: "e-1",
-        amount: 36000,
-        description: "Purchase: Flour"
-      })
-    ])
-    expect(dataLib.saveExpenses).toHaveBeenCalled()
+    // Verify purchase is disconnected from expenses (legacy linked expense removed from expenses):
+    expect(mockSetExpenses).toHaveBeenCalledWith([])
+    expect(dataLib.saveExpenses).toHaveBeenCalledWith([])
 
     // Verify server and local purchases updated:
     expect(dataLib.updatePurchaseOnServer).toHaveBeenCalledWith(
@@ -353,13 +347,8 @@ describe("Purchases Edit & Cross-System Synchronization", () => {
       expect.objectContaining({ id: "i-2", stock: 15, cost: 1500 })
     ])
 
-    // Expense description updated to "Purchase: Sugar", amount to 15000
-    expect(mockSetExpenses).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: "e-1",
-        amount: 15000,
-        description: "Purchase: Sugar"
-      })
-    ])
+    // Verify purchase is disconnected from expenses (legacy linked expense removed from expenses):
+    expect(mockSetExpenses).toHaveBeenCalledWith([])
+    expect(dataLib.saveExpenses).toHaveBeenCalledWith([])
   })
 })

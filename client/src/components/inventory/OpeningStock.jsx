@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Btn, Inp, Sel, Card, SHead, iSt, TH, Modal, Pagination } from "../common/ui.jsx"
-import { fmt, fmtCost, uid, callClaude, compressImage, extractAndRepairJson } from "../../lib/helpers.js"
+import { fmt, fmtCost, uid, callClaude, compressImage, extractAndRepairJson, convertToGrams, parseExcelOrSpreadsheet } from "../../lib/helpers.js"
 import {
   saveInventory,
   deleteOpeningStockOnServer,
@@ -45,6 +45,7 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const [calcMode, setCalcMode] = useState("manual") // "manual" or "auto"
   const [newItem, setNewItem] = useState({ name: "", unit: "g", cost: "", openingQty: "", totalPaid: "", qtyBought: "" })
   const [editCosts, setEditCosts] = useState(false)
+  const [editingItemId, setEditingItemId] = useState(null)
   const [loadingAction, setLoadingAction] = useState(null)
 
   // Bulk import states
@@ -143,6 +144,9 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   // Keep opening stock items in sync with any items present in inventory
   useEffect(() => {
     if (!Array.isArray(inventory) || inventory.length === 0) return
+    // When opening stock is locked, do not allow mid-month inventory additions to modify the opening stock table
+    if (saved) return
+
     setItems(prevItems => {
       const currentList = Array.isArray(prevItems) ? prevItems : []
       const existingIds = new Set(currentList.map(it => (it.itemId || it.id || "").toLowerCase()).filter(Boolean))
@@ -154,14 +158,15 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
         const idMatch = invItem.id && (existingIds.has(invItem.id.toLowerCase()) || existingIds.has(("os_" + invItem.id).toLowerCase()))
         const nameMatch = existingNames.has((invItem.name || "").trim().toLowerCase())
         if (!idMatch && !nameMatch) {
+          // Newly added items have 0 opening stock so purchases do not alter the baseline valuation
           merged.push({
             id: "os_" + invItem.id,
             itemId: invItem.id,
             name: invItem.name,
             unit: invItem.unit || "g",
             cost: invItem.cost === "" || invItem.cost === undefined ? 0 : (parseFloat(invItem.cost) || 0),
-            openingQty: invItem.stock === "" || invItem.stock === undefined ? 0 : (parseFloat(invItem.stock) || 0),
-            locked: saved
+            openingQty: 0,
+            locked: false
           })
           existingNames.add((invItem.name || "").trim().toLowerCase())
           if (invItem.id) existingIds.add(invItem.id.toLowerCase())
@@ -202,7 +207,8 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   }
 
   const isLocked = saved
-  const isEditable = !isLocked && (isLastDayOfMonth() || editCosts)
+  const isEditable = !isLocked && editCosts
+  const isItemRowEditable = (itemId) => !isLocked && (editCosts || editingItemId === itemId)
 
   // Inline update handlers
   const updateOSQty = async (id, val) => {
@@ -211,14 +217,6 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
     const displayVal = isBlank ? "" : val
     const updated = items.map(item => item.id === id ? { ...item, openingQty: displayVal } : item)
     setItems(updated)
-    if (id && !id.startsWith("os_")) {
-      try {
-        const p = updateOpeningStockItemOnServer(id, { openingQty: qtyVal })
-        if (p && typeof p.catch === "function") p.catch(e => console.warn(e))
-      } catch (err) {
-        console.warn(err)
-      }
-    }
     const forSaving = updated.map(it => ({ ...it, openingQty: it.openingQty === "" ? 0 : (parseFloat(it.openingQty) || 0) }))
     await saveOpeningStock(forSaving, currentMonthStr, saved)
 
@@ -239,10 +237,11 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
           idx === invIdx ? { ...invItem, stock: qtyVal } : invItem
         )
       } else if (targetItem) {
+        const safeInvId = targetItem.itemId || (targetItem.id && !targetItem.id.startsWith("os_") ? targetItem.id : uid())
         updatedInventory = [
           ...currentInv,
           {
-            id: targetItem.itemId || targetItem.id || uid(),
+            id: safeInvId,
             name: targetItem.name,
             cat: "Dry Goods",
             unit: targetItem.unit || "g",
@@ -265,14 +264,6 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
     const displayVal = isBlank ? "" : val
     const updated = items.map(item => item.id === id ? { ...item, cost: displayVal } : item)
     setItems(updated)
-    if (id && !id.startsWith("os_")) {
-      try {
-        const p = updateOpeningStockItemOnServer(id, { cost: costVal })
-        if (p && typeof p.catch === "function") p.catch(e => console.warn(e))
-      } catch (err) {
-        console.warn(err)
-      }
-    }
     const forSaving = updated.map(it => ({ ...it, cost: it.cost === "" ? 0 : (parseFloat(it.cost) || 0) }))
     await saveOpeningStock(forSaving, currentMonthStr, saved)
 
@@ -294,10 +285,11 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
         await saveInventory(updatedInventory)
       } else if (targetItem) {
         const rawQty = targetItem.openingQty !== undefined ? targetItem.openingQty : targetItem.qty
+        const safeInvId = targetItem.itemId || (targetItem.id && !targetItem.id.startsWith("os_") ? targetItem.id : uid())
         const updatedInventory = [
           ...currentInv,
           {
-            id: targetItem.itemId || targetItem.id || uid(),
+            id: safeInvId,
             name: targetItem.name,
             cat: "Dry Goods",
             unit: targetItem.unit || "g",
@@ -315,25 +307,27 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   const updateOSUnit = async (id, val) => {
     const updated = items.map(item => item.id === id ? { ...item, unit: val } : item)
     setItems(updated)
-    if (id && !id.startsWith("os_")) {
-      try {
-        const p = updateOpeningStockItemOnServer(id, { unit: val })
-        if (p && typeof p.catch === "function") p.catch(e => console.warn(e))
-      } catch (err) {
-        console.warn(err)
-      }
-    }
     await saveOpeningStock(updated, currentMonthStr, saved)
+
+    try {
+      if (typeof updateOpeningStockItemOnServer === "function" && id && !String(id).startsWith("os_")) {
+        await updateOpeningStockItemOnServer(id, { unit: val })
+      }
+    } catch (e) {
+      console.warn("Server update opening stock unit error:", e)
+    }
 
     // Opening stock feeds inventory
     if (inventory && setInventory) {
       const targetItem = items.find(it => it.id === id)
-      const targetName = targetItem?.name?.toLowerCase()
+      const targetName = targetItem?.name?.trim().toLowerCase()
+      const rawId = String(id).replace(/^os_/, "")
       const currentInv = Array.isArray(inventory) ? [...inventory] : []
       const invIdx = currentInv.findIndex(invItem =>
         invItem.id === id ||
-        (targetItem?.itemId && invItem.id === targetItem.itemId) ||
-        (targetName && invItem.name?.toLowerCase() === targetName)
+        invItem.id === rawId ||
+        (targetItem?.itemId && (invItem.id === targetItem.itemId || invItem.id === String(targetItem.itemId).replace(/^os_/, ""))) ||
+        (targetName && invItem.name?.trim().toLowerCase() === targetName)
       )
       if (invIdx >= 0) {
         const updatedInventory = currentInv.map((invItem, idx) =>
@@ -343,10 +337,11 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
         await saveInventory(updatedInventory)
       } else if (targetItem) {
         const rawQty = targetItem.openingQty !== undefined ? targetItem.openingQty : targetItem.qty
+        const safeInvId = targetItem.itemId || (targetItem.id && !targetItem.id.startsWith("os_") ? targetItem.id : uid())
         const updatedInventory = [
           ...currentInv,
           {
-            id: targetItem.itemId || targetItem.id || uid(),
+            id: safeInvId,
             name: targetItem.name,
             cat: "Dry Goods",
             unit: val || "g",
@@ -696,17 +691,33 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
   }
 
   // AI Document / Photo Scan Handlers for Bulk Import
-  const handleAiFileSelect = (e) => {
+  const handleAiFileSelect = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     setAiScanError("")
     setAiScanRefund("")
 
+    const isExcel = /\.(xlsx|xls|csv)$/i.test(file.name) || file.type?.includes("sheet") || file.type?.includes("excel") || file.type === "text/csv"
     const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
     const isImg = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)
 
-    if (!isPdf && !isImg) {
-      setAiScanError("Please select a PDF document (.pdf) or an image photo (.jpg, .png, .webp).")
+    if (!isExcel && !isPdf && !isImg) {
+      setAiScanError("Please select an Excel sheet (.xlsx, .xls, .csv), a PDF document (.pdf), or an image photo (.jpg, .png, .webp).")
+      return
+    }
+
+    if (isExcel) {
+      try {
+        const textContent = await parseExcelOrSpreadsheet(file)
+        setAiFile({
+          name: file.name,
+          size: (file.size / 1024).toFixed(1) + " KB",
+          type: "excel",
+          textContent
+        })
+      } catch (err) {
+        setAiScanError(`Could not read Excel file: ${err.message}`)
+      }
       return
     }
 
@@ -730,7 +741,12 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
 
     try {
       const content = []
-      if (aiFile.type === "pdf") {
+      if (aiFile.type === "excel") {
+        content.push({
+          type: "text",
+          text: `You are an expert AI inventory and stock-audit specialist. Below is the text content extracted from an uploaded Excel spreadsheet (.xlsx/.xls) or CSV:\n\n${aiFile.textContent}\n\n`
+        })
+      } else if (aiFile.type === "pdf") {
         const base64Data = aiFile.rawBase64.includes(",") ? aiFile.rawBase64.split(",")[1] : aiFile.rawBase64
         content.push({
           type: "document",
@@ -753,20 +769,20 @@ export function OpeningStock({ inventory, setInventory, user, company = {} }) {
       }
 
       const promptText = `You are an expert AI inventory and stock-audit specialist for a bakery and cake business.
-Analyze this document or photo carefully. The input could be:
-1. An inventory list, stock-take sheet, or spreadsheet (printed or PDF).
-2. A supplier invoice, receipt, purchase order, or waybill (e.g. from flour mills, supermarket, packaging store).
-3. A handwritten inventory sheet, notebook page, or paper stock count.
-4. A photo of physical bakery stock, pantry shelves, ingredients (flour sacks, sugar bags, butter, eggs, flavour bottles, boxes, cake boards).
-5. A price list or quotation for bakery supplies.
+Analyze this document, spreadsheet, or photo carefully. The input could be:
+1. An Excel spreadsheet, stock-take sheet, inventory table, or CSV list.
+2. An inventory list, stock-take sheet, or spreadsheet (printed or PDF).
+3. A supplier invoice, receipt, purchase order, or waybill (e.g. from flour mills, supermarket, packaging store).
+4. A handwritten inventory sheet, notebook page, or paper stock count.
+5. A photo of physical bakery stock, pantry shelves, ingredients (flour sacks, sugar bags, butter, eggs, flavour bottles, boxes, cake boards).
 
 YOUR GOAL: Extract EVERY single distinct ingredient, material, packaging item, or supply item visible in this file.
 
 For each item, extract:
 - "name": Clean, standard ingredient/item name (e.g. "Flour", "Granulated Sugar", "Unsalted Butter", "Eggs", "Vanilla Flavour", "10-inch Cake Board", "Cocoa Powder", "Baking Powder").
-- "unit": Standard measurement unit. Use "g", "kg", "ml", "l", "pcs", "crate", "carton", "pack", or "bag". Never leave empty. Default dry goods to "g" or "kg", liquids to "ml" or "l", packaging/eggs to "pcs" or "crate".
-- "openingQty": Stock quantity or count visible. If it's a photo of physical items, count how many are visible (e.g. 2 sacks -> 2). If not specified or unknown, default to 1.
-- "cost": Cost or price per unit (in Nigerian Naira ₦ or number). If an invoice has a total price and quantity, calculate unit price = total / quantity. If cost is not visible or unknown, set cost to 0 so the user can enter it.
+- "unit": IMPORTANT: Automatically convert all weight and mass units to grams ("g") regardless of the original unit on the sheet or package (e.g. 50kg bag -> 50000 g, 1kg -> 1000 g, 500g -> 500 g, 2 lbs -> 907 g). For items that cannot be weighed in grams like cake boards or packaging boxes or eggs, use "pcs", but for all baking ingredients, always convert the unit to "g".
+- "openingQty": Stock quantity or count visible. If converted to grams, return the quantity in grams (e.g. 50kg -> 50000). If not specified or unknown, default to 1.
+- "cost": Cost or price per unit (in Nigerian Naira ₦ or number). If an invoice has a total price and quantity, calculate unit price = total / quantity. If cost is per kg and converted to grams, calculate cost per gram (total price / total grams). If cost is not visible, set to 0.
 - "category": Choose one of: "Dry Goods", "Dairy", "Flavours & Colours", "Packaging", "Decorations", "Other".
 
 Return ONLY valid JSON in this exact structure, with no markdown code fences or conversational text:
@@ -774,9 +790,9 @@ Return ONLY valid JSON in this exact structure, with no markdown code fences or 
   "items": [
     {
       "name": "Flour",
-      "unit": "kg",
-      "openingQty": 50,
-      "cost": 1140,
+      "unit": "g",
+      "openingQty": 50000,
+      "cost": 1.14,
       "category": "Dry Goods"
     }
   ]
@@ -792,7 +808,7 @@ Return ONLY valid JSON in this exact structure, with no markdown code fences or 
           role: "user",
           content: content
         }
-      ], "You are an expert AI vision assistant for a bakery business. Extract inventory and opening stock items from documents or photos into JSON. Return valid JSON only.", 4000, { creditCost: 2, feature: "inventory_scanner" })
+      ], "You are an expert AI vision assistant for a bakery business. Extract inventory and opening stock items from documents, spreadsheets, or photos into JSON. Return valid JSON only.", 4000, { creditCost: 2, feature: "inventory_scanner" })
 
       let result = null
       try {
@@ -816,7 +832,7 @@ Return ONLY valid JSON in this exact structure, with no markdown code fences or 
             setAiScanRefund("Scan could not read any items. 2 credits refunded automatically.")
           } catch (_) {}
         }
-        setAiScanError("No inventory items could be detected in this file. Please make sure the photo or document is clear and readable.")
+        setAiScanError("No inventory items could be detected in this file. Please make sure the photo, spreadsheet, or document is clear and readable.")
         return
       }
 
@@ -828,12 +844,15 @@ Return ONLY valid JSON in this exact structure, with no markdown code fences or 
         const cleanName = (it.name || it.item || "Unnamed Item").trim()
         const match = items.find(existing => existing.name.trim().toLowerCase() === cleanName.toLowerCase())
 
+        // Automatically convert unit to grams regardless of original unit
+        const converted = convertToGrams(qtyNum, it.unit || (match ? match.unit : "g"), costNum > 0 ? costNum : (match ? match.cost : 0))
+
         return {
           id: match ? match.id : "os_" + uid(),
           name: match ? match.name : cleanName,
-          unit: it.unit || (match ? match.unit : "g"),
-          cost: costNum > 0 ? costNum : (match ? match.cost : 0),
-          openingQty: qtyNum,
+          unit: converted.unit,
+          cost: converted.cost,
+          openingQty: converted.qty,
           isNew: !match,
           on: true
         }
@@ -951,10 +970,12 @@ Return ONLY valid JSON:
       const extractedQty = parseFloat(String(itemData.openingQty || itemData.qty || itemData.stock || 1).replace(/[^0-9.]/g, "")) || 1
       const extractedUnit = itemData.unit || scanningItem.unit || "g"
 
+      const conv = convertToGrams(extractedQty, extractedUnit, extractedCost)
+
       setItemScanResult({
-        cost: extractedCost,
-        openingQty: extractedQty,
-        unit: extractedUnit,
+        cost: conv.cost,
+        openingQty: conv.qty,
+        unit: conv.unit,
         name: itemData.name || scanningItem.name
       })
     } catch (err) {
@@ -1084,13 +1105,15 @@ Return ONLY valid JSON:
       const extractedCost = parseFloat(String(itemData.cost || itemData.unit_price || 0).replace(/[^0-9.]/g, "")) || ""
       const extractedQty = parseFloat(String(itemData.openingQty || itemData.qty || itemData.stock || 1).replace(/[^0-9.]/g, "")) || ""
 
+      const conv = convertToGrams(extractedQty !== "" ? extractedQty : 1, itemData.unit || "g", extractedCost !== "" ? extractedCost : 0)
+
       setCalcMode("manual")
       setNewItem(m => ({
         ...m,
         name: itemData.name || m.name,
-        unit: itemData.unit || m.unit,
-        cost: extractedCost !== "" ? extractedCost : m.cost,
-        openingQty: extractedQty !== "" ? extractedQty : m.openingQty
+        unit: conv.unit,
+        cost: extractedCost !== "" ? conv.cost : m.cost,
+        openingQty: extractedQty !== "" ? conv.qty : m.openingQty
       }))
     } catch (err) {
       console.error("Manual add scan failed:", err)
@@ -1211,9 +1234,9 @@ Return ONLY valid JSON:
               small
               variant={editCosts ? "primary" : "outline"}
               onClick={handleEditCostsToggle}
-              title="Toggle inline editing of unit costs and units"
+              title="Toggle inline editing of items, quantities, and costs"
             >
-              <Edit3 size={13} /> {editCosts ? "Done Editing" : "Edit Costs"}
+              <Edit3 size={13} /> {editCosts ? "Done Editing" : "Edit Items"}
             </Btn>
             {isLocked ? (
               <Btn small variant="outline" onClick={unlockStock} style={{ color: "#BA7517" }}>
@@ -1298,48 +1321,10 @@ Return ONLY valid JSON:
                     >
                       <td style={{ padding: "10px 16px", color: "var(--muted)", fontSize: 12 }}>{globalIdx}</td>
                       <td style={{ padding: "10px 16px", fontWeight: 600, color: "var(--text)" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                          <span>{item.name}</span>
-                          {!isLocked && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setScanningItem(item)
-                                setItemScanFile(null)
-                                setItemScanError("")
-                                setItemScanResult(null)
-                              }}
-                              title={`Scan photo/receipt for ${item.name} (AI)`}
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 3,
-                                padding: "2px 6px",
-                                borderRadius: 4,
-                                fontSize: 10.5,
-                                fontWeight: 600,
-                                background: "var(--panel)",
-                                border: "1px solid var(--border)",
-                                color: "var(--muted)",
-                                cursor: "pointer",
-                                transition: "all 0.15s"
-                              }}
-                              onMouseEnter={e => {
-                                e.currentTarget.style.color = "var(--gold)"
-                                e.currentTarget.style.borderColor = "var(--gold)"
-                              }}
-                              onMouseLeave={e => {
-                                e.currentTarget.style.color = "var(--muted)"
-                                e.currentTarget.style.borderColor = "var(--border)"
-                              }}
-                            >
-                              <Camera size={11} /> Scan
-                            </button>
-                          )}
-                        </div>
+                        <span>{item.name}</span>
                       </td>
                       <td style={{ padding: "10px 16px" }}>
-                        {isEditable ? (
+                        {isItemRowEditable(item.id) ? (
                           <input
                             type="text"
                             value={item.unit || ""}
@@ -1351,7 +1336,7 @@ Return ONLY valid JSON:
                         )}
                       </td>
                       <td style={{ padding: "10px 16px" }}>
-                        {isEditable ? (
+                        {isItemRowEditable(item.id) ? (
                           <input
                             type="number"
                             step="any"
@@ -1375,7 +1360,7 @@ Return ONLY valid JSON:
                         )}
                       </td>
                       <td style={{ padding: "10px 16px" }}>
-                        {!isLocked ? (
+                        {isItemRowEditable(item.id) ? (
                           <input
                             type="number"
                             step="any"
@@ -1408,13 +1393,37 @@ Return ONLY valid JSON:
                       </td>
                       <td style={{ padding: "10px 16px", textAlign: "right" }}>
                         {!isLocked && (
-                          <button
-                            onClick={() => deleteOSItem(item.id)}
-                            title="Remove item from opening stock"
-                            style={{ background: "none", border: "none", color: "#B03A2E", cursor: "pointer", padding: 4 }}
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (editingItemId === item.id) {
+                                  setEditingItemId(null)
+                                  saveOpeningStock(items, currentMonthStr, saved)
+                                } else {
+                                  setEditingItemId(item.id)
+                                }
+                              }}
+                              title={editingItemId === item.id ? "Done editing item" : "Edit item"}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: editingItemId === item.id ? "var(--gold)" : "var(--muted)",
+                                cursor: "pointer",
+                                padding: 4
+                              }}
+                            >
+                              {editingItemId === item.id ? <Check size={14} /> : <Edit3 size={13} />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteOSItem(item.id)}
+                              title="Remove item from opening stock"
+                              style={{ background: "none", border: "none", color: "#B03A2E", cursor: "pointer", padding: 4 }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -1643,23 +1652,23 @@ Return ONLY valid JSON:
                       >
                         <UploadCloud size={26} color="var(--gold)" style={{ margin: "0 auto 6px" }} />
                         <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>
-                          Click or drop PDF document or photo here
+                          Click or drop Excel sheet, PDF document, or photo here
                         </div>
                         <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                          Supports .pdf, .jpg, .png, .webp (invoices, stock sheets, photos)
+                          Supports .xlsx, .xls, .csv, .pdf, .jpg, .png, .webp (spreadsheets, invoices, stock sheets, photos)
                         </div>
                       </div>
 
                       <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                         <Btn small variant="outline" onClick={() => aiFileInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                          <UploadCloud size={13} /> Select PDF or Photo
+                          <FileSpreadsheet size={13} /> Select Excel, PDF, or Photo
                         </Btn>
                         <Btn small variant="outline" onClick={() => aiCameraInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                           <Camera size={13} /> Take photo
                         </Btn>
                       </div>
 
-                      <input ref={aiFileInputRef} type="file" accept=".pdf,image/*,application/pdf" onChange={handleAiFileSelect} style={{ display: "none" }} />
+                      <input ref={aiFileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,image/*,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={handleAiFileSelect} style={{ display: "none" }} />
                       <input ref={aiCameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleAiFileSelect} style={{ display: "none" }} />
                     </div>
                   ) : (
@@ -1668,6 +1677,8 @@ Return ONLY valid JSON:
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           {aiFile.type === "image" ? (
                             <img src={aiFile.rawBase64} alt="Preview" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6 }} />
+                          ) : aiFile.type === "excel" ? (
+                            <FileSpreadsheet size={30} color="var(--gold)" />
                           ) : (
                             <FileText size={30} color="var(--gold)" />
                           )}

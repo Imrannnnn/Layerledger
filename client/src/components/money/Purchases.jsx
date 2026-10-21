@@ -195,18 +195,22 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       await deletePurchasesFromServer(idsToDelete)
     }
 
-    // 2. Remove matching expense entries
+    // 2. Remove matching legacy purchase expense entries if any
     if (expenses && setExpenses) {
       const selectedPurchasesList = purchases.filter(p => selectedIds.has(p.id))
       const toRemoveNames = new Set(selectedPurchasesList.map(p => p.item).filter(Boolean))
       const updatedExpenses = expenses.filter(e => {
-        if (e.source !== "purchase") return true
+        const isLegacyPurExp = e.source === "purchase" || String(e.description || '').toLowerCase().startsWith("purchase:") || e.purchaseId
+        if (!isLegacyPurExp) return true
         if (e.id && selectedIds.has(e.id)) return false
-        if (toRemoveNames.has(e.description)) return false
+        if (e.purchaseId && selectedIds.has(e.purchaseId)) return false
+        if (toRemoveNames.has(e.description) || toRemoveNames.has(e.description?.replace(/^Purchase:\s*/i, ''))) return false
         return true
       })
-      setExpenses(updatedExpenses)
-      await saveExpenses(updatedExpenses)
+      if (updatedExpenses.length !== expenses.length) {
+        setExpenses(updatedExpenses)
+        await saveExpenses(updatedExpenses)
+      }
     }
 
     setSelectedIds(new Set())
@@ -226,13 +230,16 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     if (expenses && setExpenses) {
       const pItem = purchases.find(p => p.id === id)
       const updatedExpenses = expenses.filter(e => {
-        if (e.source !== "purchase") return true
-        if (e.id === id) return false
-        if (pItem && e.description === pItem.item) return false
+        const isLegacyPurExp = e.source === "purchase" || String(e.description || '').toLowerCase().startsWith("purchase:") || e.purchaseId
+        if (!isLegacyPurExp) return true
+        if (e.id === id || e.purchaseId === id) return false
+        if (pItem && (e.description === pItem.item || e.description === `Purchase: ${pItem.item}`)) return false
         return true
       })
-      setExpenses(updatedExpenses)
-      await saveExpenses(updatedExpenses)
+      if (updatedExpenses.length !== expenses.length) {
+        setExpenses(updatedExpenses)
+        await saveExpenses(updatedExpenses)
+      }
     }
 
     setSelectedIds(p => {
@@ -258,11 +265,19 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     setDraftPurchases(prev => {
       const copy = [...prev]
       copy[idx] = { ...copy[idx], [field]: value }
-      if (field === "item" && value) {
-        const it = inventory.find(i => i.id === value)
-        if (it) {
-          copy[idx].category = it.cat || mapCategory(it.cat, it.name)
-          copy[idx].unit = it.unit || ""
+      if (field === "item") {
+        if (value === "__new__") {
+          copy[idx].isNew = true
+          copy[idx].item = "__new__"
+          copy[idx].unit = copy[idx].unit || "g"
+        } else {
+          copy[idx].isNew = false
+          copy[idx].item = value
+          const it = inventory.find(i => i.id === value)
+          if (it) {
+            copy[idx].category = it.cat || mapCategory(it.cat, it.name)
+            copy[idx].unit = it.unit || ""
+          }
         }
       }
       return copy
@@ -275,6 +290,8 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       ...p,
       {
         item: "",
+        isNew: false,
+        newItemName: "",
         category: "",
         unit: "",
         unitSize: "",
@@ -416,43 +433,22 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       setInventory(updInv)
       await saveInventory(updInv)
 
-      // 2. Update matching expense record
+      // 2. Disconnect: Purchases do not show in expenses. Clean up any legacy linked expense if present.
       if (expenses && setExpenses) {
-        const selItem = updInv.find(i => i.id === item)
-        const newItemName = selItem?.name || item
-
-        let expCat = "Ingredients / Supplies"
-        if (category === "Board and Packaging" || category === "Packaging") {
-          expCat = "Packaging"
-        } else if (category === "Decoration Extras" || category === "Decorations") {
-          expCat = "Decorations"
+        const hasLegacyExp = expenses.some(e =>
+          (e.id === id) || (e.purchaseId === id) ||
+          ((e.source === "purchase" || String(e.description || '').toLowerCase().startsWith("purchase:")) &&
+           (e.description === `Purchase: ${oldItemName}` || e.description === oldItemName))
+        )
+        if (hasLegacyExp) {
+          const updatedExpenses = expenses.filter(e =>
+            !(e.id === id || e.purchaseId === id ||
+              ((e.source === "purchase" || String(e.description || '').toLowerCase().startsWith("purchase:")) &&
+               (e.description === `Purchase: ${oldItemName}` || e.description === oldItemName)))
+          )
+          setExpenses(updatedExpenses)
+          await saveExpenses(updatedExpenses)
         }
-
-        let matchedExpense = false
-        const updatedExpenses = expenses.map(e => {
-          if (e.source !== "purchase") return e
-
-          const isDirectIdMatch = (e.id === id) || (e.purchaseId === id)
-          const isContentMatch = !matchedExpense &&
-            (e.description === `Purchase: ${oldItemName}` || e.description === oldItemName || e.description === `Purchase: ${newItemName}`) &&
-            (Math.abs(Number(e.amount || 0) - oldTotal) < 0.01 || e.date === original.date)
-
-          if (isDirectIdMatch || isContentMatch) {
-            matchedExpense = true
-            return {
-              ...e,
-              date: date || e.date,
-              description: `Purchase: ${newItemName}`,
-              amount: newTotal,
-              category: expCat,
-              notes: `${parsedQty}×${parsedUnitSize}${selItem?.unit || ""} @ ₦${parsedPrice.toLocaleString()} — cost/unit updated to ${fmt(newCpu)}`
-            }
-          }
-          return e
-        })
-
-        setExpenses(updatedExpenses)
-        await saveExpenses(updatedExpenses)
       }
 
       // 3. Update purchase record locally and on server
@@ -500,7 +496,10 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
 
   const log = async () => {
     if (logging) return
-    const invalid = draftPurchases.some(dp => !dp.item || !dp.category || !dp.unitSize || !dp.qty || !dp.price)
+    const invalid = draftPurchases.some(dp => {
+      const hasItem = dp.isNew ? (dp.newItemName && dp.newItemName.trim()) : dp.item
+      return !hasItem || !dp.category || !dp.unitSize || !dp.qty || !dp.price
+    })
     if (invalid) {
       alert("All fields are required for all items")
       return
@@ -509,61 +508,80 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     setLogging(true)
     try {
       let updInv = [...inventory]
-      let updExp = [...expenses]
       let newPurchases = []
 
       for (const dp of draftPurchases) {
-        const selItem = updInv.find(i => i.id === dp.item)
         const cpu = dp.price && dp.unitSize ? parseFloat((+dp.price / (+dp.unitSize || 1)).toFixed(2)) : 0
         const total = dp.price && dp.qty ? Math.round(+dp.price * (+dp.qty)) : 0
         const stockAdded = dp.unitSize && dp.qty ? parseFloat(((+dp.unitSize) * (+dp.qty)).toFixed(3)) : 0
 
-        // 1. Update cost/unit in inventory using weighted average cost
-        updInv = updInv.map(i => {
-          if (i.id === dp.item) {
-            const currentStock = Number(i.stock || 0);
-            const currentCost = Number(i.cost || 0);
-            const currentValue = currentStock * currentCost;
-            const newStock = parseFloat((currentStock + stockAdded).toFixed(3));
-            const newValue = currentValue + total;
-            const newAvgCost = newStock > 0 ? parseFloat((newValue / newStock).toFixed(2)) : currentCost;
-            return {
+        let selItem = null
+
+        if (dp.isNew || dp.item === "__new__") {
+          const rawName = (dp.newItemName || "").trim()
+          const cleanName = rawName || "New Item"
+          const itemUnit = dp.unit || "g"
+          const existingItem = updInv.find(i => i.name.toLowerCase() === cleanName.toLowerCase())
+
+          if (existingItem) {
+            selItem = existingItem
+            const currentStock = Number(existingItem.stock || 0)
+            const currentCost = Number(existingItem.cost || 0)
+            const currentValue = currentStock * currentCost
+            const newStock = parseFloat((currentStock + stockAdded).toFixed(3))
+            const newValue = currentValue + total
+            const newAvgCost = newStock > 0 ? parseFloat((newValue / newStock).toFixed(2)) : currentCost
+
+            updInv = updInv.map(i => i.id === existingItem.id ? {
               ...i,
               cost: newAvgCost,
               stock: newStock,
-              cat: dp.category || i.cat
-            };
+              cat: dp.category || i.cat,
+              unit: itemUnit || i.unit
+            } : i)
+          } else {
+            const newId = uid()
+            selItem = {
+              id: newId,
+              name: cleanName,
+              unit: itemUnit,
+              cat: dp.category || "Dry Goods",
+              cost: cpu,
+              stock: stockAdded,
+              minStock: 5,
+              on: true
+            }
+            updInv = [...updInv, selItem]
           }
-          return i;
-        });
-
-        // 2. Log as expense with category mapping
-        let expCat = "Ingredients / Supplies"
-        if (dp.category === "Board and Packaging" || dp.category === "Packaging") {
-          expCat = "Packaging"
-        } else if (dp.category === "Decoration Extras" || dp.category === "Decorations") {
-          expCat = "Decorations"
+        } else {
+          selItem = updInv.find(i => i.id === dp.item)
+          updInv = updInv.map(i => {
+            if (i.id === dp.item) {
+              const currentStock = Number(i.stock || 0)
+              const currentCost = Number(i.cost || 0)
+              const currentValue = currentStock * currentCost
+              const newStock = parseFloat((currentStock + stockAdded).toFixed(3))
+              const newValue = currentValue + total
+              const newAvgCost = newStock > 0 ? parseFloat((newValue / newStock).toFixed(2)) : currentCost
+              return {
+                ...i,
+                cost: newAvgCost,
+                stock: newStock,
+                cat: dp.category || i.cat
+              }
+            }
+            return i
+          })
         }
-        const exp = { 
-          id: uid(), 
-          date: dp.date, 
-          description: `Purchase: ${selItem?.name || dp.item}`, 
-          amount: total, 
-          category: expCat, 
-          paymentMethod: "transfer", 
-          source: "purchase", 
-          notes: `${dp.qty}×${dp.unitSize}${selItem?.unit || ""} @ ₦${(+dp.price).toLocaleString()} — cost/unit updated to ${fmt(cpu)}` 
-        }
-        updExp = [exp, ...updExp];
 
-        // 3. Log purchase record
+        // Purchases are tracked in Purchases and update inventory stock/cost — NOT in Expenses
         const rec = { 
           id: uid(), 
           date: dp.date, 
-          itemId: dp.item, 
-          item: selItem?.name || "", 
+          itemId: selItem?.id || dp.item, 
+          item: selItem?.name || dp.newItemName || "", 
           category: dp.category, 
-          unit: selItem?.unit || "", 
+          unit: selItem?.unit || dp.unit || "", 
           unitSize: +dp.unitSize, 
           qty: +dp.qty, 
           price: +dp.price, 
@@ -575,14 +593,12 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       }
 
       setInventory(updInv)
-      setExpenses(updExp)
       const existingAll = (typeof loadLocal === "function" ? loadLocal("ll_purchases", []) : []) || []
       const mergedPurchases = [...newPurchases, ...existingAll.filter(e => !newPurchases.some(np => np.id === e.id))]
       setPurchases(prev => [...newPurchases, ...prev])
 
       await Promise.all([
         saveInventory(updInv),
-        saveExpenses(updExp),
         typeof savePurchases === "function" ? savePurchases(mergedPurchases) : saveLocal("ll_purchases", mergedPurchases)
       ])
       await loadPage()
@@ -628,9 +644,14 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       setPurchases([])
       setTotalCount(0)
       setSelectedIds(new Set())
-      const updatedExpenses = expenses.filter(e => e.source !== "purchase")
-      setExpenses(updatedExpenses)
-      await saveExpenses(updatedExpenses)
+      if (expenses && setExpenses) {
+        const updatedExpenses = expenses.filter(e => {
+          const isLegacyPurExp = e.source === "purchase" || String(e.description || '').toLowerCase().startsWith("purchase:") || e.purchaseId
+          return !isLegacyPurExp
+        })
+        setExpenses(updatedExpenses)
+        await saveExpenses(updatedExpenses)
+      }
       await loadPage()
     } catch (err) {
       alert("Failed to delete purchases: " + err.message)
@@ -827,13 +848,46 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8 }}>
-                <div>
-                  <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Item *</label>
-                  <select value={dp.item} onChange={e => updateDraftPurchaseField(idx, "item", e.target.value)} style={{ ...iSt }}>
-                    <option value="">— Select item —</option>
-                    {inventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-                  </select>
-                </div>
+                {dp.isNew ? (
+                  <>
+                    <div>
+                      <Inp label="New Item Name *" value={dp.newItemName || ""} onChange={v => updateDraftPurchaseField(idx, "newItemName", v)} placeholder="e.g. Cocoa Powder" small />
+                      <button
+                        type="button"
+                        onClick={() => updateDraftPurchaseField(idx, "item", "")}
+                        style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 10.5, marginTop: 2, padding: 0, textDecoration: "underline" }}
+                      >
+                        ← Choose existing
+                      </button>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Unit *</label>
+                      <input
+                        type="text"
+                        value={dp.unit || ""}
+                        onChange={e => updateDraftPurchaseField(idx, "unit", e.target.value)}
+                        placeholder="g, kg, ml, pcs"
+                        style={{ ...iSt, padding: "5px 8px", fontSize: 12.5 }}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Item *</label>
+                    <select value={dp.item} onChange={e => updateDraftPurchaseField(idx, "item", e.target.value)} style={{ ...iSt }}>
+                      <option value="">— Select item —</option>
+                      <option value="__new__" style={{ fontWeight: 600, color: "var(--gold)" }}>✨ + Add new item (not in inventory)</option>
+                      {inventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => updateDraftPurchaseField(idx, "item", "__new__")}
+                      style={{ background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: 10.5, marginTop: 2, padding: 0, textDecoration: "underline" }}
+                    >
+                      + Item not listed? Add new
+                    </button>
+                  </div>
+                )}
                 <div>
                   <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Category *</label>
                   <select value={dp.category} onChange={e => updateDraftPurchaseField(idx, "category", e.target.value)} style={{ ...iSt }}>
@@ -850,8 +904,8 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
               {cpu > 0 && (
                 <div style={{ display: "flex", gap: 14, background: "rgba(200, 145, 42, 0.05)", padding: "6px 12px", borderRadius: 6, fontSize: 11.5, flexWrap: "wrap" }}>
                   <div>Total spent: <strong>{fmt(total)}</strong></div>
-                  <div>Stock to add: <strong style={{ color: "#357A52" }}>+{stockAdded} {selItem?.unit || ""}</strong></div>
-                  <div>New Cost/unit: <strong style={{ color: "var(--gold)" }}>{fmt(cpu)}/{selItem?.unit || "unit"}</strong></div>
+                  <div>Stock to add: <strong style={{ color: "#357A52" }}>+{stockAdded} {selItem?.unit || dp.unit || ""}</strong></div>
+                  <div>New Cost/unit: <strong style={{ color: "var(--gold)" }}>{fmt(cpu)}/{selItem?.unit || dp.unit || "unit"}</strong></div>
                 </div>
               )}
             </div>

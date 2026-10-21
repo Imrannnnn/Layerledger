@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect, Spinner, Pagination } from "../common/ui.jsx"
-import { fmt, fmtCost, fmtQty, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES, formatApiError } from "../../lib/helpers.js"
+import { fmt, fmtCost, fmtQty, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES, formatApiError, COVERAGE_PRESETS, getRecipeCoverageValues, calculateCakeGeometry, calculateFillingGrams, calculateCoveringGrams, calibrateCoverageRates } from "../../lib/helpers.js"
 
 import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
 import { 
@@ -51,6 +51,8 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
 
   const isPastry=r.type==="pastry"
   const isCovering=r.type==="covering" || r.type==="filling"
+  const cov = isCovering ? getRecipeCoverageValues(r) : null
+  const [dismissPrompt, setDismissPrompt] = useState(false)
 
   // Load multipliers from database/cache (set in Settings → Pricing setup)
   const getMult=()=>{
@@ -74,6 +76,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
           <div style={{fontWeight:600,fontSize:15}}>{r.name}</div>
           {isCovering&&<span style={{fontSize:10,background:"#E8EFFC",color:"#2355A0",padding:"2px 7px",borderRadius:20,fontWeight:500}}>Covering/Filling</span>}
           {isPastry&&<span style={{fontSize:10,background:"#FAEEDA",color:"#8C5E00",padding:"2px 7px",borderRadius:20,fontWeight:500}}>Pastry · {r.batchSize||"?"} pcs/batch</span>}
+          {!isCovering&&!isPastry&&<span style={{fontSize:10,background:"#FFF9EE",color:"var(--gold)",border:"1px solid var(--border)",padding:"2px 7px",borderRadius:20,fontWeight:600}}>Total Batch: {fmt(batchCostTotal)} · {fmt(batchCostTotal / (parseFloat(r.yieldLayers) || 1))}/layer</span>}
         </div>
         {cleanNote&&<div style={{fontSize:11.5,color:"var(--muted)",marginTop:2}}>{cleanNote}</div>}
       </div>
@@ -86,6 +89,62 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
         <span style={{color:"var(--muted)",display:"flex",alignItems:"center",marginLeft:4}}>{open ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}</span>
       </div>
     </div>
+
+    {isCovering && !cov?.is_calibrated && !dismissPrompt && (
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          marginTop: 8,
+          padding: "8px 12px",
+          background: "#F0F4FA",
+          border: "1px solid #D2E0F5",
+          borderRadius: 8,
+          fontSize: 12,
+          color: "#2355A0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 6, lineHeight: 1.4 }}>
+          <span>💡</span>
+          <span>Using starting amounts. These are a sensible guess. Open the recipe and tell it one cake you have already made, and it will match your own hand instead.</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <button
+            onClick={onEdit}
+            style={{
+              background: "#2355A0",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              padding: "4px 10px",
+              fontSize: 11.5,
+              fontWeight: 600,
+              cursor: "pointer"
+            }}
+          >
+            Adjust
+          </button>
+          <button
+            onClick={() => setDismissPrompt(true)}
+            style={{
+              background: "transparent",
+              color: "#8AA0C4",
+              border: "none",
+              cursor: "pointer",
+              padding: "2px 4px",
+              fontSize: 14,
+              lineHeight: 1
+            }}
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    )}
 
     {open&&<div style={{marginTop:14,borderTop:"1px solid var(--border)",paddingTop:14}} onClick={e=>e.stopPropagation()}>
       <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr",gap:20}}>
@@ -125,6 +184,18 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
                 <td colSpan={3} style={{textAlign:"right",fontSize:12,color:"var(--muted)",paddingTop:8,borderTop:"1px solid var(--border)"}}>Total ingredient cost</td>
                 <td style={{textAlign:"right",fontWeight:700,color:"var(--gold)",fontSize:16,paddingTop:8,borderTop:"1px solid var(--border)"}}>{fmt(batchCostTotal*(isPastry?+batchCount:isCovering?1:mult!==null?factor:1))}</td>
               </tr>
+              {!isPastry&&!isCovering&&(
+                <>
+                  <tr>
+                    <td colSpan={3} style={{textAlign:"right",fontSize:12,color:"var(--muted)",paddingTop:6}}>Base batch total</td>
+                    <td style={{textAlign:"right",fontWeight:600,color:"var(--text)",fontSize:13,paddingTop:6}}>{fmt(batchCostTotal)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} style={{textAlign:"right",fontSize:12,color:"var(--muted)",paddingTop:4}}>Cost per layer</td>
+                    <td style={{textAlign:"right",fontWeight:600,color:"var(--gold)",fontSize:13,paddingTop:4}}>{fmt(batchCostTotal / (parseFloat(r.yieldLayers) || 1))}</td>
+                  </tr>
+                </>
+              )}
               {isPastry&&r.batchSize>0&&<tr>
                 <td colSpan={3} style={{textAlign:"right",fontSize:12,color:"var(--muted)",paddingTop:4}}>Cost per piece</td>
                 <td style={{textAlign:"right",fontWeight:600,color:"var(--gold)",fontSize:14,paddingTop:4}}>{fmt(costPerPiece)}</td>
@@ -208,13 +279,23 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
                     </div>
                 }
               </div>
-              {mult!==null&&<div style={{background:"var(--panel)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 12px"}}>
-                <div style={{fontSize:11,color:"var(--muted)",marginBottom:3}}>{size}" · {shape} · {layers} layer{+layers>1?"s":""}</div>
+              <div style={{background:"var(--panel)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:6}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-                  <span style={{fontSize:12,color:"var(--muted)"}}>Total ingredient cost</span>
-                  <span style={{fontSize:20,fontWeight:700,color:"var(--gold)"}}>{fmt(r.ing.reduce((s,ing)=>{const it=inventory.find(x=>x.id===ing.iid);return s+(it?it.cost*ing.qty*factor:0)},0))}</span>
+                  <span style={{fontSize:11.5,color:"var(--muted)"}}>Total batch (all ingredients)</span>
+                  <span style={{fontSize:14,fontWeight:600,color:"var(--text)"}}>{fmt(batchCostTotal)}</span>
                 </div>
-              </div>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                  <span style={{fontSize:11.5,color:"var(--muted)"}}>Cost per layer</span>
+                  <span style={{fontSize:14,fontWeight:600,color:"var(--gold)"}}>{fmt(batchCostTotal / (parseFloat(r.yieldLayers) || 1))}</span>
+                </div>
+                {mult!==null&&<div style={{borderTop:"1px dashed var(--border)",paddingTop:6,marginTop:2}}>
+                  <div style={{fontSize:11,color:"var(--muted)",marginBottom:3}}>{size}" · {shape} · {layers} layer{+layers>1?"s":""} scaled</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                    <span style={{fontSize:12,color:"var(--muted)",fontWeight:500}}>Scaled order cost</span>
+                    <span style={{fontSize:18,fontWeight:700,color:"var(--gold)"}}>{fmt(r.ing.reduce((s,ing)=>{const it=inventory.find(x=>x.id===ing.iid);return s+(it?it.cost*ing.qty*factor:0)},0))}</span>
+                  </div>
+                </div>}
+              </div>
             </>}
 
           </div>
@@ -2068,7 +2149,35 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
   const isSavingRecipeRef = useRef(false)
   const openRecipe = (r) => {
     setRecipeModalError(null)
-    setRecipeModal(r ? {...r} : {id:uid(),name:"",size:"6",tiers:1,covering:"buttercream",ing:[]})
+    if (r) {
+      const isCov = r.type === "covering" || r.type === "filling"
+      const cov = isCov ? getRecipeCoverageValues(r) : {}
+      setRecipeModal({
+        ...r,
+        application: r.application || cov.application || "spread",
+        fill_rate: r.fill_rate !== undefined ? r.fill_rate : (r.fillRate !== undefined ? r.fillRate : (cov.fill_rate ?? null)),
+        crumb_rate: r.crumb_rate !== undefined ? r.crumb_rate : (r.crumbRate !== undefined ? r.crumbRate : (cov.crumb_rate ?? 0)),
+        cover_rate: r.cover_rate !== undefined ? r.cover_rate : (r.coverRate !== undefined ? r.coverRate : (cov.cover_rate ?? null)),
+        sheet_overhang_in: r.sheet_overhang_in !== undefined ? r.sheet_overhang_in : (r.sheetOverhangIn !== undefined ? r.sheetOverhangIn : (cov.sheet_overhang_in ?? null)),
+        is_calibrated: r.is_calibrated !== undefined ? r.is_calibrated : (r.isCalibrated !== undefined ? r.isCalibrated : (cov.is_calibrated || false))
+      })
+    } else {
+      setRecipeModal({
+        id: uid(),
+        name: "",
+        size: "6",
+        tiers: 1,
+        type: "layer",
+        covering: "buttercream",
+        application: "spread",
+        fill_rate: 3.00,
+        crumb_rate: 1.64,
+        cover_rate: 3.263,
+        sheet_overhang_in: null,
+        is_calibrated: false,
+        ing: []
+      })
+    }
   }
   const saveRecipe = async () => {
     if (isSavingRecipeRef.current || saving) return
@@ -2148,6 +2257,12 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         type: r.type || "layer",
         batchWeight: r.batchWeight,
         batchSize: r.batchSize,
+        application: r.application,
+        fillRate: r.fillRate ?? r.fill_rate,
+        crumbRate: r.crumbRate ?? r.crumb_rate,
+        coverRate: r.coverRate ?? r.cover_rate,
+        sheetOverhangIn: r.sheetOverhangIn ?? r.sheet_overhang_in,
+        isCalibrated: r.isCalibrated ?? r.is_calibrated,
         ing: r.ing ? r.ing.map(i => ({ ...i })) : []
       }
       const savedCopy = await createRecipeOnServer(copyPayload)
@@ -2270,9 +2385,14 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
           <Inp label="Total batch weight (g)" type="number" value={recipeModal.batchWeight||""} onChange={v=>setRecipeModal(r=>({...r,batchWeight:v}))} placeholder="e.g. 1200"/>
           <div style={{fontSize:12,color:"var(--muted)",marginTop:18,whiteSpace:"nowrap"}}>grams per batch</div>
         </div>}
+        {(recipeModal.type||"layer")==="covering"&&<CoverageWorkedExampleAndCalibration recipeModal={recipeModal} setRecipeModal={setRecipeModal}/>}
         {recipeModal.type==="pastry"&&<div style={{marginBottom:11,display:"flex",gap:8,alignItems:"center"}}>
           <Inp label="Pieces per batch" type="number" value={recipeModal.batchSize||""} onChange={v=>setRecipeModal(r=>({...r,batchSize:+v||0}))} placeholder="e.g. 12"/>
           <div style={{fontSize:12,color:"var(--muted)",marginTop:18,whiteSpace:"nowrap"}}>pieces per batch</div>
+        </div>}
+        {(recipeModal.type==="layer"||!recipeModal.type)&&<div style={{marginBottom:11,display:"flex",gap:8,alignItems:"center"}}>
+          <Inp label="Layers per batch (optional, default: 1)" type="number" value={recipeModal.yieldLayers||""} onChange={v=>setRecipeModal(r=>({...r,yieldLayers:v}))} placeholder="e.g. 1"/>
+          <div style={{fontSize:12,color:"var(--muted)",marginTop:18,whiteSpace:"nowrap"}}>layers per batch</div>
         </div>}
         <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>
           {recipeModal.type==="pastry"?"Ingredients (per batch)":recipeModal.type==="covering"?"Ingredients (per batch)":"Ingredients (per 1 layer)"}
@@ -2305,7 +2425,14 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
           {recipeModal.type==="pastry"
             ?<>Batch cost: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory))}</strong>
               {recipeModal.batchSize>0&&<span style={{marginLeft:8,color:"var(--muted)"}}>· Cost per piece: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory)/(recipeModal.batchSize))}</strong></span>}</>
-            :<>Cost per {recipeModal.type==="covering"?"batch":"layer"}: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory))}</strong></>}
+            :recipeModal.type==="covering"
+            ?<>Cost per batch: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory))}</strong></>
+            :<>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                <span>Total batch: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory))}</strong></span>
+                <span>· Cost per layer: <strong style={{color:"var(--gold)"}}>{fmt(recipeCost(recipeModal,inventory)/(parseFloat(recipeModal.yieldLayers)||1))}</strong></span>
+              </div>
+            </>}
         </div>}
         <div style={{marginTop:12,display:"flex",gap:8}}>
           <Btn variant="success" onClick={saveRecipe} loading={saving} loadingText="Saving Recipe..." disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:5}}>
@@ -2742,3 +2869,377 @@ export function RecipeScanModal({ inventory, onClose, onImport }) {
     </div>
   )
 }
+
+export function CoverageWorkedExampleAndCalibration({ recipeModal, setRecipeModal }) {
+  const [showDetail, setShowDetail] = useState(false)
+  const [calSize, setCalSize] = useState("10")
+  const [calLayers, setCalLayers] = useState("2")
+  const [calShape, setCalShape] = useState("Round")
+  const [calUnit, setCalUnit] = useState("grams") // "grams" or "batches"
+  const [calUsed, setCalUsed] = useState("")
+  const [calSuccess, setCalSuccess] = useState(false)
+
+  const cov = getRecipeCoverageValues(recipeModal)
+  const isRolled = recipeModal.application === "rolled" || cov.application === "rolled"
+
+  // 1. Preset selection
+  const handleSelectPreset = (preset) => {
+    setRecipeModal(r => ({
+      ...r,
+      application: preset.application,
+      fill_rate: preset.fill_rate,
+      crumb_rate: preset.crumb_rate,
+      cover_rate: preset.cover_rate,
+      sheet_overhang_in: preset.sheet_overhang_in,
+      is_calibrated: false
+    }))
+    setCalSuccess(false)
+  }
+
+  // Determine current active preset if matches
+  const activePresetId = COVERAGE_PRESETS.find(p => 
+    p.application === (recipeModal.application || cov.application) &&
+    (p.fill_rate === null ? recipeModal.fill_rate === null : Number(p.fill_rate) === Number(recipeModal.fill_rate ?? cov.fill_rate)) &&
+    Number(p.cover_rate) === Number(recipeModal.cover_rate ?? cov.cover_rate)
+  )?.id
+
+  // 2. Worked example against reference cake (10" 2 layers)
+  const refOverhang = isRolled ? (Number(recipeModal.sheet_overhang_in ?? cov.sheet_overhang_in) || 2.4) : 0
+  const refGeom = calculateCakeGeometry(10, 2, "Round", refOverhang)
+  const betweenLayersG = (recipeModal.fill_rate !== null && recipeModal.fill_rate !== undefined && !isRolled)
+    ? Math.round((Number(recipeModal.fill_rate ?? cov.fill_rate) || 0) * refGeom.gap_area)
+    : 0
+  const crumbCoatG = Math.round((Number(recipeModal.crumb_rate ?? cov.crumb_rate) || 0) * refGeom.surface_area)
+  const outsideFinishG = Math.round((Number(recipeModal.cover_rate ?? cov.cover_rate) || 0) * (isRolled ? refGeom.sheet_area : refGeom.surface_area))
+  const totalRefGrams = betweenLayersG + crumbCoatG + outsideFinishG
+
+  const batchWeight = Number(recipeModal.batchWeight) || 0
+  const batchesText = batchWeight > 0 ? (totalRefGrams / batchWeight).toFixed(2) : null
+
+  // 3. Calibration calculations
+  const calOverhang = isRolled ? (Number(recipeModal.sheet_overhang_in ?? cov.sheet_overhang_in) || 2.4) : 0
+  const calGeom = calculateCakeGeometry(calSize, calLayers, calShape, calOverhang)
+  const calBaseline = calculateFillingGrams(recipeModal, calGeom) + calculateCoveringGrams(recipeModal, calGeom)
+
+  const rawEntered = parseFloat(calUsed) || 0
+  const enteredGrams = calUnit === "batches" && batchWeight > 0 ? rawEntered * batchWeight : rawEntered
+  const calScale = calBaseline > 0 && enteredGrams > 0 ? (enteredGrams / calBaseline) : 1
+  const pctDiff = calBaseline > 0 && enteredGrams > 0 ? Math.round(((enteredGrams - calBaseline) / calBaseline) * 100) : 0
+
+  const scaledFill = recipeModal.fill_rate !== null && recipeModal.fill_rate !== undefined
+    ? Number(((Number(recipeModal.fill_rate ?? cov.fill_rate) || 0) * calScale).toFixed(3))
+    : null
+  const scaledCrumb = Number(((Number(recipeModal.crumb_rate ?? cov.crumb_rate) || 0) * calScale).toFixed(3))
+  const scaledCover = Number(((Number(recipeModal.cover_rate ?? cov.cover_rate) || 0) * calScale).toFixed(3))
+
+  const handleApplyCalibration = () => {
+    if (!enteredGrams || enteredGrams <= 0) return
+    setRecipeModal(r => ({
+      ...r,
+      fill_rate: scaledFill,
+      crumb_rate: scaledCrumb,
+      cover_rate: scaledCover,
+      is_calibrated: true
+    }))
+    setCalSuccess(true)
+    setTimeout(() => setCalSuccess(false), 5000)
+  }
+
+  return (
+    <div style={{ marginBottom: 14, marginTop: 4 }}>
+      {/* SECTION: How does it go on the cake? */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <label style={{ fontSize: 10.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .8, fontWeight: 600 }}>
+            How does it go on the cake? *
+          </label>
+          {(recipeModal.is_calibrated || cov.is_calibrated) && (
+            <span style={{ fontSize: 11, color: "#1E6B37", background: "#E8F5EE", padding: "2px 8px", borderRadius: 12, fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Check size={11} /> Calibrated to your hand
+            </span>
+          )}
+        </div>
+        
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {COVERAGE_PRESETS.map(preset => {
+            const isSelected = activePresetId === preset.id
+            return (
+              <div
+                key={preset.id}
+                onClick={() => handleSelectPreset(preset)}
+                style={{
+                  padding: "9px 11px",
+                  borderRadius: 8,
+                  border: `1.5px solid ${isSelected ? "var(--gold)" : "var(--border)"}`,
+                  background: isSelected ? "#FFF9EE" : "var(--panel)",
+                  cursor: "pointer",
+                  transition: "all 0.15s"
+                }}
+              >
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: isSelected ? "var(--gold)" : "var(--text)" }}>
+                  {preset.label}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, lineHeight: 1.3 }}>
+                  {preset.subtext}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* SECTION: Worked Example against Reference Cake (10" 2 layers) */}
+      <div style={{ background: "#F5F0E4", borderRadius: 8, padding: "10px 12px", marginBottom: 10, border: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .6 }}>
+            Worked Example — 10" 2-layer round
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--gold)" }}>
+            Total: {totalRefGrams} g {batchesText ? `(${batchesText} batches)` : ""}
+          </span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, fontSize: 11.5 }}>
+          <div style={{ background: "var(--panel)", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)" }}>
+            <div style={{ color: "var(--muted)", fontSize: 10 }}>Between layers</div>
+            <div style={{ fontWeight: 600, marginTop: 1 }}>{betweenLayersG > 0 ? `${betweenLayersG} g` : "—"}</div>
+          </div>
+          <div style={{ background: "var(--panel)", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)" }}>
+            <div style={{ color: "var(--muted)", fontSize: 10 }}>Crumb coat</div>
+            <div style={{ fontWeight: 600, marginTop: 1 }}>{crumbCoatG > 0 ? `${crumbCoatG} g` : "0 g"}</div>
+          </div>
+          <div style={{ background: "var(--panel)", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)" }}>
+            <div style={{ color: "var(--muted)", fontSize: 10 }}>Outside finish</div>
+            <div style={{ fontWeight: 600, marginTop: 1 }}>{outsideFinishG} g</div>
+          </div>
+        </div>
+        <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6, fontStyle: "italic" }}>
+          The app uses this to calculate exact grams needed for any cake size in the order calculator.
+        </div>
+      </div>
+
+      {/* SECTION: Collapsible "See the detail" disclosure */}
+      <div style={{ marginBottom: 12 }}>
+        <button
+          type="button"
+          onClick={() => setShowDetail(d => !d)}
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--gold)",
+            fontSize: 11.5,
+            fontWeight: 600,
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            padding: 0,
+            marginBottom: 6
+          }}
+        >
+          {showDetail ? "Hide the detail" : "See the detail"} {showDetail ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
+        </button>
+
+        {showDetail && (
+          <div style={{ padding: "10px 12px", background: "var(--panel)", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isRolled ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8 }}>
+              {!isRolled && (
+                <div>
+                  <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
+                    Fill rate (g/in²)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={recipeModal.fill_rate ?? (cov.fill_rate || "")}
+                    onChange={e => {
+                      const v = e.target.value === "" ? null : parseFloat(e.target.value)
+                      setRecipeModal(r => ({ ...r, fill_rate: v }))
+                    }}
+                    style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
+                  />
+                </div>
+              )}
+              <div>
+                <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
+                  Crumb coat (g/in²)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={recipeModal.crumb_rate ?? (cov.crumb_rate || 0)}
+                  onChange={e => {
+                    const v = parseFloat(e.target.value) || 0
+                    setRecipeModal(r => ({ ...r, crumb_rate: v }))
+                  }}
+                  style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
+                  Outside finish (g/in²)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={recipeModal.cover_rate ?? (cov.cover_rate || "")}
+                  onChange={e => {
+                    const v = e.target.value === "" ? null : parseFloat(e.target.value)
+                    setRecipeModal(r => ({ ...r, cover_rate: v }))
+                  }}
+                  style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
+                />
+              </div>
+            </div>
+
+            {isRolled && (
+              <div style={{ borderTop: "1px dashed var(--border)", paddingTop: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
+                      Sheet overhang (inches)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={recipeModal.sheet_overhang_in ?? (cov.sheet_overhang_in || 2.4)}
+                      onChange={e => {
+                        const v = parseFloat(e.target.value) || 0
+                        setRecipeModal(r => ({ ...r, sheet_overhang_in: v }))
+                      }}
+                      style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
+                    />
+                  </div>
+                  <div style={{ flex: 2, fontSize: 11, color: "var(--muted)", marginTop: 14 }}>
+                    Extra draped around the base before trimming (default: 2.4 in).
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION: Calibration Helper */}
+      <div style={{ background: "#F0F4FA", border: "1px solid #D2E0F5", borderRadius: 8, padding: "10px 12px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: "#2355A0" }}>
+            Calibrate against a cake you've made
+          </div>
+          {calSuccess && (
+            <span style={{ fontSize: 11, color: "#1E6B37", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+              <Check size={12} /> Rates calibrated!
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.5fr", gap: 8, marginBottom: 8 }}>
+          <div>
+            <label style={{ fontSize: 9.5, color: "#4A6E9B", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
+              Cake size
+            </label>
+            <select
+              value={calSize}
+              onChange={e => setCalSize(e.target.value)}
+              style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
+            >
+              {["6", "7", "8", "9", "10", "12", "14"].map(s => <option key={s} value={s}>{s} inch</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 9.5, color: "#4A6E9B", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
+              Layers
+            </label>
+            <select
+              value={calLayers}
+              onChange={e => setCalLayers(e.target.value)}
+              style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
+            >
+              {["1", "2", "3", "4", "5", "6"].map(l => <option key={l} value={l}>{l} layer{+l > 1 ? "s" : ""}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3 }}>
+              <label style={{ fontSize: 9.5, color: "#4A6E9B", textTransform: "uppercase" }}>
+                Quantity used
+              </label>
+              <div style={{ display: "flex", gap: 4 }}>
+                <span
+                  onClick={() => setCalUnit("grams")}
+                  style={{
+                    fontSize: 9.5,
+                    cursor: "pointer",
+                    fontWeight: calUnit === "grams" ? 700 : 400,
+                    color: calUnit === "grams" ? "#2355A0" : "#8AA0C4",
+                    textDecoration: calUnit === "grams" ? "underline" : "none"
+                  }}
+                >
+                  Grams
+                </span>
+                <span style={{ fontSize: 9.5, color: "#8AA0C4" }}>|</span>
+                <span
+                  onClick={() => setCalUnit("batches")}
+                  style={{
+                    fontSize: 9.5,
+                    cursor: "pointer",
+                    fontWeight: calUnit === "batches" ? 700 : 400,
+                    color: calUnit === "batches" ? "#2355A0" : "#8AA0C4",
+                    textDecoration: calUnit === "batches" ? "underline" : "none"
+                  }}
+                >
+                  Batches
+                </span>
+              </div>
+            </div>
+            <input
+              type="number"
+              step="any"
+              placeholder={calUnit === "batches" ? "e.g. 0.5" : `e.g. ${Math.round(calBaseline)}`}
+              value={calUsed}
+              onChange={e => setCalUsed(e.target.value)}
+              style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
+            />
+          </div>
+        </div>
+
+        {/* Live Calibration Feedback */}
+        <div style={{ fontSize: 11, color: "#3B5C82", background: "#E5EDF7", padding: "6px 9px", borderRadius: 6, marginBottom: 8, lineHeight: 1.4 }}>
+          <div>
+            Standard starting amount for a {calSize}" {calLayers}-layer {calShape.toLowerCase()}: <strong>{Math.round(calBaseline)} g</strong>
+          </div>
+          {rawEntered > 0 && (
+            <>
+              <div style={{ marginTop: 2 }}>
+                You used: <strong>{Math.round(enteredGrams)} g</strong> ({pctDiff >= 0 ? `+${pctDiff}%` : `${pctDiff}%`})
+              </div>
+              <div style={{ marginTop: 2, fontSize: 10.5, color: "#2355A0" }}>
+                Updated rates: {!isRolled && `Between layers ${scaledFill} g/in², `}Crumb coat {scaledCrumb} g/in², Outside finish {scaledCover} g/in²
+              </div>
+            </>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={handleApplyCalibration}
+          disabled={!rawEntered || rawEntered <= 0}
+          style={{
+            background: rawEntered > 0 ? "#2355A0" : "#A2B8D8",
+            color: "#fff",
+            border: "none",
+            borderRadius: 6,
+            padding: "5px 12px",
+            fontSize: 11.5,
+            fontWeight: 600,
+            cursor: rawEntered > 0 ? "pointer" : "not-allowed",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4
+          }}
+        >
+          <Check size={12} /> Save these rates to this recipe
+        </button>
+      </div>
+    </div>
+  )
+}
+

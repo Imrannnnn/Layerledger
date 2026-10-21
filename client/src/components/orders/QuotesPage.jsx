@@ -609,7 +609,7 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                             )}
                           </>
                         )}
-                        {q.accRows?.length > 0 && <div><span style={{ color: "var(--muted)" }}>Boards & Packaging: </span>{q.accRows.map(a => a.name || a.type).join(", ")}</div>}
+                        {q.accRows?.length > 0 && <div><span style={{ color: "var(--muted)" }}>Boards & Packaging: </span>{q.accRows.map(a => `${Number(a.qty) > 1 ? `${a.qty}× ` : ""}${a.name || a.type}`).join(", ")}</div>}
                         <div><span style={{ color: "var(--muted)" }}>Notes: </span>{q.notes || "—"}</div>
                       </div>
                     </div>

@@ -11,7 +11,12 @@ import {
   formatDateDMY,
   todayDMY,
   isDateInMonth,
-  getMonthKeyFromDate
+  getMonthKeyFromDate,
+  calculateCakeGeometry,
+  calculateFillingGrams,
+  calculateCoveringGrams,
+  calibrateCoverageRates,
+  COVERAGE_PRESETS
 } from './helpers';
 
 jest.mock('../constants.js', () => ({
@@ -295,6 +300,100 @@ Cocoa;Dry Goods;kg;2,5;15,5;2`;
     it('should return empty list if CSV has no data rows', () => {
       const csvText = `Name,Category,Unit,Cost,Stock,MinStock`;
       expect(parseCSV(csvText)).toEqual([]);
+    });
+  });
+
+  describe('Covering & Filling Coverage Engine (Spec 6 October 2026)', () => {
+    const buttercreamRecipe = {
+      name: "Buttercream",
+      application: "spread",
+      fill_rate: 3.00,
+      crumb_rate: 1.64,
+      cover_rate: 3.263,
+      sheet_overhang_in: null
+    };
+
+    const fondantRecipe = {
+      name: "Fondant",
+      application: "rolled",
+      fill_rate: null,
+      crumb_rate: 0,
+      cover_rate: 4.435,
+      sheet_overhang_in: 2.4
+    };
+
+    const whippedCreamRecipe = {
+      name: "Whipped cream",
+      application: "spread",
+      fill_rate: 1.68,
+      crumb_rate: 0,
+      cover_rate: 1.344,
+      sheet_overhang_in: null
+    };
+
+    it('Case 1: 8" 2 layers Round, Buttercream covering -> ~492 g', () => {
+      const geo = calculateCakeGeometry(8, 2, "Round");
+      const grams = calculateCoveringGrams(buttercreamRecipe, geo);
+      expect(Math.round(grams)).toBe(492);
+    });
+
+    it('Case 2: 8" 1 layer Round, Buttercream filling + crumb -> ~165 g', () => {
+      const geo = calculateCakeGeometry(8, 1, "Round");
+      const grams = calculateFillingGrams(buttercreamRecipe, geo);
+      expect(Math.round(grams)).toBe(165);
+    });
+
+    it('Case 3: 10" 2 layers Round, Buttercream filling + crumb -> ~571 g', () => {
+      const geo = calculateCakeGeometry(10, 2, "Round");
+      const grams = calculateFillingGrams(buttercreamRecipe, geo);
+      expect(Math.round(grams)).toBe(571);
+    });
+
+    it('Case 4: 10" 2 layers Round, Fondant covering -> ~1,450 g', () => {
+      const geo = calculateCakeGeometry(10, 2, "Round", fondantRecipe.sheet_overhang_in);
+      const grams = calculateCoveringGrams(fondantRecipe, geo);
+      expect(Math.round(grams)).toBe(1450);
+    });
+
+    it('Case 5: 14" 4 layers Round, Fondant covering -> ~3,657 g', () => {
+      const geo = calculateCakeGeometry(14, 4, "Round", fondantRecipe.sheet_overhang_in);
+      const grams = calculateCoveringGrams(fondantRecipe, geo);
+      expect(Math.round(grams)).toBe(3657);
+    });
+
+    it('Case 6: 8" 2 layers Round, Whipped cream covering -> ~203 g', () => {
+      const geo = calculateCakeGeometry(8, 2, "Round");
+      const grams = calculateCoveringGrams(whippedCreamRecipe, geo);
+      expect(Math.round(grams)).toBe(203);
+    });
+
+    it('Case 7: 12" 2 layers Round, Whipped cream filling -> ~190 g', () => {
+      const geo = calculateCakeGeometry(12, 2, "Round");
+      const grams = calculateFillingGrams(whippedCreamRecipe, geo);
+      expect(Math.round(grams)).toBe(190);
+    });
+
+    it('Case 8: 8" 1 layer any recipe between layers -> 0 g', () => {
+      const geo = calculateCakeGeometry(8, 1, "Round");
+      const gapOnlyGrams = (buttercreamRecipe.fill_rate || 0) * geo.gap_area;
+      expect(gapOnlyGrams).toBe(0);
+    });
+
+    it('Case 9: Calibration helper matches spec scale and resulting rates', () => {
+      // Buttercream, 10", 2 layers, entered total 1,387 g
+      const result = calibrateCoverageRates(buttercreamRecipe, {
+        sizeInches: 10,
+        layerCount: 2,
+        shape: "Round",
+        enteredGrams: 1387
+      });
+
+      expect(result.baseline).toBeCloseTo(1236.8, 1);
+      expect(result.scale).toBeCloseTo(1.1214, 3);
+      expect(result.fill_rate).toBeCloseTo(3.3642, 3);
+      expect(result.crumb_rate).toBeCloseTo(1.8391, 3);
+      expect(result.cover_rate).toBeCloseTo(3.6592, 3);
+      expect(result.is_calibrated).toBe(true);
     });
   });
 });

@@ -10,7 +10,7 @@
 import React, { useState, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, Badge, Modal, Alert } from "../common/ui.jsx"
 import { saveCompany, saveSetting, saveInventory, saveRecipes, saveLocal, loadLocal, saveOpeningStock, refundScanCredits } from "../../lib/data.js"
-import { uid, fmt, fmtCost, parseCSV, formatApiError, callClaude, compressImage, extractAndRepairJson } from "../../lib/helpers.js"
+import { uid, fmt, fmtCost, parseCSV, formatApiError, callClaude, compressImage, extractAndRepairJson, convertToGrams, parseExcelOrSpreadsheet } from "../../lib/helpers.js"
 import { AlertTriangle, Check, FileSpreadsheet, PenLine, Lock, Calculator, BookOpen, Receipt, Search, X, Camera, Sparkles, UploadCloud, FileText, RefreshCw, Upload, Image as ImageIcon } from "lucide-react"
 
 export function Onboarding({ gold, company, setCompany, inventory, setInventory, recipes, setRecipes, settings, setSettings, onComplete, onSkip, onBack, setView }) {
@@ -32,6 +32,9 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
   // Step 4: Margin State
   const [profitPct, setProfitPct] = useState(settings.profitPct || 40)
+  const [overheadPct, setOverheadPct] = useState(settings.overheadPct !== undefined ? settings.overheadPct : 27)
+  const [accessoryPct, setAccessoryPct] = useState(settings.accessoryPct !== undefined ? settings.accessoryPct : 10)
+  const [miscPct, setMiscPct] = useState(settings.miscPct !== undefined ? settings.miscPct : 5)
 
   // Excel / PDF / Photo Import Modal State (Step 2)
   const [showImport, setShowImport] = useState(false)
@@ -463,17 +466,33 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   }
 
   // AI Scan Handlers for Inventory (Step 2)
-  const handleAiFileSelect = (e) => {
+  const handleAiFileSelect = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     setAiScanError("")
     setAiScanRefund("")
 
+    const isExcel = /\.(xlsx|xls|csv)$/i.test(file.name) || file.type?.includes("sheet") || file.type?.includes("excel") || file.type === "text/csv"
     const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf"
     const isImg = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)
 
-    if (!isPdf && !isImg) {
-      setAiScanError("Please select a PDF document (.pdf) or an image photo (.jpg, .png, .webp).")
+    if (!isExcel && !isPdf && !isImg) {
+      setAiScanError("Please select an Excel sheet (.xlsx, .xls, .csv), a PDF document (.pdf), or an image photo (.jpg, .png, .webp).")
+      return
+    }
+
+    if (isExcel) {
+      try {
+        const textContent = await parseExcelOrSpreadsheet(file)
+        setAiFile({
+          name: file.name,
+          size: (file.size / 1024).toFixed(1) + " KB",
+          type: "excel",
+          textContent
+        })
+      } catch (err) {
+        setAiScanError(`Could not read Excel file: ${err.message}`)
+      }
       return
     }
 
@@ -497,7 +516,12 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
 
     try {
       const content = []
-      if (aiFile.type === "pdf") {
+      if (aiFile.type === "excel") {
+        content.push({
+          type: "text",
+          text: `You are an expert AI inventory and stock-audit specialist. Below is the text content extracted from an uploaded Excel spreadsheet (.xlsx/.xls) or CSV:\n\n${aiFile.textContent}\n\n`
+        })
+      } else if (aiFile.type === "pdf") {
         const base64Data = aiFile.rawBase64.includes(",") ? aiFile.rawBase64.split(",")[1] : aiFile.rawBase64
         content.push({
           type: "document",
@@ -520,20 +544,20 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
       }
 
       const promptText = `You are an expert AI inventory and stock-audit specialist for a bakery and cake business.
-Analyze this document or photo carefully. The input could be:
-1. An inventory list, stock-take sheet, or spreadsheet (printed or PDF).
-2. A supplier invoice, receipt, purchase order, or waybill (e.g. from flour mills, supermarket, packaging store).
-3. A handwritten inventory sheet, notebook page, or paper stock count.
-4. A photo of physical bakery stock, pantry shelves, ingredients (flour sacks, sugar bags, butter, eggs, flavour bottles, boxes, cake boards).
-5. A price list or quotation for bakery supplies.
+Analyze this document, spreadsheet, or photo carefully. The input could be:
+1. An Excel spreadsheet, stock-take sheet, inventory table, or CSV list.
+2. An inventory list, stock-take sheet, or spreadsheet (printed or PDF).
+3. A supplier invoice, receipt, purchase order, or waybill (e.g. from flour mills, supermarket, packaging store).
+4. A handwritten inventory sheet, notebook page, or paper stock count.
+5. A photo of physical bakery stock, pantry shelves, ingredients (flour sacks, sugar bags, butter, eggs, flavour bottles, boxes, cake boards).
 
 YOUR GOAL: Extract EVERY single distinct ingredient, material, packaging item, or supply item visible in this file.
 
 For each item, extract:
 - "name": Clean, standard ingredient/item name (e.g. "Flour", "Granulated Sugar", "Unsalted Butter", "Eggs", "Vanilla Flavour", "10-inch Cake Board", "Cocoa Powder", "Baking Powder").
-- "unit": Standard measurement unit. Use "g", "kg", "ml", "l", "pcs", "crate", "carton", "pack", or "bag". Never leave empty. Default dry goods to "g" or "kg", liquids to "ml" or "l", packaging/eggs to "pcs" or "crate".
-- "openingQty": Stock quantity or count visible. If it's a photo of physical items, count how many are visible (e.g. 2 sacks -> 2). If not specified or unknown, default to 1.
-- "cost": Cost or price per unit (in Nigerian Naira ₦ or number). If an invoice has a total price and quantity, calculate unit price = total / quantity. If cost is not visible or unknown, set cost to 0 so the user can enter it.
+- "unit": IMPORTANT: Automatically convert all weight and mass units to grams ("g") regardless of the original unit on the sheet or package (e.g. 50kg bag -> 50000 g, 1kg -> 1000 g, 500g -> 500 g, 2 lbs -> 907 g). For items that cannot be weighed in grams like cake boards or packaging boxes or eggs, use "pcs", but for all baking ingredients, always convert the unit to "g".
+- "openingQty": Stock quantity or count visible. If converted to grams, return the quantity in grams (e.g. 50kg -> 50000). If not specified or unknown, default to 1.
+- "cost": Cost or price per unit (in Nigerian Naira ₦ or number). If an invoice has a total price and quantity, calculate unit price = total / quantity. If cost is per kg and converted to grams, calculate cost per gram (total price / total grams). If cost is not visible, set to 0.
 - "category": Choose one of: "Dry Goods", "Dairy", "Flavours & Colours", "Packaging", "Decorations", "Other".
 
 Return ONLY valid JSON in this exact structure, with no markdown code fences or conversational text:
@@ -541,9 +565,9 @@ Return ONLY valid JSON in this exact structure, with no markdown code fences or 
   "items": [
     {
       "name": "Flour",
-      "unit": "kg",
-      "openingQty": 50,
-      "cost": 1140,
+      "unit": "g",
+      "openingQty": 50000,
+      "cost": 1.14,
       "category": "Dry Goods"
     }
   ]
@@ -559,7 +583,7 @@ Return ONLY valid JSON in this exact structure, with no markdown code fences or 
           role: "user",
           content: content
         }
-      ], "You are an expert AI vision assistant for a bakery business. Extract inventory and opening stock items from documents or photos into JSON. Return valid JSON only.", 4000, { creditCost: 2, feature: "inventory_scanner" })
+      ], "You are an expert AI vision assistant for a bakery business. Extract inventory and opening stock items from documents, spreadsheets, or photos into JSON. Return valid JSON only.", 4000, { creditCost: 2, feature: "inventory_scanner" })
 
       let result = null
       try {
@@ -583,7 +607,7 @@ Return ONLY valid JSON in this exact structure, with no markdown code fences or 
             setAiScanRefund("Scan could not read any items. 2 credits refunded automatically.")
           } catch (_) {}
         }
-        setAiScanError("No inventory items could be detected in this file. Please make sure the photo or document is clear and readable.")
+        setAiScanError("No inventory items could be detected in this file. Please make sure the photo, spreadsheet, or document is clear and readable.")
         return
       }
 
@@ -593,13 +617,16 @@ Return ONLY valid JSON in this exact structure, with no markdown code fences or 
         const rawQty = it.openingQty !== undefined ? it.openingQty : (it.stock !== undefined ? it.stock : (it.qty || 1))
         const qtyNum = parseFloat(String(rawQty).replace(/[^0-9.]/g, "")) || 1
 
+        // Automatically convert unit to grams
+        const converted = convertToGrams(qtyNum, it.unit || "g", costNum)
+
         return {
           id: uid(),
           name: (it.name || it.item || "Unnamed Item").trim(),
-          unit: it.unit || "g",
-          cost: costNum,
-          stock: qtyNum,
-          openingQty: qtyNum,
+          unit: converted.unit,
+          cost: converted.cost,
+          stock: converted.qty,
+          openingQty: converted.qty,
           minStock: 5,
           on: true,
           cat: it.category || "Dry Goods"
@@ -820,13 +847,15 @@ Return ONLY valid JSON:
       const extractedCost = parseFloat(String(itemData.cost || itemData.unit_price || 0).replace(/[^0-9.]/g, "")) || ""
       const extractedQty = parseFloat(String(itemData.openingQty || itemData.qty || itemData.stock || 1).replace(/[^0-9.]/g, "")) || ""
 
+      const conv = convertToGrams(extractedQty !== "" ? extractedQty : 1, itemData.unit || "g", extractedCost !== "" ? extractedCost : 0)
+
       setCalcMode("manual")
       setManualItem(m => ({
         ...m,
         name: itemData.name || m.name,
-        unit: itemData.unit || m.unit,
-        cost: extractedCost !== "" ? extractedCost : m.cost,
-        openingQty: extractedQty !== "" ? extractedQty : m.openingQty
+        unit: conv.unit,
+        cost: extractedCost !== "" ? conv.cost : m.cost,
+        openingQty: extractedQty !== "" ? conv.qty : m.openingQty
       }))
     } catch (err) {
       console.error("Manual add scan failed:", err)
@@ -1049,6 +1078,27 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
       name: item.name,
       unit: item.unit || "g",
       cost: item.cost,
+      openingQty: numericOS[item.id] !== undefined ? numericOS[item.id] : (parseFloat(item.stock) || 0),
+      locked: false
+    }))
+    await saveOpeningStock(osList, currentMonthStr, false)
+  }
+
+  const updateUnit = async (id, val) => {
+    const updatedInv = inventory.map(item => item.id === id ? { ...item, unit: val } : item)
+    setInventory(updatedInv)
+    await saveInventory(updatedInv)
+
+    const currentMonthStr = new Date().toISOString().slice(0, 7)
+    const numericOS = Object.fromEntries(
+      Object.entries(os).map(([k, v]) => [k, v === "" ? 0 : (parseFloat(v) || 0)])
+    )
+    const osList = updatedInv.map(item => ({
+      id: "os_" + item.id,
+      itemId: item.id,
+      name: item.name,
+      unit: item.unit || "g",
+      cost: item.cost === "" || item.cost === undefined ? 0 : (parseFloat(item.cost) || 0),
       openingQty: numericOS[item.id] !== undefined ? numericOS[item.id] : (parseFloat(item.stock) || 0),
       locked: false
     }))
@@ -1600,38 +1650,17 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
                       return (
                         <tr key={item.id} style={{ background: i % 2 === 0 ? "var(--panel)" : "#F8F3EA" }}>
                           <td style={{ padding: "8px 10px", fontWeight: 500 }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                              <span>{item.name}</span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setScanningItem(item)
-                                  setItemScanFile(null)
-                                  setItemScanResult(null)
-                                  setItemScanError("")
-                                }}
-                                title={`Scan photo or receipt for ${item.name}`}
-                                style={{
-                                  background: "none",
-                                  border: "1px solid var(--border)",
-                                  borderRadius: 6,
-                                  padding: "2px 6px",
-                                  cursor: "pointer",
-                                  color: "var(--muted)",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: 3,
-                                  fontSize: 10.5,
-                                  flexShrink: 0
-                                }}
-                                onMouseEnter={e => { e.currentTarget.style.borderColor = gold; e.currentTarget.style.color = gold }}
-                                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)" }}
-                              >
-                                <Camera size={11} /> Scan
-                              </button>
-                            </div>
+                            <span>{item.name}</span>
                           </td>
-                          <td style={{ padding: "8px 10px", color: "var(--muted)" }}>{item.unit}</td>
+                          <td style={{ padding: "8px 10px" }}>
+                            <input
+                              type="text"
+                              value={item.unit || ""}
+                              onChange={e => updateUnit(item.id, e.target.value)}
+                              placeholder="g"
+                              style={{ ...iSt, width: 60, padding: "4px 8px", fontSize: 12.5 }}
+                            />
+                          </td>
                           <td style={{ padding: "8px 10px", textAlign: "right" }}>
                             <input
                               type="number"
@@ -2035,23 +2064,23 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
                           >
                             <UploadCloud size={26} color="var(--gold)" style={{ margin: "0 auto 6px" }} />
                             <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>
-                              Click or drop PDF document or photo here
+                              Click or drop Excel sheet, PDF document, or photo here
                             </div>
                             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                              Supports .pdf, .jpg, .png, .webp (invoices, stock sheets, photos)
+                              Supports .xlsx, .xls, .csv, .pdf, .jpg, .png, .webp (spreadsheets, invoices, stock sheets, photos)
                             </div>
                           </div>
 
                           <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                             <Btn small variant="outline" onClick={() => aiFileInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                              <UploadCloud size={13} /> Select PDF or Photo
+                              <FileSpreadsheet size={13} /> Select Excel, PDF, or Photo
                             </Btn>
                             <Btn small variant="outline" onClick={() => aiCameraInputRef.current?.click()} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                               <Camera size={13} /> Take photo
                             </Btn>
                           </div>
 
-                          <input ref={aiFileInputRef} type="file" accept=".pdf,image/*,application/pdf" onChange={handleAiFileSelect} style={{ display: "none" }} />
+                          <input ref={aiFileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,image/*,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={handleAiFileSelect} style={{ display: "none" }} />
                           <input ref={aiCameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleAiFileSelect} style={{ display: "none" }} />
                         </div>
                       ) : (
@@ -2060,6 +2089,8 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               {aiFile.type === "image" ? (
                                 <img src={aiFile.rawBase64} alt="Preview" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6 }} />
+                              ) : aiFile.type === "excel" ? (
+                                <FileSpreadsheet size={30} color="var(--gold)" />
                               ) : (
                                 <FileText size={30} color="var(--gold)" />
                               )}
@@ -2211,7 +2242,10 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 14 }}>{r.name}</div>
                       <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{r.notes || "Cake layer recipe"}</div>
-                      <div style={{ fontSize: 11, color: gold, fontWeight: 600, marginTop: 4 }}>Cost: {fmt(totalCost)} / layer</div>
+                      <div style={{ fontSize: 11, color: gold, fontWeight: 600, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <span>Total batch: <strong>{fmt(totalCost)}</strong></span>
+                        <span>· Cost per layer: <strong>{fmt(totalCost / (r.yieldLayers || 1))}</strong></span>
+                      </div>
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
                       <Btn small variant="ghost" onClick={() => openRecipe(r)}>Edit</Btn>
@@ -2250,7 +2284,7 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
                   }
                   setOnboardingError(null)
                   setStep(4)
-                }}>Next: Profit Margin →</Btn>
+                }}>Set Margin →</Btn>
               </div>
             </div>
 
@@ -2831,6 +2865,19 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
                     )
                   })}
                 </div>
+                {recipeModal.ing.length > 0 && (() => {
+                  const modalBatchCost = recipeModal.ing.reduce((s, ing) => {
+                    const it = inventory.find(x => x.id === ing.iid)
+                    return s + (it ? it.cost * (parseFloat(ing.qty) || 0) : 0)
+                  }, 0)
+                  const layersYield = parseFloat(recipeModal.yieldLayers) || 1
+                  return (
+                    <div style={{ marginBottom: 12, padding: "8px 12px", background: "#F5F0E4", borderRadius: 7, fontSize: 12.5, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                      <div>Total batch: <strong style={{ color: "var(--gold)" }}>{fmt(modalBatchCost)}</strong></div>
+                      <div>Cost per layer: <strong style={{ color: "var(--gold)" }}>{fmt(modalBatchCost / layersYield)}</strong></div>
+                    </div>
+                  )
+                })()}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <Btn small variant="ghost" onClick={addIngToRecipe}>+ Add Ingredient</Btn>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -2843,25 +2890,83 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
           </div>
         )}
 
-        {/* STEP 4: SET PROFIT MARGIN */}
+        {/* STEP 4: SET MARGINS */}
         {step === 4 && (
           <div>
-            <div style={{ textAlign: "center", marginBottom: 22 }}>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>Step 4 — Set Profit Margin</div>
-              <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>Choose your default net profit margin. The calculator will automatically suggest prices to protect this margin. You can change this anytime.</div>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>Step 4 — Set Margins</div>
+              <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>Choose your default net profit margin and production allowances. The calculator automatically protects these to keep your bakery profitable. You can adjust them anytime.</div>
             </div>
 
-            <div style={{ background: "#FAF7F0", padding: "16px 20px", borderRadius: 12, border: "1px solid var(--border)", marginBottom: 20, textAlign: "center" }}>
-              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", marginBottom: 6 }}>Target Margin</div>
-              <div style={{ fontSize: 36, fontWeight: 700, color: gold }}>{profitPct}%</div>
-              <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text)", marginTop: 4 }}>{getMarginLabel(profitPct)}</div>
-            </div>
-
-            <div style={{ marginBottom: 24 }}>
+            {/* Profit Margin */}
+            <div style={{ background: "#FAF7F0", padding: "16px 20px", borderRadius: 12, border: "1px solid var(--border)", marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 14, fontWeight: 600, color: "var(--text)" }}>Default Profit Margin</span>
+                <span style={{ fontSize: 24, fontWeight: 700, color: gold }}>{profitPct}%</span>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>Share of the final selling price kept as profit after every single cost is covered.</div>
               <input type="range" min={10} max={80} step={5} value={profitPct} onChange={e => { setProfitPct(+e.target.value); st("profitPct", +e.target.value) }} style={{ width: "100%", accentColor: gold, cursor: "pointer", height: 6 }} />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-                <span>10% (Low Profit)</span>
-                <span>80% (High Profit)</span>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                <span>10% (Low Margin)</span>
+                <span style={{ fontWeight: 500, color: "var(--text)" }}>{getMarginLabel(profitPct)}</span>
+                <span>80% (High Margin)</span>
+              </div>
+            </div>
+
+            {/* Overhead Allowance */}
+            <div style={{ background: "#FAF7F0", padding: "14px 18px", borderRadius: 12, border: "1px solid var(--border)", marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 13.5, fontWeight: 600, color: "var(--text)" }}>Overhead Allowance</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: gold }}>{overheadPct}%</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 8 }}>Covers bakery rent, electricity, generator fuel, salaries and equipment wear on top of ingredients.</div>
+              <input type="range" min={0} max={45} step={1} value={overheadPct} onChange={e => { setOverheadPct(+e.target.value); st("overheadPct", +e.target.value) }} style={{ width: "100%", accentColor: gold, cursor: "pointer", height: 6 }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--muted)", marginTop: 3 }}>
+                <span>0%</span>
+                <span>Recommended: 20% - 30%</span>
+                <span>45%</span>
+              </div>
+            </div>
+
+            {/* Accessories Allowance */}
+            <div style={{ background: "#FAF7F0", padding: "14px 18px", borderRadius: 12, border: "1px solid var(--border)", marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 13.5, fontWeight: 600, color: "var(--text)" }}>Accessories Allowance</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: gold }}>{accessoryPct}%</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 8 }}>Covers small consumables too small to measure every time (cling film, greaseproof paper, gas, dowels).</div>
+              <input type="range" min={0} max={30} step={1} value={accessoryPct} onChange={e => { setAccessoryPct(+e.target.value); st("accessoryPct", +e.target.value) }} style={{ width: "100%", accentColor: gold, cursor: "pointer", height: 6 }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--muted)", marginTop: 3 }}>
+                <span>0%</span>
+                <span>Recommended: 5% - 15%</span>
+                <span>30%</span>
+              </div>
+            </div>
+
+            {/* Miscellaneous Allowance */}
+            <div style={{ background: "#FAF7F0", padding: "14px 18px", borderRadius: 12, border: "1px solid var(--border)", marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 13.5, fontWeight: 600, color: "var(--text)" }}>Miscellaneous Allowance</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: gold }}>{miscPct}%</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 8 }}>Safety buffer for minor ingredient wastage, spills, or unforeseen bakery production incidentals.</div>
+              <input type="range" min={0} max={30} step={1} value={miscPct} onChange={e => { setMiscPct(+e.target.value); st("miscPct", +e.target.value) }} style={{ width: "100%", accentColor: gold, cursor: "pointer", height: 6 }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--muted)", marginTop: 3 }}>
+                <span>0%</span>
+                <span>Default: 5%</span>
+                <span>30%</span>
+              </div>
+            </div>
+
+            {/* Transparent Calculation Preview Box */}
+            <div style={{ padding: "12px 14px", background: "#F5F0E4", borderRadius: 10, fontSize: 12, color: "var(--muted)", marginBottom: 20, lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>Pricing Example (Ingredients: ₦10,000)</div>
+              <div>• Overhead ({overheadPct}%): ₦{Math.round(10000 * (overheadPct / 100)).toLocaleString()}</div>
+              <div>• Accessories ({accessoryPct}%): ₦{Math.round(10000 * (accessoryPct / 100)).toLocaleString()}</div>
+              <div>• Miscellaneous ({miscPct}%): ₦{Math.round(10000 * (miscPct / 100)).toLocaleString()}</div>
+              <div>• Total Cost: <strong>₦{Math.round(10000 * (1 + overheadPct / 100 + accessoryPct / 100 + miscPct / 100)).toLocaleString()}</strong></div>
+              <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px dashed var(--border)" }}>
+                • Suggested Selling Price ({profitPct}% profit): <strong style={{ color: gold, fontSize: 13 }}>{fmt(Math.round((10000 * (1 + overheadPct / 100 + accessoryPct / 100 + miscPct / 100)) / Math.max(0.05, 1 - profitPct / 100)))}</strong>
               </div>
             </div>
 
@@ -2877,7 +2982,13 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
                     Skip setup
                   </button>
                 )}
-                <Btn onClick={() => setStep(5)}>Save & Finish →</Btn>
+                <Btn onClick={() => {
+                  st("profitPct", +profitPct)
+                  st("overheadPct", +overheadPct)
+                  st("accessoryPct", +accessoryPct)
+                  st("miscPct", +miscPct)
+                  setStep(5)
+                }}>Save & Finish →</Btn>
               </div>
             </div>
           </div>

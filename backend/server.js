@@ -75,6 +75,7 @@ app.use('/api/plans', require('./routes/planRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/superadmin', require('./routes/superadminRoutes'));
 app.use('/api/claude', require('./routes/claudeRoutes'));
+app.use('/api/financial-assistant', require('./routes/financialAssistantRoutes'));
 app.use('/api/opening-stock', require('./routes/openingStockRoutes'));
 app.use('/api/migrate-legacy', require('./routes/migrationRoutes'));
 
@@ -141,7 +142,7 @@ async function startServer() {
             const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
             const dbName = parsed.pathname ? parsed.pathname.replace('/', '') : '';
             dbLabel = isLocal
-                ? `🟢 LOCAL PostgreSQL Database (${parsed.hostname}:${parsed.port || 5432}/${dbName}) [ZERO Neon Bandwidth]`
+                ? `🟢 LOCAL PostgreSQL Database (${parsed.hostname}:${parsed.port || 5432}/${dbName}) [ZERO Supabase Bandwidth]`
                 : `REMOTE SUPERBASE CLOUD Database (${parsed.hostname}/${dbName})`;
         } catch {
             dbLabel = dbUrl.includes('localhost') ? '🟢 LOCAL PostgreSQL' : 'REMOTE SUPERBASE CLOUD';
@@ -192,7 +193,7 @@ async function startServer() {
 
             // Initial non-blocking check 30 seconds after boot
             setTimeout(() => {
-                subscriptionWatcher.checkExpiringSubscriptions(3).catch(() => {});
+                subscriptionWatcher.checkExpiringSubscriptions(3).catch(() => { });
             }, 30000);
         });
     } catch (error) {

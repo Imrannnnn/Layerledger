@@ -13,6 +13,16 @@ import { saveExpenses } from "../../lib/data.js"
 import { Lightbulb, Trash2, Zap, Pencil, Check, X, Download, Search } from "lucide-react"
 import { exportExpensesPDF } from "../../lib/pdfReportGenerator.js"
 
+export const isPurchaseExpense = (e) => {
+  if (!e) return false
+  if (e.source === "purchase") return true
+  if (e.purchaseId) return true
+  if (e.category === "Purchases") return true
+  const desc = String(e.description || "").trim().toLowerCase()
+  if (desc.startsWith("purchase:") || desc.startsWith("purchase :")) return true
+  return false
+}
+
 export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
   const [tab, setTab] = useState("monthly")
   const [adding, setAdding] = useState(false)
@@ -242,8 +252,8 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
 
   // Filter logic
   const filtered = expenses.filter(e => {
-    // Ingredient purchases are tracked separately in Purchases, exclude here
-    if (e.source === "purchase") return false
+    // Ingredient purchases are tracked separately in Purchases, disconnected from overhead expenses
+    if (isPurchaseExpense(e)) return false
 
     // Filter globally by the selected month
     if (!isDateInMonth(e.date, selectedMonth)) return false
@@ -293,10 +303,10 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
 
 
   const handleDeleteAll = async () => {
-    if (!window.confirm("Are you sure you want to delete ALL overhead expenses? This will permanently delete all manual and bank expenses across all months. (Ingredient purchase expenses will be preserved). This cannot be undone.")) return
+    if (!window.confirm("Are you sure you want to delete ALL overhead expenses? This will permanently delete all manual and bank expenses across all months. This cannot be undone.")) return
     setDeletingAll(true)
     try {
-      const updated = expenses.filter(e => e.source === "purchase")
+      const updated = []
       setExpenses(updated)
       await saveExpenses(updated)
     } catch (err) {
@@ -306,7 +316,7 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
     }
   }
 
-  const hasExpenses = expenses.some(e => e.source !== "purchase")
+  const hasExpenses = expenses.some(e => !isPurchaseExpense(e))
 
   const total = filtered.reduce((sum, e) => sum + (e.amount || 0), 0)
 
@@ -384,7 +394,7 @@ export function Expenses({ expenses, setExpenses, isOwner, company = {} }) {
               </Btn>
             )
           )}
-          <Btn onClick={() => setAdding(!adding)}>+ Add Cash Expense</Btn>
+          <Btn onClick={() => setAdding(!adding)}>+ Add Expense</Btn>
         </div>
       </div>
 

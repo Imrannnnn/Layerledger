@@ -380,7 +380,12 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
 
   // Overhead Expenses: total from the Expenses tab, excluding ingredient purchases
   const mExp = useMemo(() => {
-    return (expenses || []).filter(e => isDateInMonth(e.date, sel) && e.source !== "purchase")
+    return (expenses || []).filter(e => {
+      if (!isDateInMonth(e.date, sel)) return false
+      const desc = String(e.description || "").trim().toLowerCase()
+      const isPurchase = e.source === "purchase" || e.purchaseId || e.category === "Purchases" || desc.startsWith("purchase:") || desc.startsWith("purchase :")
+      return !isPurchase
+    })
   }, [expenses, sel])
 
   const overhead = useMemo(() => {

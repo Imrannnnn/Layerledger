@@ -103,8 +103,8 @@ describe("Onboarding AI PDF & Photo Scanning", () => {
     // Verify Option A (AI Scan) and Option B (Excel) are both present
     expect(container.textContent).toContain("Option A: Scan PDF or Photo with AI")
     expect(container.textContent).toContain("Option B: Paste Columns from Excel")
-    expect(container.textContent).toContain("Click or drop PDF document or photo here")
-    expect(container.textContent).toContain("Select PDF or Photo")
+    expect(container.textContent).toContain("Click or drop Excel sheet, PDF document, or photo here")
+    expect(container.textContent).toContain("Select Excel, PDF, or Photo")
     expect(container.textContent).toContain("Take photo")
     expect(container.textContent).toContain("Open your Excel. Copy each column and paste into its own box")
   })
@@ -202,8 +202,8 @@ describe("Onboarding AI PDF & Photo Scanning", () => {
     expect(container.textContent).toContain("Extracted 2 items from stock_take_sheet.pdf")
     expect(container.textContent).toContain("Dangote Sugar")
     expect(container.textContent).toContain("Simas Margarine")
-    expect(container.textContent).toContain("25 kg")
-    expect(container.textContent).toContain("10 kg")
+    expect(container.textContent).toContain("25000 g")
+    expect(container.textContent).toContain("10000 g")
 
     // Confirm import
     const confirmBtn = Array.from(container.querySelectorAll("button")).find(b =>
@@ -223,7 +223,7 @@ describe("Onboarding AI PDF & Photo Scanning", () => {
     window.FileReader.prototype.readAsDataURL = origReadAsDataURL
   })
 
-  test("Step 2 inventory table has Scan button for each item to scan packaging/receipt photo", async () => {
+  test("Step 2 inventory table rows do not carry scan icon button", async () => {
     await act(async () => {
       root.render(
         <Onboarding
@@ -249,82 +249,10 @@ describe("Onboarding AI PDF & Photo Scanning", () => {
       nextBtn.click()
     })
 
-    // Find the Scan button in the Flour row
-    const scanBtn = Array.from(container.querySelectorAll("button")).find(b =>
-      b.textContent.includes("Scan") && b.title?.includes("Flour")
-    )
-    expect(scanBtn).toBeTruthy()
-
-    // Click Scan button on Flour
-    await act(async () => {
-      scanBtn.click()
-    })
-
-    // Modal should open for Flour
-    expect(container.textContent).toContain("Scan Photo for Flour")
-    expect(container.textContent).toContain("Upload or snap a photo of your Flour bag")
-
-    // Mock FileReader
-    const mockPhoto = new File(["dummy photo data"], "flour_sack.jpg", { type: "image/jpeg" })
-    const origReadAsDataURL = window.FileReader.prototype.readAsDataURL
-    window.FileReader.prototype.readAsDataURL = function () {
-      setTimeout(() => {
-        this.onload({ target: { result: "data:image/jpeg;base64,mockImageData" } })
-      }, 10)
-    }
-
-    const itemFileInput = container.querySelector("input[accept='image/*,.pdf']")
-    expect(itemFileInput).toBeTruthy()
-
-    await act(async () => {
-      Object.defineProperty(itemFileInput, "files", {
-        value: [mockPhoto],
-        writable: true
-      })
-      itemFileInput.dispatchEvent(new Event("change", { bubbles: true }))
-    })
-
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50))
-    })
-
-    expect(container.textContent).toContain("flour_sack.jpg")
-
-    // Mock AI scan response for single item
-    helpersLib.callClaude.mockResolvedValueOnce(JSON.stringify({
-      name: "Golden Penny Flour",
-      unit: "kg",
-      cost: 1140,
-      openingQty: 50
-    }))
-
-    // Click Scan Photo with AI
-    const runScanBtn = Array.from(container.querySelectorAll("button")).find(b =>
-      b.textContent.includes("Scan Photo with AI")
-    )
-    expect(runScanBtn).toBeTruthy()
-
-    await act(async () => {
-      runScanBtn.click()
-    })
-
-    // Verify detected details are shown
-    expect(container.textContent).toContain("AI Scan Detected Details")
-    expect(container.textContent).toContain("Apply to Flour")
-
-    // Apply to Flour
-    const applyBtn = Array.from(container.querySelectorAll("button")).find(b =>
-      b.textContent.includes("Apply to Flour")
-    )
-    await act(async () => {
-      applyBtn.click()
-    })
-
-    // Verify inventory cost and opening stock were updated
-    expect(dataLib.saveInventory).toHaveBeenCalled()
-    expect(dataLib.saveOpeningStock).toHaveBeenCalled()
-
-    window.FileReader.prototype.readAsDataURL = origReadAsDataURL
+    // Verify no Scan button exists in the table rows
+    const rowButtons = Array.from(container.querySelectorAll("tbody tr button"))
+    const scanBtn = rowButtons.find(b => b.textContent.includes("Scan"))
+    expect(scanBtn).toBeUndefined()
   })
 
   test("Manual Add modal provides Auto-Fill from Photo button", async () => {

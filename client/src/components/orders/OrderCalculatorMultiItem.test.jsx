@@ -15,7 +15,9 @@ jest.mock("../../lib/data", () => ({
   saveQuotes: jest.fn().mockResolvedValue(true),
   loadClients: jest.fn(() => []),
   upsertClient: jest.fn().mockResolvedValue(true),
-  clearTempCalculatorState: jest.fn()
+  clearTempCalculatorState: jest.fn(),
+  loadTempCalculatorState: jest.fn(() => null),
+  saveTempCalculatorState: jest.fn()
 }))
 
 // Mock UI components
@@ -890,4 +892,54 @@ describe("OrderCalculator Multi-Item Tests", () => {
     expect(clientNameInput.value).toBe("")
     expect(dataLib.clearTempCalculatorState).toHaveBeenCalled()
   })
+
+  it("allows multiplying quantity for Boards & Packaging items and computes multiplied cost", async () => {
+    sessionStorage.setItem("ll_calc_prefill", JSON.stringify({
+      clientName: "Packaging Test Client",
+      items: [
+        {
+          id: "cake-pkg-test",
+          type: "cake",
+          name: "Item 1 — Board Multiplication Cake",
+          tiers: [{ id: 1, size: "8", shape: "Round", layers: [{ id: 10, flavour: "Vanilla", qty: 1 }], coverings: [], fillings: [] }],
+          photos: [],
+          decQty: {},
+          accRows: [
+            { id: "row-board-1", itemId: "i-board-10", name: "Cake board 10\"", price: 600, qty: 3 }
+          ]
+        }
+      ]
+    }))
+
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <OrderCalculator
+          inventory={mockInventory}
+          recipes={mockRecipes}
+          settings={mockSettings}
+          setView={jest.fn()}
+          company={{ name: "BakeWealth" }}
+        />
+      )
+    })
+
+    // Quantity input should have value 3
+    const qtyInput = container.querySelector("input[title='Quantity (multiplier)']")
+    expect(qtyInput).not.toBeNull()
+    expect(qtyInput.value).toBe("3")
+
+    // The line price should display 3 * 600 = 1,800
+    expect(container.textContent).toContain("1,800")
+
+    // Change quantity from 3 to 5
+    await act(async () => {
+      typeIntoInput(qtyInput, "5")
+    })
+
+    expect(qtyInput.value).toBe("5")
+    // Total should now be 5 * 600 = 3,000
+    expect(container.textContent).toContain("3,000")
+  })
 })
+

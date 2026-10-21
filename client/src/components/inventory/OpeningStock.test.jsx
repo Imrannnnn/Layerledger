@@ -465,6 +465,12 @@ describe("OpeningStock Component Tests", () => {
       )
     })
 
+    const editBtn = container.querySelector('button[title="Edit item"]') || Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Edit Items"))
+    expect(editBtn).toBeTruthy()
+    await act(async () => {
+      editBtn.click()
+    })
+
     const qtyInputs = container.querySelectorAll('tbody input[type="number"]')
     // There are cost and qty inputs; qty input width is 110px
     const qtyInput = Array.from(qtyInputs).find(inp => inp.style.width === "110px")
@@ -560,6 +566,12 @@ describe("OpeningStock Component Tests", () => {
       )
     })
 
+    const editBtn = container.querySelector('button[title="Edit item"]') || Array.from(container.querySelectorAll("button")).find(b => b.textContent.includes("Edit Items"))
+    expect(editBtn).toBeTruthy()
+    await act(async () => {
+      editBtn.click()
+    })
+
     const qtyInput = container.querySelector('input[type="number"][value="1"]')
     expect(qtyInput).toBeTruthy()
 
@@ -584,6 +596,67 @@ describe("OpeningStock Component Tests", () => {
     const valCells = Array.from(container.querySelectorAll("td"))
     const totalValCell = valCells.find(td => td.textContent.includes("₦10,000"))
     expect(totalValCell).toBeTruthy()
+  })
+
+  test("opening stock opening qty is read-only text until clicking Edit Item / Edit Items", async () => {
+    dataLib.loadOpeningStock.mockReturnValue([
+      { id: "item-ro", name: "Brown Sugar", unit: "kg", cost: 1200, openingQty: 15, locked: false }
+    ])
+    dataLib.fetchOpeningStockFromServer.mockResolvedValue([
+      { id: "item-ro", name: "Brown Sugar", unit: "kg", cost: 1200, openingQty: 15, locked: false }
+    ])
+
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={[]}
+          setInventory={jest.fn()}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+
+    // Initially without clicking Edit, the row displays formatted span, NOT an input
+    const initialInputs = container.querySelectorAll('tbody input[type="number"]')
+    expect(initialInputs.length).toBe(0)
+    expect(container.textContent).toContain("15 kg")
+
+    // Click Edit Item on the row
+    const editItemBtn = container.querySelector('button[title="Edit item"]')
+    expect(editItemBtn).toBeTruthy()
+    await act(async () => {
+      editItemBtn.click()
+    })
+
+    // Now the inputs are active
+    const activeInputs = container.querySelectorAll('tbody input[type="number"]')
+    expect(activeInputs.length).toBeGreaterThan(0)
+  })
+
+  test("does not render scan icon beside each item name", async () => {
+    dataLib.loadOpeningStock.mockReturnValue([
+      { id: "item-noscan", name: "Yeast Instant", unit: "g", cost: 500, openingQty: 10, locked: false }
+    ])
+    dataLib.fetchOpeningStockFromServer.mockResolvedValue([
+      { id: "item-noscan", name: "Yeast Instant", unit: "g", cost: 500, openingQty: 10, locked: false }
+    ])
+
+    await act(async () => {
+      root.render(
+        <OpeningStock
+          inventory={[]}
+          setInventory={jest.fn()}
+          user={{ role: "owner" }}
+        />
+      )
+    })
+
+    // Beside the item name in the table cell, there should be no scan button
+    const tableCells = Array.from(container.querySelectorAll("tbody td"))
+    const nameCell = tableCells.find(td => td.textContent.includes("Yeast Instant"))
+    expect(nameCell).toBeTruthy()
+    expect(nameCell.querySelector("button")).toBeNull()
+    expect(nameCell.textContent.trim()).toBe("Yeast Instant")
   })
 })
 

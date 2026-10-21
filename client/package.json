@@ -15,7 +15,8 @@
     "layerledger-monorepo": "file:..",
     "lucide-react": "^1.38.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@babel/core": "^7.24.5",

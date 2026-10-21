@@ -17,9 +17,9 @@ const updateInventorySchema = z.object({
         name: z.string().trim().min(1, 'Name cannot be empty').optional(),
         category: z.string().trim().min(1, 'Category cannot be empty').optional(),
         unit: z.string().trim().min(1, 'Unit cannot be empty').optional(),
-        cost: z.union([z.number(), z.string()]).optional().transform(val => val !== undefined ? parseFloat(val) : undefined).refine(val => val === undefined || (!isNaN(val) && val >= 0), 'Cost must be a non-negative number'),
-        stock: z.union([z.number(), z.string()]).optional().transform(val => val !== undefined ? parseFloat(val) : undefined).refine(val => val === undefined || (!isNaN(val) && val >= 0), 'Stock must be a non-negative number'),
-        minStock: z.union([z.number(), z.string()]).optional().transform(val => val !== undefined ? parseFloat(val) : undefined).refine(val => val === undefined || (!isNaN(val) && val >= 0), 'Minimum stock must be a non-negative number')
+        cost: z.union([z.number(), z.string()]).nullish().transform(val => (val !== undefined && val !== null && !isNaN(parseFloat(val))) ? parseFloat(val) : (val === null ? 0 : undefined)).refine(val => val === undefined || (!isNaN(val) && val >= 0), 'Cost must be a non-negative number'),
+        stock: z.union([z.number(), z.string()]).nullish().transform(val => (val !== undefined && val !== null && !isNaN(parseFloat(val))) ? parseFloat(val) : (val === null ? 0 : undefined)).refine(val => val === undefined || (!isNaN(val) && val >= 0), 'Stock must be a non-negative number'),
+        minStock: z.union([z.number(), z.string()]).nullish().transform(val => (val !== undefined && val !== null && !isNaN(parseFloat(val))) ? parseFloat(val) : (val === null ? 0 : undefined)).refine(val => val === undefined || (!isNaN(val) && val >= 0), 'Minimum stock must be a non-negative number')
     })
 });
 

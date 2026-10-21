@@ -97,9 +97,15 @@ model Recipe {
   name        String
   notes       String?
   type        String             @default("layer")
-  batchWeight Float?
-  batchSize   Float?
-  createdAt   DateTime           @default(now())
+  batchWeight     Float?
+  batchSize       Float?
+  application     String?            @default("spread")
+  fillRate        Float?             @map("fill_rate")
+  crumbRate       Float?             @default(0) @map("crumb_rate")
+  coverRate       Float?             @map("cover_rate")
+  sheetOverhangIn Float?             @map("sheet_overhang_in")
+  isCalibrated    Boolean            @default(false) @map("is_calibrated")
+  createdAt       DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   orderItems  OrderItem[]
   tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)

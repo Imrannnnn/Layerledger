@@ -32,6 +32,8 @@ export function PlanLimitModal({
 
   const getLimitTitle = () => {
     switch (limitType) {
+      case "financialAiAssistant":
+        return "Premium AI Financial Intelligence Required"
       case "ordersPerMonth":
         return "Monthly Order Limit Reached"
       case "recipes":
@@ -50,6 +52,8 @@ export function PlanLimitModal({
   const getLimitExplanation = () => {
     if (message) return message
     switch (limitType) {
+      case "financialAiAssistant":
+        return "The AI Financial Intelligence Assistant is exclusively available on the Premium plan. Upgrade to Premium (₦10,000/mo) for instant estimates of how much you've earned, full profit margin analysis, and business intelligence without checking multiple dashboards."
       case "ordersPerMonth":
         return `You have reached your Free plan quota of ${limit || 8} orders and quotes this month. Generating and saving new quotes or production orders requires upgrading to Standard or Premium.`
       case "recipes":

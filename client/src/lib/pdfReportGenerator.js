@@ -515,6 +515,9 @@ export function exportExpensesPDF(expenses = [], monthStr = "", company = {}) {
 
   // Filter for month if specified and exclude ingredient purchases (as done in Expenses.jsx)
   const filtered = expenses.filter(e => {
+    const desc = String(e.description || "").trim().toLowerCase()
+    const isPurchase = e.source === "purchase" || e.purchaseId || e.category === "Purchases" || desc.startsWith("purchase:") || desc.startsWith("purchase :")
+    if (isPurchase) return false
     if (monthStr && e.date && !e.date.startsWith(monthStr)) return false
     return true
   })

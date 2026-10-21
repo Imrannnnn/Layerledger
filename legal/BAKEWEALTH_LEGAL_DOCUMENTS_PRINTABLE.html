@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BakeWealth — Official Privacy Policy and Terms of Service (Printable PDF Edition)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #c8912a;
+      --primary-dark: #9e6d16;
+      --text: #291608;
+      --text-muted: #6b533e;
+      --bg: #faf7f2;
+      --card-bg: #ffffff;
+      --border: #e8ded1;
+      --accent: #2c4a3e;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--text);
+      background-color: var(--bg);
+      line-height: 1.68;
+      font-size: 14.5px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Print Floating Toolbar */
+    .no-print-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: #111;
+      color: #fff;
+      padding: 14px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.25);
+    }
+
+    .no-print-toolbar h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: #f1cf89;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn-print {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 9px 22px;
+      font-size: 13.5px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s;
+    }
+
+    .btn-print:hover {
+      background: #dfa535;
+    }
+
+    .document-container {
+      max-width: 860px;
+      margin: 36px auto;
+      background: var(--card-bg);
+      padding: 64px 72px;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.04);
+      border-radius: 4px;
+    }
+
+    /* Header styling */
+    .doc-header {
+      border-bottom: 2px solid var(--primary);
+      padding-bottom: 28px;
+      margin-bottom: 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .brand-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1.1;
+    }
+
+    .brand-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-top: 4px;
+      font-weight: 600;
+    }
+
+    .meta-box {
+      text-align: right;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .meta-box strong {
+      color: var(--text);
+    }
+
+    h1.doc-main-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 27px;
+      color: #1a0e05;
+      margin: 36px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 20px;
+      color: #2c1a0c;
+      margin: 32px 0 12px;
+    }
+
+    h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 20px 0 8px;
+    }
+
+    p {
+      margin-bottom: 14px;
+      color: #382515;
+    }
+
+    ul, ol {
+      margin: 12px 0 16px 24px;
+      color: #382515;
+    }
+
+    li {
+      margin-bottom: 6px;
+    }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0 24px;
+      font-size: 13px;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #fbf7ee;
+      font-weight: 700;
+      color: #3d230d;
+    }
+
+    tr:nth-child(even) td {
+      background: #fdfbf7;
+    }
+
+    .alert-box {
+      background: #fbf7ee;
+      border-left: 4px solid var(--primary);
+      padding: 14px 18px;
+      margin: 20px 0;
+      font-size: 13.5px;
+      color: #4a3421;
+      border-radius: 0 4px 4px 0;
+    }
+
+    .page-break {
+      page-break-before: always;
+      margin-top: 48px;
+      padding-top: 36px;
+      border-top: 2px dashed var(--border);
+    }
+
+    /* Print Styles */
+    @media print {
+      body {
+        background: #fff !important;
+        color: #000 !important;
+        font-size: 11pt !important;
+        line-height: 1.5 !important;
+      }
+
+      .no-print-toolbar {
+        display: none !important;
+      }
+
+      .document-container {
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+
+      .page-break {
+        page-break-before: always !important;
+        border-top: none !important;
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+      }
+
+      a {
+        color: inherit !important;
+        text-decoration: none !important;
+      }
+
+      th {
+        background-color: #f2ede4 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Floating Toolbar -->
+  <div class="no-print-toolbar">
+    <h1>
+      <span>📋</span>
+      <span>BakeWealth Legal Documentation Package (PDF Ready)</span>
+    </h1>
+    <button class="btn-print" onclick="window.print()">
+      <span>🖨️ Print / Save as PDF</span>
+    </button>
+  </div>
+
+  <div class="document-container">
+
+    <!-- Document Header -->
+    <div class="doc-header">
+      <div>
+        <div class="brand-title">BakeWealth</div>
+        <div class="brand-sub">Official Legal Documentation</div>
+      </div>
+      <div class="meta-box">
+        <div><strong>Version:</strong> 1.0 (Comprehensive)</div>
+        <div><strong>Effective Date:</strong> October 12, 2026</div>
+        <div><strong>Platform:</strong> bakewealthinternational.com</div>
+        <div><strong>Governing Law:</strong> Federal Republic of Nigeria (NDPA 2023)</div>
+      </div>
+    </div>
+
+    <!-- DOCUMENT 1: PRIVACY POLICY -->
+    <h1 class="doc-main-title">PART I: PRIVACY POLICY</h1>
+    
+    <div class="alert-box">
+      <strong>Plain-English Summary:</strong> This policy describes how BakeWealth collects, handles, stores, and protects information for bakeries, their employees, and their customers. We do not sell data. We use industry-standard encryption, strict multi-tenant separation, and trusted enterprise processors.
+    </div>
+
+    <h2>1. Introduction</h2>
+    <p>BakeWealth (accessible at <strong>bakewealthinternational.com</strong>) is an all-in-one bakery management, costing, and bookkeeping application operated by Iye Ibe Achem ("we", "us", "our"). BakeWealth enables cake artists, home bakers, and commercial baking enterprises to calculate precise recipe costs, track orders, manage ingredient inventory, scan receipts, and generate accounting statements.</p>
+    <p>Because you trust us with sensitive information about your craft, proprietary recipes, and business finances, transparency and data protection are fundamental to our service. We process personal and business data in compliance with the <strong>Nigeria Data Protection Act 2023 (NDPA 2023)</strong>, regulations of the <strong>Nigeria Data Protection Commission (NDPC)</strong>, and international standards such as the <strong>General Data Protection Regulation (GDPR)</strong>.</p>
+
+    <h2>2. Information We Collect</h2>
+    <p>We collect only the information necessary to provide and secure BakeWealth:</p>
+    <ul>
+      <li><strong>User & Account Data:</strong> Your full name, email address, password (stored solely as a cryptographically salted bcrypt hash), account type (individual or organization), staff roles (owner, manager, baker, customer service), and staff 4-digit PINs.</li>
+      <li><strong>Bakery Profile:</strong> Bakery business name, contact phone, contact email, physical address, bakery logo URL, brand color preferences, and custom margin percentages.</li>
+      <li><strong>Customer (Client) Directory:</strong> Client names, phone numbers, email addresses, delivery addresses, birthdays (for marketing reminders), and order notes.</li>
+      <li><strong>Recipes & Inventory:</strong> Ingredient names, unit costs, stock quantities, reorder thresholds, inventory history logs, recipe formulations, batch weights, and cake application rates.</li>
+      <li><strong>Orders, Quotes & Invoices:</strong> Order dates, due dates, tier sizes, shapes, flavors, decorative items, quoted prices, payment logs, and invoice records.</li>
+      <li><strong>Financial Data:</strong> Operational expenses, ingredient purchase records, supplier payables, bank transaction logs, and balance sheet opening figures.</li>
+      <li><strong>Payment Transaction Records:</strong> Paystack transaction references, idempotency keys, amounts in kobo (NGN), and status logs. <em>We never see or store debit or credit card numbers, CVVs, or bank account PINs.</em></li>
+      <li><strong>AI Scanner Inputs:</strong> Uploaded receipt images or bank statement text snippets submitted to our AI features.</li>
+      <li><strong>Technical Data:</strong> IP addresses, browser user agents, and security request logs.</li>
+    </ul>
+
+    <h2>3. How We Collect Information</h2>
+    <p>We collect data when you enter it directly into the application, automatically as the system calculates inventory deductions and ledger balances, and via secure server-to-server webhook notifications from Paystack upon payment completion.</p>
+
+    <h2>4. How We Use Information</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Operational Purpose</th>
+          <th>Legal Basis</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Account & Auth</td>
+          <td>User authentication via JWT, staff role enforcement, password resets.</td>
+          <td>Contract Performance</td>
+        </tr>
+        <tr>
+          <td>Recipes & Costing</td>
+          <td>Calculating ingredient costs, tier pricing, and inventory stock deductions.</td>
+          <td>Contract Performance</td>
+        </tr>
+        <tr>
+          <td>Customer Directory</td>
+          <td>Associating orders with clients, delivering invoices, tracking order history.</td>
+          <td>Contract Performance / Legitimate Interests</td>
+        </tr>
+        <tr>
+          <td>Financial & Reports</td>
+          <td>Generating P&L statements, Balance Sheets, Cash Flow reports, and invoices.</td>
+          <td>Contract Performance / Legal Compliance</td>
+        </tr>
+        <tr>
+          <td>Payment Logs</td>
+          <td>Activating prepaid subscriptions, allocating scan credits, auditing.</td>
+          <td>Contract Performance</td>
+        </tr>
+        <tr>
+          <td>AI Scans</td>
+          <td>Extracting receipt line items and categorizing expenses via Claude API.</td>
+          <td>User Instruction / Consent</td>
+        </tr>
+        <tr>
+          <td>Transactional Emails</td>
+          <td>Sending activation links, staff invites, credit warnings, and receipts.</td>
+          <td>Contract Performance</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>5. How We Store and Protect Information</h2>
+    <p>We implement comprehensive technical and organizational safeguards:</p>
+    <ul>
+      <li><strong>Bcrypt Password Hashing:</strong> Passwords are protected using salt rounds of 12. Plaintext passwords are never accessible.</li>
+      <li><strong>Encryption in Transit:</strong> All web and API traffic uses HTTPS with modern TLS 1.2+ encryption.</li>
+      <li><strong>Multi-Tenant Data Isolation:</strong> Every database table enforces strict Tenant ID filtering and cascade integrity.</li>
+      <li><strong>Rate Limiting:</strong> Sensitive routes (logins, payments, refunds) enforce strict IP rate limiting to stop brute-force attacks.</li>
+      <li><strong>Cloud Infrastructure:</strong> Hosted on managed PostgreSQL infrastructure on Supabase / AWS (Frankfurt, Germany) with automated backups and security monitoring.</li>
+    </ul>
+
+    <h2>6. Who Can Access Information</h2>
+    <ul>
+      <li><strong>Bakery Owner:</strong> Full access to all modules, financial statements, staff management, and Danger Zone account controls.</li>
+      <li><strong>Production Staff (Bakers):</strong> Access to recipes, inventory, order calculator, and production schedules. Cannot view bank transactions, expenses, P&L, or Balance Sheets.</li>
+      <li><strong>Customer Service Staff:</strong> Access to client directory, quotes, orders, and invoices. Cannot view recipes, costs, or bank records.</li>
+      <li><strong>Super-Administrator:</strong> Platform operator access restricted strictly to aggregate platform statistics (e.g. total tenant count, active users, total revenue) and tenant status moderation. <em>The super-administrator cannot inspect your private customer names, recipes, or financial ledgers.</em></li>
+    </ul>
+
+    <h2>7. Third-Party Service Providers</h2>
+    <p>We do not sell personal data. We share data only with verified infrastructure partners:</p>
+    <ul>
+      <li><strong>Paystack Payments Limited (Nigeria):</strong> Payment gateway for subscriptions and credit packs. Certified PCI-DSS Level 1.</li>
+      <li><strong>Brevo / Sendinblue SAS (France / EU):</strong> Delivery of transactional emails, activation tokens, and receipts.</li>
+      <li><strong>Anthropic PBC (USA):</strong> Cloud AI processing for receipt and statement parsing. Commercial API terms confirm data is not used for model training.</li>
+      <li><strong>Supabase / AWS (Germany / EU):</strong> Cloud database hosting and backups.</li>
+      <li><strong>Cloudflare Inc. (Global):</strong> Static asset delivery and DDoS mitigation.</li>
+    </ul>
+
+    <h2>8. Cookies and Storage</h2>
+    <p>BakeWealth does not use third-party tracking or advertising cookies. We use browser <code>sessionStorage</code> solely to hold your active authentication session token and <code>localStorage</code> for caching your interface preferences.</p>
+
+    <h2>9. Artificial Intelligence Processing</h2>
+    <p>AI features (Receipt Scanner and Bank Statement Importer) are strictly optional. We enforce a daily protective ceiling of 100 AI scans per account to prevent unintended loops. Data processed via our Anthropic Claude integration is not retained for training public AI models.</p>
+
+    <h2>10. Payments and Financial Information</h2>
+    <p>Subscriptions and credit packs are charged in Nigerian Naira (NGN). All card payments are handled within Paystack's secure interface. BakeWealth operates on a prepaid model: we do not automatically charge your card without your active knowledge.</p>
+
+    <h2>11. Data Retention</h2>
+    <p>Your records remain accessible for as long as your account is active. If a prepaid subscription ends, your account transitions to the Free tier; your historical recipes, inventory, and orders are preserved. If you delete your account via Settings, all tenant records are permanently purged in an atomic database transaction.</p>
+
+    <h2>12. User Rights Under NDPA 2023 and GDPR</h2>
+    <p>You have the legal right to access your data, correct inaccuracies, export a complete JSON backup (via Settings → Backup & Data), request account deletion (via Settings → Danger Zone), or lodge a complaint with the <strong>Nigeria Data Protection Commission (NDPC)</strong> at ndpc.gov.ng. Contact us at <code>info@bakewealthinternational.com</code> for privacy requests.</p>
+
+    <h2>13. International Data Transfers</h2>
+    <p>Data is transferred to secure cloud facilities in the European Union (Germany and France) and the United States (Anthropic) in compliance with Sections 41–43 of the NDPA 2023 under contractual safeguards and service necessity.</p>
+
+    <h2>14. Children's Privacy</h2>
+    <p>BakeWealth is commercial business software intended solely for adult business owners and employees aged 18 and older.</p>
+
+    <h2>15. Policy Changes</h2>
+    <p>We notify users of material privacy updates via dashboard notices or email. Continued use following notice constitutes acceptance.</p>
+
+    <h2>16. Contact Details</h2>
+    <p>For questions or privacy requests: Email <strong>info@bakewealthinternational.com</strong> or <strong>hello@bakewealthinternational.com</strong>.</p>
+
+
+    <!-- DOCUMENT 2: TERMS OF SERVICE -->
+    <div class="page-break"></div>
+    <h1 class="doc-main-title">PART II: TERMS OF SERVICE</h1>
+
+    <div class="alert-box">
+      <strong>Plain-English Summary:</strong> These Terms explain the rules of using BakeWealth. You own your recipes and customer data. We provide tools to cost cakes and track finances, but you remain responsible for your bakery's commercial decisions. Subscriptions are prepaid in Naira with no surprise auto-debits.
+    </div>
+
+    <h2>1. Acceptance of Terms</h2>
+    <p>By registering, logging in, or accessing BakeWealth on <strong>bakewealthinternational.com</strong>, you enter into a binding agreement with BakeWealth (operated by Iye Ibe Achem). If you do not agree to these Terms, you must not use the application.</p>
+
+    <h2>2. Eligibility</h2>
+    <p>You must be at least 18 years old and legally competent to enter into this contract. If registering for a bakery or company, you warrant that you are authorized to bind that entity.</p>
+
+    <h2>3. Account Registration & Credentials</h2>
+    <p>You agree to provide true, accurate account details. Account activation requires email verification. You are responsible for safeguarding your master password, API keys, and staff PINs. You must notify us immediately of any unauthorized access.</p>
+
+    <h2>4. User Roles & Workspace Governance</h2>
+    <p>Bakery Owners hold primary administrative authority over their tenant workspace. Owners are responsible for assigning appropriate roles (Manager/Baker, Customer Service) to staff members and revoking access for departing personnel.</p>
+
+    <h2>5. Acceptable Use Policy</h2>
+    <p>You agree not to probe or attack our systems, reverse engineer the platform, use scrapers or bots, circumvent plan quotas or AI limits, upload malware, or enter defamatory or unlawful content. Violations will result in immediate termination.</p>
+
+    <h2>6. User Content & Ownership</h2>
+    <p><strong>You own your data.</strong> You retain full, exclusive ownership of your recipes, ingredient prices, client directory, and order history. You grant BakeWealth a limited license solely to host and display your content to provide the service. You are responsible for the accuracy of your input data.</p>
+
+    <h2>7. Intellectual Property</h2>
+    <p>The BakeWealth software, algorithms, user interface, brand assets, and documentation are the exclusive property of BakeWealth. Free and Standard plans feature a discrete BakeWealth mark on invoices; Premium removes platform branding to showcase your bakery logo exclusively.</p>
+
+    <h2>8. Subscriptions, Pricing & Refunds</h2>
+    <ul>
+      <li><strong>Free Plan (₦0 / month):</strong> 8 orders/mo, 10 recipes, 50 ingredients, 20 clients, owner-only login, 10 free scans (20 credits) on signup, watermarked invoices.</li>
+      <li><strong>Standard Plan (₦5,000 / month):</strong> Unlimited orders, 60 recipes, 250 ingredients, 150 clients, 2 staff logins, 20 scans (40 credits)/mo, watermarked invoices.</li>
+      <li><strong>Premium Plan (₦10,000 / month):</strong> Unlimited orders, recipes, inventory, and clients; 4 staff logins; 80 scans (160 credits)/mo; unbranded invoices.</li>
+      <li><strong>Multi-Month Discounts:</strong> 3 months (5% off), 6 months (10% off), 12 months (15% off).</li>
+      <li><strong>Credit Packs:</strong> Small (20 credits / ₦3,000), Medium (50 credits / ₦6,500), Large (120 credits / ₦14,000). Credits never expire while account is open.</li>
+      <li><strong>Prepaid Billing:</strong> No surprise card auto-debits. When prepaid terms conclude, accounts revert to Free tier without data loss.</li>
+      <li><strong>Refunds:</strong> Subscription refund requests may be submitted within 7 calendar days of initial payment. AI credit packs are non-refundable once any credits are consumed. Approved refunds settle via Paystack within 5–10 business days.</li>
+    </ul>
+
+    <h2>9. Account Suspension & Termination</h2>
+    <p>You may delete your account and all data at any time via Settings → Danger Zone. We may suspend or terminate access for material breach, fraud, legal compulsion, or after 12 months of continuous inactivity on Free accounts following email warning.</p>
+
+    <h2>10. Third-Party Integrations</h2>
+    <p>We integrate with Paystack (payments), Brevo (email), Anthropic (AI), and Supabase/AWS (cloud database). We are not liable for transient third-party infrastructure outages.</p>
+
+    <h2>11. Availability & Maintenance</h2>
+    <p>While we target continuous uptime, service is provided on an "as is" and "as available" basis. We encourage owners to regularly download backup exports via Settings.</p>
+
+    <h2>12. Professional Disclaimers</h2>
+    <ul>
+      <li><strong>Costing & Baking Disclaimer:</strong> Actual bakery yields depend on oven calibration, ingredient brands, shrinkage, and kitchen efficiency. Costing calculations are planning estimates; you must verify actual recipe costs for commercial contracts.</li>
+      <li><strong>Accounting & Tax Disclaimer:</strong> BakeWealth is bookkeeping software, not a licensed public accountant or tax consultancy. You should consult a qualified accountant for statutory tax filings (such as Nigerian FIRS VAT and Company Income Tax).</li>
+    </ul>
+
+    <h2>13. Limitation of Liability</h2>
+    <p>To the maximum extent permitted by Nigerian law, BakeWealth shall not be liable for indirect, incidental, or consequential damages (including lost profits or kitchen downtime). Our total cumulative liability is capped at the greater of <strong>fees paid by you in the preceding 12 months</strong> or <strong>Twenty-Five Thousand Nigerian Naira (₦25,000 NGN)</strong>.</p>
+
+    <h2>14. Indemnity</h2>
+    <p>You agree to indemnify BakeWealth against third-party claims arising from your intentional breach of these Terms, unlawful data entry, or commercial disputes between you and your customers.</p>
+
+    <h2>15. Governing Law & Dispute Resolution</h2>
+    <p>These Terms are governed by the <strong>laws of the Federal Republic of Nigeria</strong>. Disputes shall first be subject to 30 days of amicable good-faith negotiation, and thereafter to the competent courts of the Federal Republic of Nigeria.</p>
+
+    <h2>16. Revisions</h2>
+    <p>Material revisions to these Terms will be notified 30 days in advance via platform announcement or email.</p>
+
+    <h2>17. Contact Information</h2>
+    <p>For inquiries: Email <strong>hello@bakewealthinternational.com</strong> or <strong>info@bakewealthinternational.com</strong>.</p>
+
+  </div>
+
+</body>
+</html>

@@ -59,6 +59,12 @@ const getRecipeById = asyncHandler(async (req, res) => {
 const createRecipe = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
     const { name, notes, ingredients, type, batchWeight, batchSize } = req.body;
+    const application = req.body.application !== undefined ? req.body.application : "spread";
+    const fillRate = req.body.fillRate !== undefined ? req.body.fillRate : (req.body.fill_rate !== undefined ? req.body.fill_rate : null);
+    const crumbRate = req.body.crumbRate !== undefined ? req.body.crumbRate : (req.body.crumb_rate !== undefined ? req.body.crumb_rate : 0);
+    const coverRate = req.body.coverRate !== undefined ? req.body.coverRate : (req.body.cover_rate !== undefined ? req.body.cover_rate : null);
+    const sheetOverhangIn = req.body.sheetOverhangIn !== undefined ? req.body.sheetOverhangIn : (req.body.sheet_overhang_in !== undefined ? req.body.sheet_overhang_in : null);
+    const isCalibrated = req.body.isCalibrated !== undefined ? !!req.body.isCalibrated : (req.body.is_calibrated !== undefined ? !!req.body.is_calibrated : false);
 
     // Enforce Recipe limits based on plan
     const tenant = await prisma.tenant.findUnique({
@@ -107,6 +113,12 @@ const createRecipe = asyncHandler(async (req, res) => {
             type: type || "layer",
             batchWeight: batchWeight !== undefined ? batchWeight : null,
             batchSize: batchSize !== undefined ? batchSize : null,
+            application,
+            fillRate,
+            crumbRate,
+            coverRate,
+            sheetOverhangIn,
+            isCalibrated,
             ingredients: {
                 create: validIngredients.map(ing => ({
                     inventoryItemId: ing.item,
@@ -143,6 +155,17 @@ const updateRecipe = asyncHandler(async (req, res) => {
     if (type !== undefined) updateData.type = type;
     if (batchWeight !== undefined) updateData.batchWeight = batchWeight;
     if (batchSize !== undefined) updateData.batchSize = batchSize;
+    if (req.body.application !== undefined) updateData.application = req.body.application;
+    if (req.body.fillRate !== undefined) updateData.fillRate = req.body.fillRate;
+    else if (req.body.fill_rate !== undefined) updateData.fillRate = req.body.fill_rate;
+    if (req.body.crumbRate !== undefined) updateData.crumbRate = req.body.crumbRate;
+    else if (req.body.crumb_rate !== undefined) updateData.crumbRate = req.body.crumb_rate;
+    if (req.body.coverRate !== undefined) updateData.coverRate = req.body.coverRate;
+    else if (req.body.cover_rate !== undefined) updateData.coverRate = req.body.cover_rate;
+    if (req.body.sheetOverhangIn !== undefined) updateData.sheetOverhangIn = req.body.sheetOverhangIn;
+    else if (req.body.sheet_overhang_in !== undefined) updateData.sheetOverhangIn = req.body.sheet_overhang_in;
+    if (req.body.isCalibrated !== undefined) updateData.isCalibrated = !!req.body.isCalibrated;
+    else if (req.body.is_calibrated !== undefined) updateData.isCalibrated = !!req.body.is_calibrated;
 
     if (ingredients) {
         const itemIds = ingredients.map(ing => ing.item).filter(Boolean);
@@ -163,12 +186,25 @@ const updateRecipe = asyncHandler(async (req, res) => {
         };
     }
 
-    // Update using a transaction to replace ingredients
-    const updatedRecipe = await prisma.$transaction(async (tx) => {
-        if (ingredients) {
-            await tx.recipeIngredient.deleteMany({ where: { recipeId: req.params.id } });
-        }
-        return tx.recipe.update({
+    let updatedRecipe;
+    if (ingredients) {
+        const [_, resRecipe] = await prisma.$transaction([
+            prisma.recipeIngredient.deleteMany({ where: { recipeId: req.params.id } }),
+            prisma.recipe.update({
+                where: { id: req.params.id },
+                data: updateData,
+                include: {
+                    ingredients: {
+                        include: {
+                            inventoryItem: { select: { name: true, unit: true, cost: true } }
+                        }
+                    }
+                }
+            })
+        ]);
+        updatedRecipe = resRecipe;
+    } else {
+        updatedRecipe = await prisma.recipe.update({
             where: { id: req.params.id },
             data: updateData,
             include: {
@@ -179,7 +215,7 @@ const updateRecipe = asyncHandler(async (req, res) => {
                 }
             }
         });
-    });
+    }
 
     res.json(updatedRecipe);
 });

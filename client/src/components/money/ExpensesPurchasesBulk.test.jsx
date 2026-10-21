@@ -160,9 +160,9 @@ describe("Expenses and Purchases Bulk / Batch Operations", () => {
       )
     })
 
-    // Click "+ Add Cash Expense" to open the form
+    // Click "+ Add Expense" to open the form
     const addBtn = Array.from(container.querySelectorAll("button")).find(
-      el => el.textContent.includes("Add Cash Expense")
+      el => el.textContent.includes("Add Expense")
     )
     await act(async () => {
       addBtn.click()
@@ -369,8 +369,9 @@ describe("Expenses and Purchases Bulk / Batch Operations", () => {
     ])
 
     expect(dataLib.saveInventory).toHaveBeenCalled()
-    expect(mockSetExpenses).toHaveBeenCalled()
-    expect(dataLib.saveExpenses).toHaveBeenCalled()
+    // Purchases are disconnected from expenses:
+    expect(mockSetExpenses).not.toHaveBeenCalled()
+    expect(dataLib.saveExpenses).not.toHaveBeenCalled()
   })
 
   it("should select purchases and delete selected items", async () => {

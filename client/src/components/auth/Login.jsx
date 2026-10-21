@@ -10,9 +10,10 @@ import { Mail, CheckCircle2, ArrowRight } from "lucide-react"
 import { Btn, Inp, Card, Alert } from "../common/ui.jsx"
 import { clearAllLocalState } from "../../lib/data.js"
 
-export function Login({ onLogin, initialError = "", initialTab = "login", onBackToHome }) {
+export function Login({ onLogin, initialError = "", initialTab = "login", onBackToHome, onOpenPrivacy, onOpenTerms }) {
   const [tab, setTab] = useState(initialTab || "login") // "login" | "register" | "activation_sent"
   const [tenantType, setTenantType] = useState("individual") // "individual" | "organization"
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
   
   // Fields
   const [name, setName] = useState("")
@@ -91,6 +92,9 @@ export function Login({ onLogin, initialError = "", initialTab = "login", onBack
       if (!name || !normalizedEmail || !password) return setErr("Please fill in all required fields")
       if (tenantType === "organization" && !companyName) {
         return setErr("Please enter your organization name")
+      }
+      if (!agreedToTerms) {
+        return setErr("Please read and check the box to agree to our Terms of Service and Privacy Policy before creating an account")
       }
       clearAllLocalState()
       setLoading(true)
@@ -374,6 +378,49 @@ export function Login({ onLogin, initialError = "", initialTab = "login", onBack
                 placeholder="e.g. name@example.com" 
               />
               <Inp label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" />
+
+              {tab === "register" && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                  marginTop: 12,
+                  marginBottom: 14,
+                  fontSize: 12,
+                  color: "var(--muted)"
+                }}>
+                  <input
+                    type="checkbox"
+                    id="login-agree-terms"
+                    checked={agreedToTerms}
+                    onChange={(e) => setAgreedToTerms(e.target.checked)}
+                    style={{
+                      marginTop: 2,
+                      cursor: "pointer",
+                      accentColor: "var(--gold)"
+                    }}
+                  />
+                  <label htmlFor="login-agree-terms" style={{ cursor: "pointer", lineHeight: 1.45 }}>
+                    I agree to the{" "}
+                    <a
+                      href="#terms"
+                      onClick={(e) => { e.preventDefault(); onOpenTerms && onOpenTerms(); }}
+                      style={{ color: "var(--gold)", fontWeight: 600, textDecoration: "underline" }}
+                    >
+                      Terms of Service
+                    </a>{" "}
+                    and acknowledge the{" "}
+                    <a
+                      href="#privacy"
+                      onClick={(e) => { e.preventDefault(); onOpenPrivacy && onOpenPrivacy(); }}
+                      style={{ color: "var(--gold)", fontWeight: 600, textDecoration: "underline" }}
+                    >
+                      Privacy Policy
+                    </a>
+                    .
+                  </label>
+                </div>
+              )}
 
               <div style={{ marginTop: 8 }}>
                 <Btn full type="submit" loading={loading} loadingText={tab === "login" ? "Signing in..." : "Creating account..."}>

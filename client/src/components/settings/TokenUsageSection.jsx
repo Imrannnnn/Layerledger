@@ -87,7 +87,8 @@ export const PREPAID_PLANS = [
       staff: "4 staff logins (+ owner)",
       scans: "80 scans / month (160 credits)",
       branding: "Removed — Your own logo only",
-      accounting: "Full accounting reports"
+      accounting: "Full accounting reports",
+      aiFinancial: "AI Financial Intelligence & Full Margin Analysis (Exclusive)"
     }
   }
 ]

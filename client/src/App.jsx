@@ -60,7 +60,8 @@ import {
   Menu,
   LogOut,
   Coins,
-  Home as HomeIcon
+  Home as HomeIcon,
+  Sparkles
 } from "lucide-react"
 import { TokenPurchaseModal } from "./components/common/TokenPurchaseModal.jsx"
 import { PlanLimitModal } from "./components/common/PlanLimitModal.jsx"
@@ -103,6 +104,9 @@ const OpeningStock = lazyRetry(() => import("./components/inventory/OpeningStock
 const Settings = lazyRetry(() => import("./components/settings/Settings.jsx").then(m => ({ default: m.Settings })))
 const Onboarding = lazyRetry(() => import("./components/settings/Onboarding.jsx").then(m => ({ default: m.Onboarding })))
 const SuperAdminDashboard = lazyRetry(() => import("./components/superadmin/SuperAdminDashboard.jsx").then(m => ({ default: m.SuperAdminDashboard })))
+const PrivacyPolicy = lazyRetry(() => import("./components/legal/PrivacyPolicy.jsx").then(m => ({ default: m.PrivacyPolicy })))
+const TermsOfService = lazyRetry(() => import("./components/legal/TermsOfService.jsx").then(m => ({ default: m.TermsOfService })))
+const FinancialAssistant = lazyRetry(() => import("./components/assistant/FinancialAssistant.jsx").then(m => ({ default: m.FinancialAssistant })))
 
 // ═══════════════════════════════════════════════════════════
 export class ErrorBoundary extends React.Component {
@@ -577,7 +581,8 @@ export default function App() {
     { id: "payables", label: "Credit Purchases", icon: CreditCard, roles: ["owner"] },
     { id: "expenses", label: "Expenses", icon: Banknote, roles: ["owner"] },
     { id: "bank", label: "Bank Statement", icon: FileSpreadsheet, roles: ["owner"] },
-    { id: "_reports", label: "Reports", icon: null, roles: ["owner"], divider: true },
+    { id: "_reports", label: "Reports & Intelligence", icon: null, roles: ["owner"], divider: true },
+    { id: "assistant", label: "AI Financial Advisor", icon: Sparkles, roles: ["owner"], badge: "PRO" },
     { id: "monthly", label: "Monthly Overview", icon: BarChart3, roles: ["owner"] },
     { id: "pandl", label: "P&L Statement", icon: TrendingUp, roles: ["owner"] },
     { id: "balance", label: "Balance Sheet", icon: Scale, roles: ["owner"] },
@@ -613,6 +618,22 @@ export default function App() {
   }
 
   if (!currentUser) {
+    if (view === "privacy") {
+      return (
+        <Suspense fallback={<FullPageLoader message="Loading Privacy Policy..." />}>
+          <PrivacyPolicy onBack={() => setView("home")} />
+        </Suspense>
+      )
+    }
+
+    if (view === "terms") {
+      return (
+        <Suspense fallback={<FullPageLoader message="Loading Terms of Service..." />}>
+          <TermsOfService onBack={() => setView("home")} />
+        </Suspense>
+      )
+    }
+
     if (authMode) {
       return <>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');*{box-sizing:border-box}body{margin:0}:root{--gold:${gold};--sidebar:${sidebar};--bg:#F4EEE4;--panel:#FDFAF4;--text:#291608;--muted:#8C6E52;--border:#E0D3BB;--accent:${gold}}
@@ -623,6 +644,8 @@ export default function App() {
             initialTab={authMode}
             initialError={activationError}
             onBackToHome={() => setAuthMode(null)}
+            onOpenPrivacy={() => setView("privacy")}
+            onOpenTerms={() => setView("terms")}
             onLogin={async (u) => {
               setInitialSyncing(true);
               clearAllLocalState();
@@ -672,6 +695,8 @@ export default function App() {
           onLoginClick={() => setAuthMode("login")}
           onRegisterClick={() => setAuthMode("register")}
           currentUser={null}
+          onOpenPrivacy={() => setView("privacy")}
+          onOpenTerms={() => setView("terms")}
         />
       </Suspense>
     )
@@ -691,6 +716,8 @@ export default function App() {
           }}
           currentUser={currentUser}
           onLogout={handleLogout}
+          onOpenPrivacy={() => goTo("privacy")}
+          onOpenTerms={() => goTo("terms")}
         />
       </Suspense>
     )
@@ -738,6 +765,11 @@ export default function App() {
         : <div key={n.id} onClick={() => goTo2(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", cursor: "pointer", fontSize: 13, fontWeight: view === n.id ? 500 : 400, color: view === n.id ? gold : "#8B6B4A", background: view === n.id ? "rgba(200,145,42,0.1)" : "transparent", borderLeft: `2px solid ${view === n.id ? gold : "transparent"}`, transition: "all 0.15s" }}>
             {n.icon && <n.icon size={16} style={{ flexShrink: 0, color: view === n.id ? gold : "#8B6B4A" }} />}
             <span>{n.label}</span>
+            {n.badge && (
+              <span style={{ marginLeft: "auto", fontSize: 9.5, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: "rgba(200,145,42,0.18)", color: gold, border: "1px solid rgba(200,145,42,0.3)" }}>
+                {n.badge}
+              </span>
+            )}
           </div>
       )}
     </div>
@@ -920,6 +952,18 @@ export default function App() {
               {view === "records" && <Records productions={productions} setProductions={setProductions} setView={setViewWithSync} setPrefillProd={setPrefillProd} user={currentUser} company={company} />}
               {view === "prodlist" && <ProductionList productions={productions} setProductions={setProductions} company={company} setView={setViewWithSync} />}
               {view === "bank" && <BankImport transactions={transactions} setTransactions={setTransactions} productions={productions} setProductions={setProductions} expenses={expenses} setExpenses={setExpenses} />}
+              {view === "assistant" && (
+                <FinancialAssistant
+                  setView={setViewWithSync}
+                  user={currentUser}
+                  tenantInfo={tenantInfo}
+                  company={company}
+                  onUpgradePlan={() => {
+                    setSettingsTab("tokens")
+                    setViewWithSync("settings")
+                  }}
+                />
+              )}
               {view === "monthly" && <MonthlyOverview inventory={inventory} recipes={recipes} productions={productions} setProductions={setProductions} expenses={expenses} setExpenses={setExpenses} company={company} isOwner={!currentUser || currentUser?.role === "owner"} />}
               {view === "pandl" && <PandL productions={productions} expenses={expenses} company={company} />}
               {view === "payables" && <Payables inventory={inventory} setInventory={setInventory} />}
@@ -927,6 +971,8 @@ export default function App() {
               {view === "shopping" && <ShoppingList inventory={inventory} setInventory={setInventory} company={company} />}
               {view === "invoices" && <Invoices productions={productions} company={company} prefillProd={prefillProd} setPrefillProd={setPrefillProd} isOwner={!currentUser || currentUser?.role === "owner"} />}
               {view === "settings" && <Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory} setInventory={setInventory} user={currentUser} setView={setViewWithSync} initialTab={settingsTab} />}
+              {view === "privacy" && <PrivacyPolicy onBack={() => goBack()} />}
+              {view === "terms" && <TermsOfService onBack={() => goBack()} />}
             </Suspense>
           }
         </div>
