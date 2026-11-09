@@ -188,7 +188,7 @@ const updateRecipe = asyncHandler(async (req, res) => {
 
     let updatedRecipe;
     if (ingredients) {
-        const [_, resRecipe] = await prisma.$transaction([
+        const [, resRecipe] = await prisma.$transaction([
             prisma.recipeIngredient.deleteMany({ where: { recipeId: req.params.id } }),
             prisma.recipe.update({
                 where: { id: req.params.id },

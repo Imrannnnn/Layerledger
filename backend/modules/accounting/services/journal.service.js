@@ -6,7 +6,6 @@
 
 const prisma = require('../../../prisma');
 const chartOfAccountsService = require('./chartOfAccounts.service');
-const { formatDecimal } = require('../utils/decimal');
 
 class JournalService {
     /**
@@ -188,7 +187,7 @@ class JournalService {
     /**
      * General Ledger account inquiry: all debit/credit lines and running balance for one account.
      */
-    async getAccountLedger(tenantId, accountCodeOrId, options = {}) {
+    async getAccountLedger(tenantId, accountCodeOrId, _options = {}) {
         let account = await chartOfAccountsService.getAccountByCode(tenantId, accountCodeOrId);
         if (!account) {
             account = await chartOfAccountsService.getAccountById(tenantId, accountCodeOrId);

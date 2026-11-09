@@ -84,7 +84,6 @@ class ProfitLossService {
 
         // Fetch all chart of accounts items to ensure accounts with 0 activity can be displayed if needed
         const accounts = await chartOfAccountsService.getAccounts(tenantId, { isActive: true });
-        const accountsMap = new Map(accounts.map(a => [a.accountCode, a]));
 
         // 1. REVENUE (4000 - 4070)
         const revenueItems = [];

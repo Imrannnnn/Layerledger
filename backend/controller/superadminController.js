@@ -140,7 +140,6 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   const totalRevenueAllTime = successfulPayments.reduce((sum, p) => sum + (Number(p.amount) / 100), 0)
   const subscriptionPayments = successfulPayments.filter(p => p.resourceType === "subscription_plan")
   const tokenPayments = successfulPayments.filter(p => p.resourceType === "credit_pack")
-  const otherPayments = successfulPayments.filter(p => p.resourceType !== "subscription_plan" && p.resourceType !== "credit_pack")
 
   const subscriptionRevenueAllTime = subscriptionPayments.reduce((sum, p) => sum + (Number(p.amount) / 100), 0)
   const tokenRevenueAllTime = tokenPayments.reduce((sum, p) => sum + (Number(p.amount) / 100), 0)

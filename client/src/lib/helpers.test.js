@@ -15,8 +15,7 @@ import {
   calculateCakeGeometry,
   calculateFillingGrams,
   calculateCoveringGrams,
-  calibrateCoverageRates,
-  COVERAGE_PRESETS
+  calibrateCoverageRates
 } from './helpers';
 
 jest.mock('../constants.js', () => ({

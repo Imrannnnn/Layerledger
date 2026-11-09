@@ -21,8 +21,8 @@
 const prisma = require('../../../prisma');
 const chartOfAccountsService = require('./chartOfAccounts.service');
 const postingService = require('./posting.service');
-const { toDecimal, isZero, isPositive, equals, sum, formatDecimal } = require('../utils/decimal');
-const { SOURCE_TYPES, ENTRY_STATUS, ACCOUNT_CLASSIFICATIONS } = require('../accounting.constants');
+const { toDecimal, isPositive, equals, sum } = require('../utils/decimal');
+const { SOURCE_TYPES, ENTRY_STATUS } = require('../accounting.constants');
 
 class MigrationService {
     /**

@@ -491,7 +491,7 @@ export function extractAndRepairJson(rawText) {
     try {
       let cleaned = str
         .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
-        .replace(/,\s*([\]\}])/g, "$1")
+        .replace(/,\s*([\]}])/g, "$1")
       const res = JSON.parse(cleaned)
       return Array.isArray(res) ? { items: res } : res
     } catch {
@@ -499,7 +499,7 @@ export function extractAndRepairJson(rawText) {
       try {
         let cleaned = str
           .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
-          .replace(/,\s*([\]\}])/g, "$1")
+          .replace(/,\s*([\]}])/g, "$1")
           .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
         const res = JSON.parse(cleaned)
         return Array.isArray(res) ? { items: res } : res
@@ -514,12 +514,14 @@ export function extractAndRepairJson(rawText) {
               if (!rescued.endsWith('}')) rescued += '}'
               let cleaned = rescued
                 .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
-                .replace(/,\s*([\]\}])/g, "$1")
+                .replace(/,\s*([\]}])/g, "$1")
               const res = JSON.parse(cleaned)
               return Array.isArray(res) ? { items: res } : res
             }
           }
-        } catch {}
+        } catch {
+          // ignore
+        }
 
         // Attempt 5: Fallback regex extraction of individual item objects
         try {
@@ -529,15 +531,19 @@ export function extractAndRepairJson(rawText) {
             const rescuedItems = []
             for (const m of matches) {
               try {
-                const item = JSON.parse(m.replace(/,\s*([\]\}])/g, "$1"))
+                const item = JSON.parse(m.replace(/,\s*([\]}])/g, "$1"))
                 if (item) rescuedItems.push(item)
-              } catch {}
+              } catch {
+                // ignore
+              }
             }
             if (rescuedItems.length > 0) {
               return { items: rescuedItems }
             }
           }
-        } catch {}
+        } catch {
+          // ignore
+        }
 
         return null
       }

@@ -7,7 +7,6 @@
  */
 
 const prisma = require('../../../prisma');
-const chartOfAccountsService = require('./chartOfAccounts.service');
 const journalService = require('./journal.service');
 
 class FinancialDashboardService {
@@ -69,7 +68,6 @@ class FinancialDashboardService {
         let operatingExpensesThisMonth = 0;
 
         for (const line of monthlyLines) {
-            const code = line.account.accountCode;
             const cls = line.account.classification;
             const debit = parseFloat(line.debit.toString());
             const credit = parseFloat(line.credit.toString());

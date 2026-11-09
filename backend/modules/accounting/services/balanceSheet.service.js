@@ -216,7 +216,7 @@ class BalanceSheetService {
         let cumulativeOtherIncome = 0;
         let cumulativeOtherExp = 0;
 
-        for (const [code, data] of accountBalances.entries()) {
+        for (const data of accountBalances.values()) {
             if (data.classification === 'REVENUE') cumulativeRevenue += (data.totalCredit - data.totalDebit);
             else if (data.classification === 'COGS') cumulativeCOGS += (data.totalDebit - data.totalCredit);
             else if (data.classification === 'ADMIN_EXPENSE') cumulativeAdminExp += (data.totalDebit - data.totalCredit);

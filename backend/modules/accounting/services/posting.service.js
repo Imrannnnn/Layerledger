@@ -11,7 +11,7 @@
 
 const prisma = require('../../../prisma');
 const chartOfAccountsService = require('./chartOfAccounts.service');
-const { toDecimal, isZero, isPositive, equals, sum, formatDecimal } = require('../utils/decimal');
+const { toDecimal, isPositive, equals, sum, formatDecimal } = require('../utils/decimal');
 const { ENTRY_STATUS } = require('../accounting.constants');
 
 class PostingService {

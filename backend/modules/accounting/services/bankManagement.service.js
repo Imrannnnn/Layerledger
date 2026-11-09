@@ -13,7 +13,6 @@ const prisma = require('../../../prisma');
 const postingService = require('./posting.service');
 const chartOfAccountsService = require('./chartOfAccounts.service');
 const journalService = require('./journal.service');
-const { toDecimal, isPositive } = require('../utils/decimal');
 
 class BankManagementService {
     /**

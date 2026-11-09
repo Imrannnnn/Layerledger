@@ -32,8 +32,7 @@ const {
     getDashboardStats,
     updateTenantStatus,
     adjustTenantTokens,
-    grantTenantPremium,
-    deleteTenantAccount
+    grantTenantPremium
 } = require('../controller/superadminController');
 
 describe('Super Admin Controller Tests', () => {
