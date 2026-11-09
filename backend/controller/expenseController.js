@@ -1,5 +1,6 @@
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+const purchaseRoutingService = require('../modules/accounting/services/purchaseRouting.service');
 
 /**
  * @desc    Get all expenses for the tenant
@@ -48,20 +49,33 @@ const getExpenses = asyncHandler(async (req, res) => {
  */
 const createExpense = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { date, amount, category, description, receiptUrl } = req.body;
+    const { date, amount, category, description, receiptUrl, accountCode, paymentMethod } = req.body;
 
-    const expense = await prisma.expense.create({
-        data: {
-            id: req.body.id || undefined,
-            tenantId,
-            date: date ? new Date(date) : new Date(),
-            amount,
-            category,
-            description,
-            receiptUrl
-        }
-    });
-    res.status(201).json(expense);
+    const parsedAmount = parseFloat(amount) || 0;
+
+    const result = await prisma.$transaction(async (tx) => {
+        const expense = await tx.expense.create({
+            data: {
+                id: req.body.id || undefined,
+                tenantId,
+                date: date ? new Date(date) : new Date(),
+                amount: parsedAmount,
+                category,
+                description,
+                receiptUrl,
+                accountCode: accountCode || undefined
+            }
+        });
+
+        await purchaseRoutingService.recordExpenseAccounting(tenantId, expense, {
+            accountCode,
+            paymentMethod
+        }, tx);
+
+        return expense;
+    }, { maxWait: 10000, timeout: 30000 });
+
+    res.status(201).json(result);
 });
 
 /**
@@ -71,28 +85,43 @@ const createExpense = asyncHandler(async (req, res) => {
  */
 const updateExpense = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { date, amount, category, description, receiptUrl } = req.body;
+    const { date, amount, category, description, receiptUrl, accountCode, paymentMethod } = req.body;
 
-    const updatedExpense = await prisma.expense.updateMany({
-        where: { id: req.params.id, tenantId },
-        data: {
-            date: date ? new Date(date) : undefined,
-            amount,
-            category,
-            description,
-            receiptUrl
+    const result = await prisma.$transaction(async (tx) => {
+        const existing = await tx.expense.findFirst({
+            where: { id: req.params.id, tenantId }
+        });
+
+        if (!existing) {
+            res.status(404);
+            throw new Error('Expense not found');
         }
-    });
 
-    if (updatedExpense.count === 0) {
-        res.status(404);
-        throw new Error('Expense not found');
-    }
-    
-    const expense = await prisma.expense.findFirst({
-        where: { id: req.params.id, tenantId }
-    });
-    res.json(expense);
+        // Clean up previous accounting entry
+        await purchaseRoutingService.handleExpenseCleanup(tenantId, req.params.id, 'Expense updated', req.user?.id, tx);
+
+        const updatedExpense = await tx.expense.update({
+            where: { id: req.params.id },
+            data: {
+                date: date ? new Date(date) : undefined,
+                amount: amount !== undefined ? parseFloat(amount) : undefined,
+                category,
+                description,
+                receiptUrl,
+                accountCode: accountCode || undefined
+            }
+        });
+
+        // Re-post updated expense to ledger
+        await purchaseRoutingService.recordExpenseAccounting(tenantId, updatedExpense, {
+            accountCode: accountCode || updatedExpense.accountCode,
+            paymentMethod
+        }, tx);
+
+        return updatedExpense;
+    }, { maxWait: 10000, timeout: 30000 });
+
+    res.json(result);
 });
 
 /**
@@ -102,14 +131,22 @@ const updateExpense = asyncHandler(async (req, res) => {
  */
 const deleteExpense = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const deletedExpense = await prisma.expense.deleteMany({
-        where: { id: req.params.id, tenantId }
-    });
-    
-    if (deletedExpense.count === 0) {
-        res.status(404);
-        throw new Error('Expense not found');
-    }
+
+    await prisma.$transaction(async (tx) => {
+        const existing = await tx.expense.findFirst({
+            where: { id: req.params.id, tenantId }
+        });
+
+        if (!existing) {
+            res.status(404);
+            throw new Error('Expense not found');
+        }
+
+        // Clean up accounting entry
+        await purchaseRoutingService.handleExpenseCleanup(tenantId, req.params.id, 'Expense deleted', req.user?.id, tx);
+        await tx.expense.delete({ where: { id: req.params.id } });
+    }, { maxWait: 10000, timeout: 30000 });
+
     res.json({ message: 'Expense removed successfully' });
 });
 

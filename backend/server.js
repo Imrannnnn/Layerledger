@@ -78,6 +78,7 @@ app.use('/api/claude', require('./routes/claudeRoutes'));
 app.use('/api/financial-assistant', require('./routes/financialAssistantRoutes'));
 app.use('/api/opening-stock', require('./routes/openingStockRoutes'));
 app.use('/api/migrate-legacy', require('./routes/migrationRoutes'));
+app.use('/api/accounting', require('./modules/accounting/routes/accountingRoutes'));
 
 // Health check endpoint displaying active database target
 app.get('/api/health', (_req, res) => {

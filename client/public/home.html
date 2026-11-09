@@ -217,6 +217,59 @@ section{padding:66px 0}
 .hero-btns .btn{width:100%;justify-content:center}
 .cta-wrap{padding:44px 22px}
 }
+
+/* The Psychology of a Baker */
+.pb-bar{height:5px;background:var(--line);border-radius:999px;overflow:hidden;margin:4px 0 6px}
+.pb-bar i{display:block;height:100%;width:0;background:var(--gold);border-radius:999px;
+  transition:width .25s ease}
+@media (prefers-reduced-motion:reduce){ .pb-bar i{transition:none} }
+.pb-count{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);
+  font-weight:700;margin:0 0 16px}
+.pb-q{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;
+  font-size:clamp(19px,2.4vw,23px);line-height:1.28;margin:0 0 16px;color:var(--brand)}
+.pb-opts{display:flex;flex-direction:column;gap:10px}
+.pb-opts button{font-family:inherit;font-size:15.5px;line-height:1.45;text-align:left;
+  background:var(--bg);color:var(--ink);border:1.5px solid var(--line);border-radius:12px;
+  padding:14px 16px;cursor:pointer;transition:border-color .12s}
+.pb-opts button:hover{border-color:var(--gold)}
+.pb-opts button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.pb-back{background:none;border:none;color:var(--ink-faint);font-family:inherit;font-size:13.5px;
+  cursor:pointer;padding:8px 2px;text-decoration:underline}
+.pb-score{background:var(--brand);border-radius:16px;padding:26px 20px;text-align:center;
+  color:#FFF6EA;margin:0 0 20px}
+.pb-num{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;
+  font-size:clamp(50px,9vw,74px);line-height:1;color:var(--gold-soft);display:block}
+.pb-of{font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:#E3CBAC;display:block;
+  margin-top:6px}
+.pb-band{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;
+  font-size:clamp(18px,2.4vw,22px);margin:16px 0 8px;text-wrap:balance}
+.pb-say{font-size:15px;color:#EBDCC8;margin:0 auto;max-width:44ch}
+.pb-h{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:19px;
+  margin:26px 0 4px;color:var(--brand)}
+.pb-row{background:var(--bg);border:1px solid var(--line);border-left-width:4px;
+  border-radius:0 12px 12px 0;padding:14px 16px;margin:0 0 10px}
+.pb-row.bad{border-left-color:#A3221B}
+.pb-row.mid{border-left-color:#A8761A}
+.pb-row.good{border-left-color:#1F6B41}
+.pb-row b{display:block;font-size:14.6px;margin-bottom:3px}
+.pb-row.bad b{color:#A3221B} .pb-row.mid b{color:#A8761A} .pb-row.good b{color:#1F6B41}
+.pb-row span{display:block;font-size:14.2px;color:var(--ink-soft)}
+.pb-row em{display:block;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);
+  font-style:normal;font-size:14.2px;color:var(--ink)}
+.pb-row em b{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--gold);margin-bottom:3px}
+.pb-cta{border:1.5px solid var(--gold);border-radius:16px;padding:22px 20px;margin:24px 0 0;
+  background:var(--bg-alt)}
+.pb-cta .pb-h{margin-top:0}
+.pb-punch{font-size:15.5px;margin:13px 0 0;color:var(--ink)}
+.pb-punch em{font-style:italic;color:var(--gold)}
+.pb-strong{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;
+  font-size:clamp(17px,2.2vw,20px);color:var(--brand);line-height:1.32;margin-top:14px;
+  text-wrap:balance}
+.pb-buy{display:inline-block;margin-top:18px;background:var(--brand);color:#FFF6EA;
+  text-decoration:none;font-weight:700;font-size:15.5px;padding:14px 24px;border-radius:11px}
+.pb-buy:hover{background:var(--brand-hover)}
+.pb-buy:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -313,6 +366,8 @@ baking questions. No account needed. Choose a tool and get a useful estimate.</p
 <button class="tab on" data-tool="conv">Weight ↔ volume</button>
 <button class="tab" data-tool="scale">Recipe scaler</button>
 <button class="tab" data-tool="pan">Pan size</button>
+<button class="tab" data-tool="cost">What a cake costs</button>
+<button class="tab" data-tool="test">The Psychology of a Baker</button>
 </div>
 <div class="tool" id="t-conv">
 <h3>Ingredient conversion</h3>
@@ -355,6 +410,113 @@ baking questions. No account needed. Choose a tool and get a useful estimate.</p
 <div class="result"><div class="big" id="pOut">— </div>
 <div class="sm" id="pNote">Closest equivalent in the other shape.</div></div>
 <p class="fineprint">Based on surface area. Keep the batter depth the same and adjust baking time.</p>
+</div>
+<div class="tool hidden" id="t-cost">
+  <h3>What a cake costs</h3>
+  <p class="hint">Typical Abuja prices are already filled in, so you get a number
+  before you find a single receipt.</p>
+  <div class="fields">
+    <div class="f"><label>Shape</label><select id="kShape">
+      <option value="round">Round</option><option value="square">Square</option>
+      <option value="rect">Rectangle</option></select></div>
+    <div class="f"><label id="kLabA">Diameter (inches)</label>
+      <input id="kA" type="number" value="8" min="2" max="60" step="1"></div>
+    <div class="f hidden" id="kWrapB"><label>Width (inches)</label>
+      <input id="kB" type="number" value="10" min="2" max="60" step="1"></div>
+    <div class="f"><label>Layers</label>
+      <input id="kLayers" type="number" value="3" min="1" max="8" step="1"></div>
+    <div class="f"><label>Each layer, inches tall</label>
+      <input id="kLh" type="number" value="2" min="0.5" max="4" step="0.5"></div>
+    <div class="f"><label>Flavour</label><select id="kFlav">
+      <option value="van">Vanilla</option><option value="choc" selected>Chocolate</option>
+      <option value="rv">Red velvet</option></select></div>
+    <div class="f"><label>Covering</label><select id="kCov">
+      <option value="bc" selected>Buttercream</option><option value="gan">Ganache</option>
+      <option value="fon">Fondant</option><option value="whip">Whipped cream</option></select></div>
+    <div class="f"><label>Hours on this cake</label>
+      <input id="kHours" type="number" value="4" min="0" max="200" step="0.5"></div>
+    <div class="f"><label>What an hour of your shop costs (₦)</label>
+      <input id="kRate" type="number" value="2500" min="0" step="100"></div>
+  </div>
+
+  <div class="result">
+    <div class="big" id="kOut">₦0</div>
+    <div class="sm" id="kNote">What this cake costs you to make.</div>
+    <div class="sm" id="kBreak" style="margin-top:10px;line-height:1.7"></div>
+    <div class="sm" id="kPrice" style="margin-top:12px;font-weight:700"></div>
+  </div>
+
+  <div class="fields" style="margin-top:20px;grid-template-columns:1fr">
+    <div class="f"><label>Now the honest part: what do you charge for this cake today? (₦)</label>
+      <input id="kCharge" type="number" placeholder="35000" min="0" step="500"></div>
+  </div>
+  <div class="result hidden" id="kVerdict" style="margin-top:14px"></div>
+
+  <p class="fineprint" style="margin-top:18px">This uses typical prices, not yours. It cannot
+  know what you paid for flour last week, learn your own recipes, cost a second or third tier,
+  add decoration materials, or work out your real hourly rate.
+  <a href="https://selar.com/cakecostingsystem" id="kPaid">The Cake Costing System does all of that.</a>
+  <a href="https://selar.com/cakecostingsystem" id="kFree">Free serving &amp; covering chart.</a></p>
+</div>
+
+<div class="tool hidden" id="t-test">
+  <h3>The Psychology of a Baker</h3>
+  <p class="hint">Ten questions about the money side of your cakes. About ninety seconds.
+  Answer honestly, nobody sees it but you. Most bakers score three.</p>
+
+  <div id="pb-quiz">
+    <div class="pb-bar"><i id="pb-fill"></i></div>
+    <p class="pb-count" id="pb-count">Question 1 of 10</p>
+    <h4 class="pb-q" id="pb-q">&nbsp;</h4>
+    <div class="pb-opts" id="pb-opts"></div>
+    <button class="pb-back" id="pb-back" hidden>Back</button>
+  </div>
+
+  <div id="pb-result" hidden>
+    <div class="pb-score">
+      <span class="pb-num" id="pb-num">0</span>
+      <span class="pb-of">out of 10</span>
+      <p class="pb-band" id="pb-band"></p>
+      <p class="pb-say" id="pb-say"></p>
+    </div>
+
+    <h4 class="pb-h">Where the money is leaking</h4>
+    <p class="hint">Every answer, and what it is costing you.</p>
+    <div id="pb-rows"></div>
+
+    <div class="pb-cta">
+      <h4 class="pb-h">You love baking. But are you making money from it?</h4>
+      <p class="pb-punch">You have just answered ten questions about the money side of your cakes.
+      Some of them you could answer straight away. Others you had to think about, or guess at.</p>
+      <p class="pb-punch">That is the point of them. Every one of those questions is sitting behind a
+      price you have already quoted this year. What a cake costs you in ingredients. What an hour
+      in your kitchen is worth. Whether you are on your own payroll. What you do when a customer
+      says it is too much. Whether you could say, right now, if last month made money.</p>
+      <p class="pb-punch">Your time, your labour, electricity, gas, decoration, packaging and the cost
+      of simply keeping the place open all go into every cake you sell. When those are not counted,
+      you can be busy, taking orders and posting cakes you are proud of, and still not making the
+      profit your business needs.</p>
+      <p class="pb-punch">The problem may not be that you are not selling enough cakes. It may be that
+      you are not costing them properly.</p>
+      <p class="pb-punch">But you can change that.</p>
+      <p class="pb-punch pb-strong">Meet the Cake Costing System</p>
+      <p class="pb-punch">A practical costing and pricing tool that works out the true cost of
+      producing your cakes, accounts for your business expenses, prepares accurate quotations, and
+      shows you which of the things you sell are actually making you money.</p>
+      <p class="pb-punch">Imagine knowing what a cake costs you before you decide what to charge.
+      Imagine sending a quotation without second-guessing it, or wondering what you have forgotten.
+      Imagine a customer telling you it is too expensive, and holding your price, because you can
+      account for every naira in it.</p>
+      <p class="pb-punch">You do not have to keep guessing. You need a better system.</p>
+      <p class="pb-punch">Your baking business deserves more than beautiful cakes and impressive sales.
+      It deserves to make money.</p>
+      <p class="pb-punch pb-strong">Take the next step towards costing with clarity and pricing with
+      confidence.</p>
+      <a class="pb-buy" href="https://selar.com/cakecostingsystem">Get the Cake Costing System</a>
+    </div>
+
+    <button class="pb-back" id="pb-again" style="margin-top:18px">Take it again</button>
+  </div>
 </div>
 </div>
 </div></section>
@@ -550,11 +712,270 @@ document.querySelectorAll('.tab').forEach(function(t){
 t.addEventListener('click',function(){
 document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});
 t.classList.add('on');
-['conv','scale','pan'].forEach(function(id){
+['conv','scale','pan','cost','test'].forEach(function(id){
 document.getElementById('t-'+id).classList.toggle('hidden', id!==t.dataset.tool);
 });
 });
 });
+
+/* ---- what a cake costs ----------------------------------------------
+   Figures are typical Abuja prices, late 2026. To update them later,
+   change the two tables below and nothing else.
+   --------------------------------------------------------------------- */
+var SELAR_PAID = "https://selar.com/cakecostingsystem";   /* the Cake Costing System product */
+var SELAR_FREE = "https://selar.com/cakecostingsystem";
+
+var K_SQ = 6.4516;                                     /* sq inch -> sq cm  */
+var K_FLAV = {                                         /* g per sq in per inch, naira per gram */
+  van : { g:10.911,  c:2.01 },
+  choc: { g:11.0878, c:2.61 },
+  rv  : { g:13.1038, c:2.57 }
+};
+var K_COV = {                                          /* naira/g, density, waste, fill mm, crumb mm, finish mm */
+  bc  : { c:10.45, d:0.90,  w:0.15, f:2,    k:1,    n:4.9, name:"Buttercream"   },
+  gan : { c:11.93, d:1.10,  w:0.10, f:2,    k:1,    n:4.9, name:"Ganache"       },
+  fon : { c:2.58,  d:1.35,  w:0.25, f:null, k:null, n:8,   name:"Fondant"       },
+  whip: { c:8.67,  d:0.452, w:0.15, f:2,    k:null, n:4.9, name:"Whipped cream" }
+};
+var K_UNDER = K_COV.bc;        /* fondant and whipped cream are filled and sealed with buttercream */
+var K_PACK  = 2000;            /* board, box, dowels, ribbon */
+var K_MARGIN = 0.5;            /* profit margin the suggested price carries */
+
+function kNaira(n){ return "₦" + Math.round(n).toLocaleString("en-NG"); }
+function kGrams(areaSqIn, mm, m){ return areaSqIn * K_SQ * (mm/10) * m.d * (1 + m.w); }
+
+function kCost(i){
+  var h = i.layers * i.lh, top, per;
+  if (i.shape === "round")      { top = Math.PI*(i.a/2)*(i.a/2); per = Math.PI*i.a; }
+  else if (i.shape === "square"){ top = i.a*i.a;                 per = 4*i.a; }
+  else                          { top = i.a*i.b;                 per = 2*(i.a+i.b); }
+  var surface = top + per*h, fillArea = Math.max(0, i.layers-1)*top;
+
+  var cv = K_COV[i.cov];
+  var batter = K_FLAV[i.flav].g * top * h * K_FLAV[i.flav].c;
+  var fill   = kGrams(fillArea, cv.f !== null ? cv.f : K_UNDER.f,
+                      cv.f !== null ? cv : K_UNDER) * (cv.f !== null ? cv.c : K_UNDER.c);
+  var crumb  = 0;
+  if (cv.k !== null)            crumb = kGrams(surface, cv.k, cv) * cv.c;
+  else if (i.cov !== "whip")    crumb = kGrams(surface, K_UNDER.k, K_UNDER) * K_UNDER.c;
+  var finish = kGrams(surface, cv.n, cv) * cv.c;
+  var time   = i.hours * i.rate;
+  var cost   = batter + fill + crumb + finish + K_PACK + time;
+
+  return { batter:batter, fill:fill, crumb:crumb, finish:finish, pack:K_PACK, time:time,
+           cost:cost, price:cost/(1-K_MARGIN), surface:surface, covName:cv.name };
+}
+
+function kRender(){
+  var g = function(id){ return document.getElementById(id); };
+  var num = function(id){ var v = parseFloat(g(id).value); return isFinite(v) ? v : 0; };
+  var shape = g("kShape").value;
+
+  g("kWrapB").classList.toggle("hidden", shape !== "rect");
+  g("kLabA").textContent = shape === "round" ? "Diameter (inches)"
+                         : shape === "square" ? "Side (inches)" : "Length (inches)";
+
+  var i = { shape:shape, a:num("kA"), b:num("kB"),
+            layers:Math.max(1, Math.round(num("kLayers"))), lh:num("kLh"),
+            flav:g("kFlav").value, cov:g("kCov").value,
+            hours:num("kHours"), rate:num("kRate") };
+  var r = kCost(i);
+
+  g("kOut").textContent = kNaira(r.cost);
+  g("kNote").textContent = "What this cake costs you to make. "
+    + Math.round(r.surface) + " square inches to cover.";
+  g("kBreak").innerHTML =
+    "Cake " + kNaira(r.batter) + " · filling " + kNaira(r.fill)
+    + (r.crumb ? " · crumb coat " + kNaira(r.crumb) : "")
+    + " · " + r.covName.toLowerCase() + " " + kNaira(r.finish)
+    + " · board and box " + kNaira(r.pack) + " · your time " + kNaira(r.time);
+  g("kPrice").textContent = "Sell it for at least " + kNaira(Math.ceil(r.price/500)*500)
+    + " to keep a " + Math.round(K_MARGIN*100) + "% margin.";
+
+  var charge = parseFloat(g("kCharge").value), v = g("kVerdict");
+  if (!isFinite(charge) || charge <= 0){ v.classList.add("hidden"); return; }
+  v.classList.remove("hidden");
+  var gap = r.price - charge;
+  if (gap > 0){
+    v.innerHTML = "<div class='big'>" + kNaira(gap) + " short</div><div class='sm'>"
+      + "That is " + kNaira(gap*4) + " a month if you bake one a week. "
+      + (charge < r.cost
+          ? "At " + kNaira(charge) + " you are not even covering what it costs to make."
+          : "You are covering your costs. You are not making the margin you wanted.")
+      + "</div>";
+  } else {
+    v.innerHTML = "<div class='big'>" + kNaira(-gap) + " above</div><div class='sm'>"
+      + "That is a " + Math.round((1 - r.cost/charge)*100)
+      + "% margin on typical prices. Run it again with your own costs before you trust it.</div>";
+  }
+}
+
+(function(){
+  var ids = ["kShape","kA","kB","kLayers","kLh","kFlav","kCov","kHours","kRate","kCharge"];
+  ids.forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.addEventListener("input", kRender);
+  });
+  var f = document.getElementById("kFlav"), c = document.getElementById("kCov");
+  if (f) f.addEventListener("change", function(){ kRender(); });
+  if (c) c.addEventListener("change", function(){ kRender(); });
+  if (SELAR_PAID) document.getElementById("kPaid").href = SELAR_PAID;
+  if (SELAR_FREE) document.getElementById("kFree").href = SELAR_FREE;
+  kRender();
+})();
+
+/* ---- The Psychology of a Baker ---------------------------------------
+   Ten questions, scored out of ten, then the costing system.
+   ---------------------------------------------------------------------- */
+var Q = [
+    { q:"What does one 8 inch chocolate cake cost you in ingredients?",
+      a:[["I know it within ₦2,000",1,"You can price anything, because you start from a real number."],
+         ["A rough idea, maybe ₦5,000 out",0.5,"₦5,000 out on a ₦35,000 cake is your entire profit on that cake."],
+         ["I would be guessing",0,"Every price you have ever quoted was a guess built on a guess."]] },
+
+    { q:"What is one hour of your kitchen worth, once rent, light, gas, wages and your own pay are counted?",
+      a:[["I know the figure",1,"This is the number most bakers never work out, and it sets every price."],
+         ["I have never worked it out",0.5,"Then your prices cover ingredients and nothing else."],
+         ["I do not charge for my time at all",0,"You are working for free and calling the leftovers profit."]] },
+
+    { q:"Do you pay yourself a salary from the business?",
+      a:[["Yes, a set amount every month",1,"Which means your cakes carry the real cost of running the place."],
+         ["I take money when I need it",0.5,"Then you cannot tell your pay apart from your profit, and neither can your books."],
+         ["No, whatever is left over is mine",0,"Your own labour is free in every price you quote. It is the biggest hidden subsidy in the business."]] },
+
+    { q:"The last time you raised your prices, why did you?",
+      a:[["My costs went up and I recalculated",1,"Prices that follow costs are the only prices that survive this market."],
+         ["I felt I could get away with a bit more",0.5,"That works until the month costs move and feelings do not."],
+         ["I have not raised prices in over a year",0,"Your ingredients have. You have been quietly absorbing every increase since."]] },
+
+    { q:"Which of the things you sell earns you the most per hour of your time?",
+      a:[["I know, I have compared them",1,"Then you know which orders to chase and which to decline."],
+         ["The big cakes, surely",0.5,"Usually not. Big cakes carry big hours. The earner is often something small."],
+         ["No idea",0,"So you cannot tell which orders to take more of, and you take whatever comes."]] },
+
+    { q:"If flour went up 20% tomorrow, how many of your prices would change this week?",
+      a:[["All of them. I would recalculate",1,"That is what a costing system is for."],
+         ["A few, the ones that felt wrong",0.5,"The ones that feel wrong are rarely the ones that are wrong."],
+         ["None. I would absorb it",0,"Absorbing it means paying it yourself, out of the profit you were counting on."]] },
+
+    { q:"What share of your price is ingredients?",
+      a:[["I know the percentage",1,"Then you can spot a bad quote before you send it."],
+         ["Around a third, I think",0.5,"Thinking is not knowing, and the gap between them is your margin."],
+         ["Never thought about it",0,"Without it you cannot tell a profitable cake from one that is quietly losing."]] },
+
+    { q:"How do you price a cake you have never made before?",
+      a:[["I cost it properly before I quote",1,"The only method that does not punish you for being adventurous."],
+         ["I look at something similar and add a bit",0.5,"If the similar one was underpriced, so is this one, and now the error has spread."],
+         ["I say a number and hope",0,"New designs take the most hours and are the most likely to lose money."]] },
+
+    { q:"A customer says your price is too high. What do you do?",
+      a:[["Explain what is in the price, and hold it",1,"You can only hold a price you can explain, which is why the number matters."],
+         ["Offer a smaller size or simpler design",0.5,"Right instinct. Only safe if you know what the smaller version costs."],
+         ["Drop the price to keep the order",0,"You just paid to do the work. The discount comes out of profit, never out of cost."]] },
+
+    { q:"Do you know whether you made a profit last month?",
+      a:[["Yes, I have the figure",1,"Rare, and the whole point of the exercise."],
+         ["I think so. Money came in",0.5,"Money coming in is not profit. It is other people's deposits and your own ingredients."],
+         ["No",0,"Then every decision you make this month is being made blind."]] }
+  ];
+
+  // what to do about it, shown on any answer that was not full marks
+  var FIX = [
+    "Weigh one batch. Divide what you paid for each ingredient by its pack size, multiply by what actually went into the bowl. One afternoon, and you never guess again.",
+    "Add up every monthly cost including your own pay, multiply by twelve, divide by the hours you genuinely produce in a year. Not the hours the shop is open.",
+    "Put yourself on the payroll at a figure the business can carry today, even a small one. Then your labour shows up in every price instead of vanishing.",
+    "Reprice when an ingredient moves more than 10%, not when you feel brave enough. Check it the first week of every month and it stops being a decision.",
+    "Cost your five best sellers once, then divide each one's profit by the hours it takes you. Rank them. The order will surprise you.",
+    "If one ingredient price can move all your prices in an afternoon, you have a costing system. If it cannot, you have a price list.",
+    "Work out ingredients as a percentage of your price on three recent orders. If the three are far apart, your pricing is not a method, it is a mood.",
+    "Cost it before you quote it, even roughly. Twenty minutes with a scale beats a number you cannot defend when she asks why.",
+    "Decide your floor before the conversation, not during it. Then you can offer a smaller cake instead of a smaller margin.",
+    "One page a month: money in, ingredients out, fixed costs out. Until that page exists, nothing else on this list can be checked."
+  ];
+
+  var BANDS = [
+    { min:8.5, t:"You are in the small minority",
+      s:"Most bakers cannot answer half of these. You can. The gaps that are left are worth closing, because they are the expensive ones." },
+    { min:6,   t:"You know more than most, and it is not enough",
+      s:"The parts you have covered are real. The parts you have not are where the money goes, quietly, every month." },
+    { min:3.5, t:"You are running on feel",
+      s:"This is where most Nigerian bakers sit. It is not carelessness, nobody ever showed you the arithmetic. But feel cannot tell you which orders are losing money." },
+    { min:0,   t:"You cannot tell whether you are making money",
+      s:"That is uncomfortable to read and it is worth reading. Nothing here says you are a bad baker. It says you are flying blind on the money, and that is fixable in an afternoon." }
+  ];
+
+  var pbI = 0, pbAns = [];
+  var pbEl = function(id){ return document.getElementById(id); };
+
+  function pbDraw(){
+    var item = Q[pbI];
+    pbEl("pb-count").textContent = "Question " + (pbI+1) + " of " + Q.length;
+    pbEl("pb-fill").style.width = (pbI / Q.length * 100) + "%";
+    pbEl("pb-q").textContent = item.q;
+    var box = pbEl("pb-opts"); box.innerHTML = "";
+    item.a.forEach(function(opt, n){
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = opt[0];
+      b.addEventListener("click", function(){ pbPick(n); });
+      box.appendChild(b);
+    });
+    pbEl("pb-back").hidden = pbI === 0;
+  }
+
+  function pbPick(n){
+    pbAns[pbI] = n;
+    if (pbI < Q.length - 1){ pbI++; pbDraw(); } else pbFinish();
+  }
+
+  function pbFinish(){
+    var total = 0;
+    pbAns.forEach(function(n, k){ total += Q[k].a[n][1]; });
+    var shown = Math.round(total * 2) / 2;
+    pbEl("pb-num").textContent = (shown % 1 === 0) ? shown : shown.toFixed(1);
+
+    var band = BANDS.filter(function(b){ return total >= b.min; })[0];
+    pbEl("pb-band").textContent = band.t;
+    pbEl("pb-say").textContent = band.s;
+
+    var rows = pbEl("pb-rows"); rows.innerHTML = "";
+    Q.forEach(function(item, k){
+      var opt = item.a[pbAns[k]];
+      var cls = opt[1] === 1 ? "good" : (opt[1] === 0.5 ? "mid" : "bad");
+      var d = document.createElement("div");
+      d.className = "pb-row " + cls;
+      d.innerHTML = "<b>" + item.q + "</b><span>" + opt[2] + "</span>"
+        + (opt[1] < 1 ? "<em><b>What to do</b>" + FIX[k] + "</em>" : "");
+      rows.appendChild(d);
+    });
+
+    pbEl("pb-quiz").hidden = true;
+    pbEl("pb-result").hidden = false;
+    pbEl("t-test").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  pbEl("pb-back").addEventListener("click", function(){ if (pbI > 0){ pbI--; pbDraw(); } });
+  pbEl("pb-again").addEventListener("click", function(){
+    pbI = 0; pbAns = [];
+    pbEl("pb-result").hidden = true;
+    pbEl("pb-quiz").hidden = false;
+    pbDraw();
+    pbEl("t-test").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  pbDraw();
+
+/* ---- open a tool straight from the link, e.g. /#test ---- */
+(function(){
+  function openFromHash(){
+    var want = (location.hash || "").replace("#","");
+    var btn = document.querySelector('.tab[data-tool="' + want + '"]');
+    if (!btn) return;
+    btn.click();
+    document.getElementById("toolkit").scrollIntoView();
+  }
+  addEventListener("hashchange", openFromHash);
+  openFromHash();
+})();
 /* ---- conversion ---- */
 var DENS={ "All-purpose flour":0.53,"Bread flour":0.55,"Granulated sugar":0.85,
 "Icing sugar":0.56,"Brown sugar, packed":0.72,"Cocoa powder":0.41,

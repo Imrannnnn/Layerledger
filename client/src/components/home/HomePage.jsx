@@ -28,6 +28,128 @@ const PAY = {
   premium: { 1: "", 3: "", 6: "", 12: "" }
 }
 
+const SELAR_PAID = "https://selar.com/cakecostingsystem"
+const SELAR_FREE = "https://selar.com/cakecostingsystem"
+
+const K_SQ = 6.4516
+const K_FLAV = {
+  van: { g: 10.911, c: 2.01 },
+  choc: { g: 11.0878, c: 2.61 },
+  rv: { g: 13.1038, c: 2.57 }
+}
+const K_COV = {
+  bc: { c: 10.45, d: 0.90, w: 0.15, f: 2, k: 1, n: 4.9, name: "Buttercream" },
+  gan: { c: 11.93, d: 1.10, w: 0.10, f: 2, k: 1, n: 4.9, name: "Ganache" },
+  fon: { c: 2.58, d: 1.35, w: 0.25, f: null, k: null, n: 8, name: "Fondant" },
+  whip: { c: 8.67, d: 0.452, w: 0.15, f: 2, k: null, n: 4.9, name: "Whipped cream" }
+}
+const K_UNDER = K_COV.bc
+const K_PACK = 2000
+const K_MARGIN = 0.5
+
+const QUIZ_Q = [
+  {
+    q: "What does one 8 inch chocolate cake cost you in ingredients?",
+    a: [
+      ["I know it within ₦2,000", 1, "You can price anything, because you start from a real number."],
+      ["A rough idea, maybe ₦5,000 out", 0.5, "₦5,000 out on a ₦35,000 cake is your entire profit on that cake."],
+      ["I would be guessing", 0, "Every price you have ever quoted was a guess built on a guess."]
+    ]
+  },
+  {
+    q: "What is one hour of your kitchen worth, once rent, light, gas, wages and your own pay are counted?",
+    a: [
+      ["I know the figure", 1, "This is the number most bakers never work out, and it sets every price."],
+      ["I have never worked it out", 0.5, "Then your prices cover ingredients and nothing else."],
+      ["I do not charge for my time at all", 0, "You are working for free and calling the leftovers profit."]
+    ]
+  },
+  {
+    q: "Do you pay yourself a salary from the business?",
+    a: [
+      ["Yes, a set amount every month", 1, "Which means your cakes carry the real cost of running the place."],
+      ["I take money when I need it", 0.5, "Then you cannot tell your pay apart from your profit, and neither can your books."],
+      ["No, whatever is left over is mine", 0, "Your own labour is free in every price you quote. It is the biggest hidden subsidy in the business."]
+    ]
+  },
+  {
+    q: "The last time you raised your prices, why did you?",
+    a: [
+      ["My costs went up and I recalculated", 1, "Prices that follow costs are the only prices that survive this market."],
+      ["I felt I could get away with a bit more", 0.5, "That works until the month costs move and feelings do not."],
+      ["I have not raised prices in over a year", 0, "Your ingredients have. You have been quietly absorbing every increase since."]
+    ]
+  },
+  {
+    q: "Which of the things you sell earns you the most per hour of your time?",
+    a: [
+      ["I know, I have compared them", 1, "Then you know which orders to chase and which to decline."],
+      ["The big cakes, surely", 0.5, "Usually not. Big cakes carry big hours. The earner is often something small."],
+      ["No idea", 0, "So you cannot tell which orders to take more of, and you take whatever comes."]
+    ]
+  },
+  {
+    q: "If flour went up 20% tomorrow, how many of your prices would change this week?",
+    a: [
+      ["All of them. I would recalculate", 1, "That is what a costing system is for."],
+      ["A few, the ones that felt wrong", 0.5, "The ones that feel wrong are rarely the ones that are wrong."],
+      ["None. I would absorb it", 0, "Absorbing it means paying it yourself, out of the profit you were counting on."]
+    ]
+  },
+  {
+    q: "What share of your price is ingredients?",
+    a: [
+      ["I know the percentage", 1, "Then you can spot a bad quote before you send it."],
+      ["Around a third, I think", 0.5, "Thinking is not knowing, and the gap between them is your margin."],
+      ["Never thought about it", 0, "Without it you cannot tell a profitable cake from one that is quietly losing."]
+    ]
+  },
+  {
+    q: "How do you price a cake you have never made before?",
+    a: [
+      ["I cost it properly before I quote", 1, "The only method that does not punish you for being adventurous."],
+      ["I look at something similar and add a bit", 0.5, "If the similar one was underpriced, so is this one, and now the error has spread."],
+      ["I say a number and hope", 0, "New designs take the most hours and are the most likely to lose money."]
+    ]
+  },
+  {
+    q: "A customer says your price is too high. What do you do?",
+    a: [
+      ["Explain what is in the price, and hold it", 1, "You can only hold a price you can explain, which is why the number matters."],
+      ["Offer a smaller size or simpler design", 0.5, "Right instinct. Only safe if you know what the smaller version costs."],
+      ["Drop the price to keep the order", 0, "You just paid to do the work. The discount comes out of profit, never out of cost."]
+    ]
+  },
+  {
+    q: "Do you know whether you made a profit last month?",
+    a: [
+      ["Yes, I have the figure", 1, "Rare, and the whole point of the exercise."],
+      ["I think so. Money came in", 0.5, "Money coming in is not profit. It is other people's deposits and your own ingredients."],
+      ["No", 0, "Then every decision you make this month is being made blind."]
+    ]
+  }
+]
+
+const QUIZ_FIX = [
+  "Weigh one batch. Divide what you paid for each ingredient by its pack size, multiply by what actually went into the bowl. One afternoon, and you never guess again.",
+  "Add up every monthly cost including your own pay, multiply by twelve, divide by the hours you genuinely produce in a year. Not the hours the shop is open.",
+  "Put yourself on the payroll at a figure the business can carry today, even a small one. Then your labour shows up in every price instead of vanishing.",
+  "Reprice when an ingredient moves more than 10%, not when you feel brave enough. Check it the first week of every month and it stops being a decision.",
+  "Cost your five best sellers once, then divide each one's profit by the hours it takes you. Rank them. The order will surprise you.",
+  "If one ingredient price can move all your prices in an afternoon, you have a costing system. If it cannot, you have a price list.",
+  "Work out ingredients as a percentage of your price on three recent orders. If the three are far apart, your pricing is not a method, it is a mood.",
+  "Cost it before you quote it, even roughly. Twenty minutes with a scale beats a number you cannot defend when she asks why.",
+  "Decide your floor before the conversation, not during it. Then you can offer a smaller cake instead of a smaller margin.",
+  "One page a month: money in, ingredients out, fixed costs out. Until that page exists, nothing else on this list can be checked."
+]
+
+const QUIZ_BANDS = [
+  { min: 8.5, t: "You are in the small minority", s: "Most bakers cannot answer half of these. You can. The gaps that are left are worth closing, because they are the expensive ones." },
+  { min: 6, t: "You know more than most, and it is not enough", s: "The parts you have covered are real. The parts you have not are where the money goes, quietly, every month." },
+  { min: 3.5, t: "You are running on feel", s: "This is where most Nigerian bakers sit. It is not carelessness, nobody ever showed you the arithmetic. But feel cannot tell you which orders are losing money." },
+  { min: 0, t: "You cannot tell whether you are making money", s: "That is uncomfortable to read and it is worth reading. Nothing here says you are a bad baker. It says you are flying blind on the money, and that is fixable in an afternoon." }
+]
+
 export const CREDIT_PACKS = [
   {
     id: "small",
@@ -80,7 +202,7 @@ export function HomePage({
   const [discountRate, setDiscountRate] = useState(0)
 
   // Toolkit state
-  const [activeTool, setActiveTool] = useState("conv") // "conv" | "scale" | "pan"
+  const [activeTool, setActiveTool] = useState("conv") // "conv" | "scale" | "pan" | "cost" | "test"
 
   // 1. Converter state
   const [cIng, setCIng] = useState("All-purpose flour")
@@ -98,6 +220,23 @@ export function HomePage({
   const [pSize, setPSize] = useState(8)
   const [pShape, setPShape] = useState("Round")
 
+  // 4. Cake Costing state
+  const [kShape, setKShape] = useState("round")
+  const [kA, setKA] = useState(8)
+  const [kB, setKB] = useState(10)
+  const [kLayers, setKLayers] = useState(3)
+  const [kLh, setKLh] = useState(2)
+  const [kFlav, setKFlav] = useState("choc")
+  const [kCov, setKCov] = useState("bc")
+  const [kHours, setKHours] = useState(4)
+  const [kRate, setKRate] = useState(2500)
+  const [kCharge, setKCharge] = useState("")
+
+  // 5. Psychology of a Baker Quiz state
+  const [pbIndex, setPbIndex] = useState(0)
+  const [pbAnswers, setPbAnswers] = useState([])
+  const [pbFinished, setPbFinished] = useState(false)
+
   // Nav scroll listener
   useEffect(() => {
     const handleScroll = () => {
@@ -107,8 +246,127 @@ export function HomePage({
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
+  // Deep linking for toolkit (e.g. /#test, /#cost)
+  useEffect(() => {
+    const openFromHash = () => {
+      const want = (window.location.hash || "").replace("#", "")
+      if (["conv", "scale", "pan", "cost", "test"].includes(want)) {
+        setActiveTool(want)
+        setTimeout(() => {
+          const el = document.getElementById("toolkit")
+          if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth" })
+        }, 50)
+      }
+    }
+    window.addEventListener("hashchange", openFromHash)
+    openFromHash()
+    return () => window.removeEventListener("hashchange", openFromHash)
+  }, [])
+
   // Helper formatting for currency
   const fmt = (n) => Number(n).toLocaleString("en-NG")
+  const kNaira = (n) => "₦" + Math.round(n).toLocaleString("en-NG")
+
+  // Cost calculator logic
+  const costCalc = useMemo(() => {
+    const a = parseFloat(kA) || 0
+    const b = parseFloat(kB) || 0
+    const layers = Math.max(1, Math.round(parseFloat(kLayers) || 1))
+    const lh = parseFloat(kLh) || 0
+    const hours = parseFloat(kHours) || 0
+    const rate = parseFloat(kRate) || 0
+    const h = layers * lh
+    let top = 0
+    let per = 0
+    if (kShape === "round") {
+      top = Math.PI * (a / 2) * (a / 2)
+      per = Math.PI * a
+    } else if (kShape === "square") {
+      top = a * a
+      per = 4 * a
+    } else {
+      top = a * b
+      per = 2 * (a + b)
+    }
+    const surface = top + per * h
+    const fillArea = Math.max(0, layers - 1) * top
+
+    const cv = K_COV[kCov] || K_COV.bc
+    const fl = K_FLAV[kFlav] || K_FLAV.choc
+    const kGrams = (areaSqIn, mm, m) => areaSqIn * K_SQ * (mm / 10) * m.d * (1 + m.w)
+
+    const batter = fl.g * top * h * fl.c
+    const fill =
+      kGrams(fillArea, cv.f !== null ? cv.f : K_UNDER.f, cv.f !== null ? cv : K_UNDER) *
+      (cv.f !== null ? cv.c : K_UNDER.c)
+    let crumb = 0
+    if (cv.k !== null) crumb = kGrams(surface, cv.k, cv) * cv.c
+    else if (kCov !== "whip") crumb = kGrams(surface, K_UNDER.k, K_UNDER) * K_UNDER.c
+    const finish = kGrams(surface, cv.n, cv) * cv.c
+    const time = hours * rate
+    const cost = batter + fill + crumb + finish + K_PACK + time
+    const price = cost / (1 - K_MARGIN)
+
+    return {
+      batter,
+      fill,
+      crumb,
+      finish,
+      pack: K_PACK,
+      time,
+      cost,
+      price,
+      surface,
+      covName: cv.name
+    }
+  }, [kShape, kA, kB, kLayers, kLh, kFlav, kCov, kHours, kRate])
+
+  // Quiz calculations and handlers
+  const quizResult = useMemo(() => {
+    if (!pbFinished) return null
+    let total = 0
+    pbAnswers.forEach((ansIndex, qIndex) => {
+      total += QUIZ_Q[qIndex].a[ansIndex][1]
+    })
+    const shown = Math.round(total * 2) / 2
+    const scoreStr = shown % 1 === 0 ? shown.toString() : shown.toFixed(1)
+    const band = QUIZ_BANDS.find((b) => total >= b.min) || QUIZ_BANDS[QUIZ_BANDS.length - 1]
+    return {
+      total,
+      scoreStr,
+      bandTitle: band.t,
+      bandSay: band.s
+    }
+  }, [pbFinished, pbAnswers])
+
+  const handlePbPick = (n) => {
+    const nextAns = [...pbAnswers]
+    nextAns[pbIndex] = n
+    setPbAnswers(nextAns)
+    if (pbIndex < QUIZ_Q.length - 1) {
+      setPbIndex(pbIndex + 1)
+    } else {
+      setPbFinished(true)
+      setTimeout(() => {
+        const el = document.getElementById("t-test")
+        if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth", block: "start" })
+      }, 50)
+    }
+  }
+
+  const handlePbBack = () => {
+    if (pbIndex > 0) setPbIndex(pbIndex - 1)
+  }
+
+  const handlePbAgain = () => {
+    setPbIndex(0)
+    setPbAnswers([])
+    setPbFinished(false)
+    setTimeout(() => {
+      const el = document.getElementById("t-test")
+      if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth", block: "start" })
+    }, 50)
+  }
 
   // Pricing calculation
   const STD_BASE = 5000
@@ -700,6 +958,43 @@ export function HomePage({
           color: var(--ink-faint);
           margin-top: 16px;
         }
+
+        /* The Psychology of a Baker */
+        .bw-home-root .pb-bar { height: 5px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 4px 0 6px; }
+        .bw-home-root .pb-bar i { display: block; height: 100%; width: 0; background: var(--gold); border-radius: 999px; transition: width .25s ease; }
+        @media (prefers-reduced-motion: reduce) { .bw-home-root .pb-bar i { transition: none; } }
+        .bw-home-root .pb-count { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; margin: 0 0 16px; }
+        .bw-home-root .pb-q { font-family: "Bricolage Grotesque", sans-serif; font-weight: 700; font-size: clamp(19px, 2.4vw, 23px); line-height: 1.28; margin: 0 0 16px; color: var(--brand); }
+        .bw-home-root .pb-opts { display: flex; flex-direction: column; gap: 10px; }
+        .bw-home-root .pb-opts button { font-family: inherit; font-size: 15.5px; line-height: 1.45; text-align: left; background: var(--bg); color: var(--ink); border: 1.5px solid var(--line); border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: border-color .12s; }
+        .bw-home-root .pb-opts button:hover { border-color: var(--gold); }
+        .bw-home-root .pb-opts button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+        .bw-home-root .pb-back { background: none; border: none; color: var(--ink-faint); font-family: inherit; font-size: 13.5px; cursor: pointer; padding: 8px 2px; text-decoration: underline; }
+        .bw-home-root .pb-score { background: var(--brand); border-radius: 16px; padding: 26px 20px; text-align: center; color: #FFF6EA; margin: 0 0 20px; }
+        .bw-home-root .pb-num { font-family: "Bricolage Grotesque", sans-serif; font-weight: 800; font-size: clamp(50px, 9vw, 74px); line-height: 1; color: var(--gold-soft); display: block; }
+        .bw-home-root .pb-of { font-size: 12.5px; letter-spacing: .14em; text-transform: uppercase; color: #E3CBAC; display: block; margin-top: 6px; }
+        .bw-home-root .pb-band { font-family: "Bricolage Grotesque", sans-serif; font-weight: 700; font-size: clamp(18px, 2.4vw, 22px); margin: 16px 0 8px; text-wrap: balance; }
+        .bw-home-root .pb-say { font-size: 15px; color: #EBDCC8; margin: 0 auto; max-width: 44ch; }
+        .bw-home-root .pb-h { font-family: "Bricolage Grotesque", sans-serif; font-weight: 700; font-size: 19px; margin: 26px 0 4px; color: var(--brand); }
+        .bw-home-root .pb-row { background: var(--bg); border: 1px solid var(--line); border-left-width: 4px; border-radius: 0 12px 12px 0; padding: 14px 16px; margin: 0 0 10px; }
+        .bw-home-root .pb-row.bad { border-left-color: #A3221B; }
+        .bw-home-root .pb-row.mid { border-left-color: #A8761A; }
+        .bw-home-root .pb-row.good { border-left-color: #1F6B41; }
+        .bw-home-root .pb-row b { display: block; font-size: 14.6px; margin-bottom: 3px; }
+        .bw-home-root .pb-row.bad b { color: #A3221B; }
+        .bw-home-root .pb-row.mid b { color: #A8761A; }
+        .bw-home-root .pb-row.good b { color: #1F6B41; }
+        .bw-home-root .pb-row span { display: block; font-size: 14.2px; color: var(--ink-soft); }
+        .bw-home-root .pb-row em { display: block; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); font-style: normal; font-size: 14.2px; color: var(--ink); }
+        .bw-home-root .pb-row em b { display: block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); margin-bottom: 3px; }
+        .bw-home-root .pb-cta { border: 1.5px solid var(--gold); border-radius: 16px; padding: 22px 20px; margin: 24px 0 0; background: var(--bg-alt); }
+        .bw-home-root .pb-cta .pb-h { margin-top: 0; }
+        .bw-home-root .pb-punch { font-size: 15.5px; margin: 13px 0 0; color: var(--ink); }
+        .bw-home-root .pb-punch em { font-style: italic; color: var(--gold); }
+        .bw-home-root .pb-strong { font-family: "Bricolage Grotesque", sans-serif; font-weight: 700; font-size: clamp(17px, 2.2vw, 20px); color: var(--brand); line-height: 1.32; margin-top: 14px; text-wrap: balance; }
+        .bw-home-root .pb-buy { display: inline-block; margin-top: 18px; background: var(--brand); color: #FFF6EA; text-decoration: none; font-weight: 700; font-size: 15.5px; padding: 14px 24px; border-radius: 11px; }
+        .bw-home-root .pb-buy:hover { background: var(--brand-hover); }
+        .bw-home-root .pb-buy:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 
         /* STEPS */
         .bw-home-root .steps {
@@ -1322,6 +1617,7 @@ export function HomePage({
                 type="button"
                 className={`tab ${activeTool === "conv" ? "on" : ""}`}
                 onClick={() => setActiveTool("conv")}
+                data-tool="conv"
               >
                 Weight ↔ volume
               </button>
@@ -1329,6 +1625,7 @@ export function HomePage({
                 type="button"
                 className={`tab ${activeTool === "scale" ? "on" : ""}`}
                 onClick={() => setActiveTool("scale")}
+                data-tool="scale"
               >
                 Recipe scaler
               </button>
@@ -1336,8 +1633,25 @@ export function HomePage({
                 type="button"
                 className={`tab ${activeTool === "pan" ? "on" : ""}`}
                 onClick={() => setActiveTool("pan")}
+                data-tool="pan"
               >
                 Pan size
+              </button>
+              <button
+                type="button"
+                className={`tab ${activeTool === "cost" ? "on" : ""}`}
+                onClick={() => setActiveTool("cost")}
+                data-tool="cost"
+              >
+                What a cake costs
+              </button>
+              <button
+                type="button"
+                className={`tab ${activeTool === "test" ? "on" : ""}`}
+                onClick={() => setActiveTool("test")}
+                data-tool="test"
+              >
+                The Psychology of a Baker
               </button>
             </div>
 
@@ -1492,6 +1806,337 @@ export function HomePage({
                   <div className="sm">{pNoteText}</div>
                 </div>
                 <p className="fineprint">Based on surface area. Keep the batter depth the same and adjust baking time.</p>
+              </div>
+            )}
+
+            {/* TOOL 4: WHAT A CAKE COSTS */}
+            {activeTool === "cost" && (
+              <div className="tool" id="t-cost">
+                <h3>What a cake costs</h3>
+                <p className="hint">
+                  Typical Abuja prices are already filled in, so you get a number
+                  before you find a single receipt.
+                </p>
+                <div className="fields">
+                  <div className="f">
+                    <label>Shape</label>
+                    <select
+                      id="kShape"
+                      value={kShape}
+                      onChange={(e) => setKShape(e.target.value)}
+                    >
+                      <option value="round">Round</option>
+                      <option value="square">Square</option>
+                      <option value="rect">Rectangle</option>
+                    </select>
+                  </div>
+                  <div className="f">
+                    <label id="kLabA">
+                      {kShape === "round"
+                        ? "Diameter (inches)"
+                        : kShape === "square"
+                        ? "Side (inches)"
+                        : "Length (inches)"}
+                    </label>
+                    <input
+                      id="kA"
+                      type="number"
+                      value={kA}
+                      min="2"
+                      max="60"
+                      step="1"
+                      onChange={(e) => setKA(e.target.value)}
+                    />
+                  </div>
+                  {kShape === "rect" && (
+                    <div className="f" id="kWrapB">
+                      <label>Width (inches)</label>
+                      <input
+                        id="kB"
+                        type="number"
+                        value={kB}
+                        min="2"
+                        max="60"
+                        step="1"
+                        onChange={(e) => setKB(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  <div className="f">
+                    <label>Layers</label>
+                    <input
+                      id="kLayers"
+                      type="number"
+                      value={kLayers}
+                      min="1"
+                      max="8"
+                      step="1"
+                      onChange={(e) => setKLayers(e.target.value)}
+                    />
+                  </div>
+                  <div className="f">
+                    <label>Each layer, inches tall</label>
+                    <input
+                      id="kLh"
+                      type="number"
+                      value={kLh}
+                      min="0.5"
+                      max="4"
+                      step="0.5"
+                      onChange={(e) => setKLh(e.target.value)}
+                    />
+                  </div>
+                  <div className="f">
+                    <label>Flavour</label>
+                    <select
+                      id="kFlav"
+                      value={kFlav}
+                      onChange={(e) => setKFlav(e.target.value)}
+                    >
+                      <option value="van">Vanilla</option>
+                      <option value="choc">Chocolate</option>
+                      <option value="rv">Red velvet</option>
+                    </select>
+                  </div>
+                  <div className="f">
+                    <label>Covering</label>
+                    <select
+                      id="kCov"
+                      value={kCov}
+                      onChange={(e) => setKCov(e.target.value)}
+                    >
+                      <option value="bc">Buttercream</option>
+                      <option value="gan">Ganache</option>
+                      <option value="fon">Fondant</option>
+                      <option value="whip">Whipped cream</option>
+                    </select>
+                  </div>
+                  <div className="f">
+                    <label>Hours on this cake</label>
+                    <input
+                      id="kHours"
+                      type="number"
+                      value={kHours}
+                      min="0"
+                      max="200"
+                      step="0.5"
+                      onChange={(e) => setKHours(e.target.value)}
+                    />
+                  </div>
+                  <div className="f">
+                    <label>What an hour of your shop costs (₦)</label>
+                    <input
+                      id="kRate"
+                      type="number"
+                      value={kRate}
+                      min="0"
+                      step="100"
+                      onChange={(e) => setKRate(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="result">
+                  <div className="big" id="kOut">{kNaira(costCalc.cost)}</div>
+                  <div className="sm" id="kNote">
+                    What this cake costs you to make. {Math.round(costCalc.surface)} square inches to cover.
+                  </div>
+                  <div className="sm" id="kBreak" style={{ marginTop: 10, lineHeight: 1.7 }}>
+                    Cake {kNaira(costCalc.batter)} · filling {kNaira(costCalc.fill)}
+                    {costCalc.crumb ? ` · crumb coat ${kNaira(costCalc.crumb)}` : ""}
+                    {" · "}{costCalc.covName.toLowerCase()} {kNaira(costCalc.finish)}
+                    {" · "}board and box {kNaira(costCalc.pack)} · your time {kNaira(costCalc.time)}
+                  </div>
+                  <div className="sm" id="kPrice" style={{ marginTop: 12, fontWeight: 700 }}>
+                    Sell it for at least {kNaira(Math.ceil(costCalc.price / 500) * 500)} to keep a {Math.round(K_MARGIN * 100)}% margin.
+                  </div>
+                </div>
+
+                <div className="fields" style={{ marginTop: 20, gridTemplateColumns: "1fr" }}>
+                  <div className="f">
+                    <label>Now the honest part: what do you charge for this cake today? (₦)</label>
+                    <input
+                      id="kCharge"
+                      type="number"
+                      placeholder="35000"
+                      min="0"
+                      step="500"
+                      value={kCharge}
+                      onChange={(e) => setKCharge(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {(() => {
+                  const charge = parseFloat(kCharge)
+                  if (!isFinite(charge) || charge <= 0) return null
+                  const gap = costCalc.price - charge
+                  if (gap > 0) {
+                    return (
+                      <div className="result" id="kVerdict" style={{ marginTop: 14 }}>
+                        <div className="big">{kNaira(gap)} short</div>
+                        <div className="sm">
+                          That is {kNaira(gap * 4)} a month if you bake one a week.{" "}
+                          {charge < costCalc.cost
+                            ? `At ${kNaira(charge)} you are not even covering what it costs to make.`
+                            : "You are covering your costs. You are not making the margin you wanted."}
+                        </div>
+                      </div>
+                    )
+                  } else {
+                    return (
+                      <div className="result" id="kVerdict" style={{ marginTop: 14 }}>
+                        <div className="big">{kNaira(-gap)} above</div>
+                        <div className="sm">
+                          That is a {Math.round((1 - costCalc.cost / charge) * 100)}% margin on typical prices. Run it again with your own costs before you trust it.
+                        </div>
+                      </div>
+                    )
+                  }
+                })()}
+
+                <p className="fineprint" style={{ marginTop: 18 }}>
+                  This uses typical prices, not yours. It cannot know what you paid for flour last week,
+                  learn your own recipes, cost a second or third tier, add decoration materials, or work
+                  out your real hourly rate.{" "}
+                  <a href={SELAR_PAID} id="kPaid">The Cake Costing System does all of that.</a>{" "}
+                  <a href={SELAR_FREE} id="kFree">Free serving &amp; covering chart.</a>
+                </p>
+              </div>
+            )}
+
+            {/* TOOL 5: THE PSYCHOLOGY OF A BAKER */}
+            {activeTool === "test" && (
+              <div className="tool" id="t-test">
+                <h3>The Psychology of a Baker</h3>
+                <p className="hint">
+                  Ten questions about the money side of your cakes. About ninety seconds.
+                  Answer honestly, nobody sees it but you. Most bakers score three.
+                </p>
+
+                {!pbFinished ? (
+                  <div id="pb-quiz">
+                    <div className="pb-bar">
+                      <i id="pb-fill" style={{ width: `${(pbIndex / QUIZ_Q.length) * 100}%` }}></i>
+                    </div>
+                    <p className="pb-count" id="pb-count">
+                      Question {pbIndex + 1} of {QUIZ_Q.length}
+                    </p>
+                    <h4 className="pb-q" id="pb-q">
+                      {QUIZ_Q[pbIndex].q}
+                    </h4>
+                    <div className="pb-opts" id="pb-opts">
+                      {QUIZ_Q[pbIndex].a.map((opt, n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => handlePbPick(n)}
+                        >
+                          {opt[0]}
+                        </button>
+                      ))}
+                    </div>
+                    {pbIndex > 0 && (
+                      <button
+                        type="button"
+                        className="pb-back"
+                        id="pb-back"
+                        onClick={handlePbBack}
+                      >
+                        Back
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div id="pb-result">
+                    <div className="pb-score">
+                      <span className="pb-num" id="pb-num">{quizResult?.scoreStr}</span>
+                      <span className="pb-of">out of 10</span>
+                      <p className="pb-band" id="pb-band">{quizResult?.bandTitle}</p>
+                      <p className="pb-say" id="pb-say">{quizResult?.bandSay}</p>
+                    </div>
+
+                    <h4 className="pb-h">Where the money is leaking</h4>
+                    <p className="hint">Every answer, and what it is costing you.</p>
+                    <div id="pb-rows">
+                      {QUIZ_Q.map((item, k) => {
+                        const ansIdx = pbAnswers[k] !== undefined ? pbAnswers[k] : 0
+                        const opt = item.a[ansIdx]
+                        const cls = opt[1] === 1 ? "good" : opt[1] === 0.5 ? "mid" : "bad"
+                        return (
+                          <div key={k} className={`pb-row ${cls}`}>
+                            <b>{item.q}</b>
+                            <span>{opt[2]}</span>
+                            {opt[1] < 1 && (
+                              <em>
+                                <b>What to do</b>
+                                {QUIZ_FIX[k]}
+                              </em>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="pb-cta">
+                      <h4 className="pb-h">You love baking. But are you making money from it?</h4>
+                      <p className="pb-punch">
+                        You have just answered ten questions about the money side of your cakes.
+                        Some of them you could answer straight away. Others you had to think about, or guess at.
+                      </p>
+                      <p className="pb-punch">
+                        That is the point of them. Every one of those questions is sitting behind a
+                        price you have already quoted this year. What a cake costs you in ingredients. What an hour
+                        in your kitchen is worth. Whether you are on your own payroll. What you do when a customer
+                        says it is too much. Whether you could say, right now, if last month made money.
+                      </p>
+                      <p className="pb-punch">
+                        Your time, your labour, electricity, gas, decoration, packaging and the cost
+                        of simply keeping the place open all go into every cake you sell. When those are not counted,
+                        you can be busy, taking orders and posting cakes you are proud of, and still not making the
+                        profit your business needs.
+                      </p>
+                      <p className="pb-punch">
+                        The problem may not be that you are not selling enough cakes. It may be that
+                        you are not costing them properly.
+                      </p>
+                      <p className="pb-punch">But you can change that.</p>
+                      <p className="pb-punch pb-strong">Meet the Cake Costing System</p>
+                      <p className="pb-punch">
+                        A practical costing and pricing tool that works out the true cost of
+                        producing your cakes, accounts for your business expenses, prepares accurate quotations, and
+                        shows you which of the things you sell are actually making you money.
+                      </p>
+                      <p className="pb-punch">
+                        Imagine knowing what a cake costs you before you decide what to charge.
+                        Imagine sending a quotation without second-guessing it, or wondering what you have forgotten.
+                        Imagine a customer telling you it is too expensive, and holding your price, because you can
+                        account for every naira in it.
+                      </p>
+                      <p className="pb-punch">You do not have to keep guessing. You need a better system.</p>
+                      <p className="pb-punch">
+                        Your baking business deserves more than beautiful cakes and impressive sales.
+                        It deserves to make money.
+                      </p>
+                      <p className="pb-punch pb-strong">
+                        Take the next step towards costing with clarity and pricing with confidence.
+                      </p>
+                      <a className="pb-buy" href="https://selar.com/cakecostingsystem">
+                        Get the Cake Costing System
+                      </a>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="pb-back"
+                      id="pb-again"
+                      style={{ marginTop: 18 }}
+                      onClick={handlePbAgain}
+                    >
+                      Take it again
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -1,5 +1,6 @@
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
+const purchaseRoutingService = require('../modules/accounting/services/purchaseRouting.service');
 
 /**
  * @desc    Get all stock purchases for the tenant
@@ -187,6 +188,16 @@ const createPurchase = asyncHandler(async (req, res) => {
             }
         }
 
+        // Post to General Ledger atomically
+        await purchaseRoutingService.recordPurchaseAccounting(tenantId, purchase, {
+            category: req.body.category,
+            destination: req.body.destination,
+            accountCode: req.body.accountCode,
+            paymentMethod: req.body.paymentMethod,
+            usefulLifeMonths: req.body.usefulLifeMonths,
+            useType: req.body.useType
+        }, tx);
+
         return purchase;
     }, { maxWait: 10000, timeout: 30000 });
 
@@ -211,6 +222,9 @@ const updatePurchase = asyncHandler(async (req, res) => {
             res.status(404);
             throw new Error('Purchase not found');
         }
+
+        // Reverse previous accounting entry if any
+        await purchaseRoutingService.handlePurchaseCleanup(tenantId, req.params.id, 'Purchase updated', req.user?.id, tx);
 
         const newItemId = itemId !== undefined ? (itemId || null) : existing.itemId;
         const newUnitSize = unitSize !== undefined ? (unitSize !== null && unitSize !== '' ? parseFloat(unitSize) : null) : existing.unitSize;
@@ -367,6 +381,16 @@ const updatePurchase = asyncHandler(async (req, res) => {
             include: { inventoryItem: true }
         });
 
+        // Re-post to General Ledger
+        await purchaseRoutingService.recordPurchaseAccounting(tenantId, updatedPurchase, {
+            category: req.body.category,
+            destination: req.body.destination || existing.destination,
+            accountCode: req.body.accountCode,
+            paymentMethod: req.body.paymentMethod,
+            usefulLifeMonths: req.body.usefulLifeMonths,
+            useType: req.body.useType
+        }, tx);
+
         return updatedPurchase;
     }, { maxWait: 10000, timeout: 30000 });
 
@@ -389,6 +413,9 @@ const deletePurchase = asyncHandler(async (req, res) => {
         if (!purchase) {
             throw new Error('Purchase not found');
         }
+
+        // Clean up previous accounting entry and dispose linked fixed asset
+        await purchaseRoutingService.handlePurchaseCleanup(tenantId, req.params.id, 'Purchase deleted', req.user?.id, tx);
 
         await tx.purchase.delete({
             where: { id: req.params.id }

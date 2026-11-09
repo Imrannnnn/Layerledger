@@ -669,7 +669,7 @@ Inquire about any timeframe: current month, year-to-date (YTD), previous month, 
               </div>
             </div>
             <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.65 }}>
-              Step-by-step breakdown: Gross Revenue -> COGS (ingredient production) -> Gross Margin % -> Operating Overheads -> Net Profit & Net Margin %.
+              Step-by-step breakdown: Gross Revenue &rarr; COGS (ingredient production) &rarr; Gross Margin % &rarr; Operating Overheads &rarr; Net Profit & Net Margin %.
             </div>
           </Card>
 

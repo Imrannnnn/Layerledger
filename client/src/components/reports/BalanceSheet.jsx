@@ -1,130 +1,261 @@
 /**
  * BalanceSheet.jsx
  * ----------------------------------------------------------------------------
- * Balance Sheet.
- * Assets, liabilities and equity from opening balances + live data.
+ * Double-Entry General Ledger Balance Sheet (Rule 3 & Rulings 6, 10).
+ * Assets = Liabilities + Equity, computed directly from posted journal entries.
  * ----------------------------------------------------------------------------
  */
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { Btn, iSt, Card, SHead } from "../common/ui.jsx"
+import React, { useState, useEffect, useMemo } from "react"
+import { Btn, Card, SHead, Badge } from "../common/ui.jsx"
 import { fmt, today } from "../../lib/helpers.js"
-import { mergeRevenueSources, loadOpeningBalance, PLRow } from "../../lib/costing.jsx"
-import { saveLocal, loadLocal } from "../../lib/data.js"
-import { Lightbulb, Check, AlertTriangle, Download } from "lucide-react"
+import { loadOpeningBalance, PLRow } from "../../lib/costing.jsx"
+import { fetchBalanceSheet } from "../../lib/accountingApi.js"
 import { exportBalanceSheetPDF } from "../../lib/pdfReportGenerator.js"
+import { Lightbulb, Check, AlertTriangle, Download, RefreshCw, CheckCircle2 } from "lucide-react"
 
-export function BalanceSheet({productions,expenses,inventory,transactions,company}){
-  const ob=loadOpeningBalance()
-  const [editing,setEditing]=useState(!ob)
-  const [ob2,setOb2]=useState(ob||{cash:"",equipment:"",capital:"",loanBalance:"",asOf:today()})
+export function BalanceSheet({ productions = [], expenses = [], inventory = [], transactions = [], company }) {
+  const [asOfDate, setAsOfDate] = useState(today())
+  const [glReport, setGlReport] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-  const saveOB=async ()=>{
-    const data={cash:+ob2.cash||0,equipment:+ob2.equipment||0,capital:+ob2.capital||0,loanBalance:+ob2.loanBalance||0,asOf:ob2.asOf}
-    await saveLocal("ll_opening_balance",data)
-    setEditing(false)
+  // Fetch live Balance Sheet from General Ledger
+  const loadBalanceSheet = async (date) => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await fetchBalanceSheet({ asOfDate: date || asOfDate })
+      setGlReport(data)
+    } catch (err) {
+      console.warn("Unable to fetch GL balance sheet:", err)
+      setError(err.message || "Failed to load balance sheet from ledger")
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const inventoryValue=inventory.reduce((s,i)=>s+((i.stock||0)*(i.cost||0)),0)
+  useEffect(() => {
+    loadBalanceSheet(asOfDate)
+  }, [asOfDate])
 
-  let payables=0
-  try{const bills=loadLocal("ll_payables",[]);payables=bills.reduce((s,b)=>s+(b.amount-(b.paid||0)),0)}catch(e){}
+  // Fallback to legacy client-side calculations if API fails or empty
+  const ob = loadOpeningBalance()
+  const inventoryValue = inventory.reduce((s, i) => s + ((i.stock || 0) * (i.cost || 0)), 0)
+  const cashIn = transactions.filter(t => t.type === "credit").reduce((s, t) => s + (t.amount || 0), 0)
+  const cashOut = transactions.filter(t => t.type === "debit").reduce((s, t) => s + (t.amount || 0), 0)
+  const fallbackCash = (ob?.cash || 0) + cashIn - cashOut
+  const fallbackAssets = fallbackCash + inventoryValue + (ob?.equipment || 0)
+  const fallbackLiabilities = ob?.loanBalance || 0
+  const fallbackEquity = (ob?.capital || 0)
 
-  const allRevenue=mergeRevenueSources(productions)
-  const receivables=allRevenue.filter(p=>{const s=(p.status||"").toLowerCase();return s!=="paid"&&s!=="delivered"&&s!=="completed"}).reduce((s,p)=>s+(p.salePrice||0),0)
+  // Active numbers (prefer General Ledger)
+  const currentAssets = glReport ? glReport.currentAssets.total : (fallbackCash + inventoryValue)
+  const grossPPE = glReport ? glReport.fixedAssets.grossPPETotal : (ob?.equipment || 0)
+  const contraPPE = glReport ? glReport.fixedAssets.contraPPETotal : 0
+  const netPPE = glReport ? glReport.fixedAssets.netPPE : (ob?.equipment || 0)
+  const totalAssets = glReport ? glReport.totalAssets : fallbackAssets
 
-  const totalRev=allRevenue.reduce((s,p)=>s+(p.salePrice||0),0)
-  const totalCogs=allRevenue.reduce((s,p)=>s+(p.cost||0),0)
-  const EXCL=["Ingredient costs","Ingredients / Supplies","Pass-through Payment","Loan Repayment","Client Reimbursable (paid out)","Already logged via receipt"]
-  const totalOverhead=expenses.filter(e=>!EXCL.includes(e.category)&&e.source!=="purchase").reduce((s,e)=>s+(e.amount||0),0)
-  const retainedEarnings=totalRev-totalCogs-totalOverhead
+  const currentLiabilities = glReport ? glReport.currentLiabilities.total : 0
+  const longTermLiabilities = glReport ? glReport.longTermLiabilities.total : fallbackLiabilities
+  const totalLiabilities = glReport ? glReport.totalLiabilities : fallbackLiabilities
 
-  const obCash=ob?.cash||0
-  const obEquip=ob?.equipment||0
-  const obCapital=ob?.capital||0
-  const obLoan=ob?.loanBalance||0
+  const totalEquity = glReport ? glReport.equity.total : fallbackEquity
+  const totalLiabilitiesAndEquity = glReport ? glReport.totalLiabilitiesAndEquity : (fallbackLiabilities + fallbackEquity)
+  const isBalanced = glReport ? glReport.isBalanced : (Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 1)
+  const imbalanceAmount = glReport ? glReport.imbalanceAmount : Math.abs(totalAssets - (totalLiabilities + totalEquity))
 
-  const cashIn=transactions.filter(t=>t.type==="credit").reduce((s,t)=>s+(t.amount||0),0)
-  const cashOut=transactions.filter(t=>t.type==="debit").reduce((s,t)=>s+(t.amount||0),0)
-  const cash=obCash+cashIn-cashOut
+  const handleDownloadPDF = () => {
+    exportBalanceSheetPDF({
+      asOf: asOfDate,
+      cash: glReport?.currentAssets?.accounts?.find(a => a.accountCode === "1100" || a.accountCode === "1110")?.balance || fallbackCash,
+      inventoryValue: glReport?.currentAssets?.accounts?.filter(a => ["1140", "1150", "1160"].includes(a.accountCode)).reduce((s, a) => s + a.balance, 0) || inventoryValue,
+      receivables: glReport?.currentAssets?.accounts?.find(a => a.accountCode === "1120")?.balance || 0,
+      obEquip: netPPE,
+      totalAssets,
+      payables: glReport?.currentLiabilities?.accounts?.find(a => a.accountCode === "2100")?.balance || 0,
+      obLoan: longTermLiabilities,
+      totalLiabilities,
+      obCapital: glReport?.equity?.accounts?.find(a => a.accountCode === "3000")?.balance || (ob?.capital || 0),
+      retainedEarnings: (glReport?.equity?.accounts?.find(a => a.accountCode === "3100")?.balance || 0) + (glReport?.equity?.currentYearNetProfit || 0),
+      totalEquity,
+      balanced: isBalanced
+    }, company)
+  }
 
-  const totalAssets=cash+inventoryValue+receivables+obEquip
-  const totalLiabilities=payables+obLoan
-  const totalEquity=obCapital+retainedEarnings
-  const balanced=Math.abs(totalAssets-(totalLiabilities+totalEquity))<1
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <SHead title="Balance Sheet" sub="Statement of Financial Position — Double-entry General Ledger single source of truth" />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+            <span style={{ fontSize: 11, background: "#E8F5EE", color: "#1D6B40", padding: "2px 8px", borderRadius: 4, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <CheckCircle2 size={11} /> General Ledger Accrual
+            </span>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              Contra-Asset Depreciation (Ruling 10) & Customer Deposits (Ruling 2)
+            </span>
+          </div>
+        </div>
 
-  const iSt={width:"100%",padding:"9px 11px",border:"1px solid var(--border)",borderRadius:7,fontSize:13,fontFamily:"inherit",background:"var(--panel)",color:"var(--text)",marginTop:4,outline:"none"}
-
-  if(editing)return <div>
-    <SHead title="Balance Sheet" sub="First, set your opening balances"/>
-    <Card style={{maxWidth:520}}>
-      <div style={{background:"#FEF9EE",border:"1px solid var(--gold)",borderRadius:8,padding:"11px 14px",fontSize:12.5,color:"#7A5500",lineHeight:1.7,marginBottom:16,display:"flex",alignItems:"flex-start",gap:8}}>
-        <Lightbulb size={15} style={{flexShrink:0,marginTop:2}} />
-        <span>Enter your starting position once. These are the things the app can't work out on its own: how much cash you have, what your equipment is worth, money you put in, and any outstanding loan.</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            type="date"
+            value={asOfDate}
+            onChange={e => setAsOfDate(e.target.value)}
+            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 13, color: "var(--text)" }}
+          />
+          <Btn small variant="outline" onClick={handleDownloadPDF} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <Download size={13} /> Download PDF
+          </Btn>
+          <Btn small variant="ghost" onClick={() => loadBalanceSheet(asOfDate)} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <RefreshCw size={13} className={loading ? "spin" : ""} /> Refresh
+          </Btn>
+        </div>
       </div>
-      <div style={{marginBottom:12}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>As at date</label><input type="date" value={ob2.asOf} onChange={e=>setOb2(p=>({...p,asOf:e.target.value}))} style={iSt}/></div>
-      <div style={{marginBottom:12}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>Cash & bank balance (₦)</label><input type="number" value={ob2.cash} onChange={e=>setOb2(p=>({...p,cash:e.target.value}))} placeholder="420000" style={iSt}/></div>
-      <div style={{marginBottom:12}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>Equipment value — ovens, mixers (₦)</label><input type="number" value={ob2.equipment} onChange={e=>setOb2(p=>({...p,equipment:e.target.value}))} placeholder="650000" style={iSt}/></div>
-      <div style={{marginBottom:12}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>Money you invested — owner's capital (₦)</label><input type="number" value={ob2.capital} onChange={e=>setOb2(p=>({...p,capital:e.target.value}))} placeholder="600000" style={iSt}/></div>
-      <div style={{marginBottom:16}}><label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600}}>Outstanding loan balance (₦)</label><input type="number" value={ob2.loanBalance} onChange={e=>setOb2(p=>({...p,loanBalance:e.target.value}))} placeholder="300000" style={iSt}/></div>
-      <Btn variant="success" onClick={saveOB} style={{display:"inline-flex",alignItems:"center",gap:5}}><Check size={13}/> Save Opening Balances</Btn>
-    </Card>
-  </div>
 
-  return <div>
-    <SHead title="Balance Sheet" sub={"As at "+new Date().toLocaleDateString("en-NG",{day:"numeric",month:"long",year:"numeric"})}/>
-    <div style={{display:"flex",justifyContent:"flex-end",gap:8,alignItems:"center",marginBottom:12}}>
-      <Btn
-        small
-        variant="outline"
-        onClick={() => exportBalanceSheetPDF({
-          asOf: ob?.asOf,
-          cash,
-          inventoryValue,
-          receivables,
-          obEquip,
-          totalAssets,
-          payables,
-          obLoan,
-          totalLiabilities,
-          obCapital,
-          retainedEarnings,
-          totalEquity,
-          balanced
-        }, company)}
-        style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-      >
-        <Download size={13} /> Download PDF
-      </Btn>
-      <Btn small variant="ghost" onClick={()=>{setOb2(ob||{cash:"",equipment:"",capital:"",loanBalance:"",asOf:today()});setEditing(true)}}>Edit opening balances</Btn>
+      {/* Equality Verification Banner */}
+      <div style={{
+        marginBottom: 16,
+        padding: "12px 16px",
+        borderRadius: 10,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        background: isBalanced ? "#EAF6EF" : "#FDECEB",
+        border: `1px solid ${isBalanced ? "#BCE3CD" : "#F6B3AF"}`,
+        color: isBalanced ? "#176337" : "#A32D2D"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 13.5 }}>
+          {isBalanced ? <Check size={18} /> : <AlertTriangle size={18} />}
+          <span>
+            {isBalanced
+              ? "General Ledger is Perfectly Balanced (Assets = Liabilities + Equity)"
+              : `Out of Balance by ${fmt(imbalanceAmount)} (Assets ≠ Liabilities + Equity)`}
+          </span>
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 700 }}>
+          Assets: {fmt(totalAssets)} | Liab + Eq: {fmt(totalLiabilitiesAndEquity)}
+        </div>
+      </div>
+
+      <Card style={{ maxWidth: 640 }}>
+        {/* ASSETS SECTION */}
+        <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 1, color: "var(--gold)", fontWeight: 700, marginBottom: 8, paddingBottom: 4, borderBottom: "1px solid var(--border)" }}>
+          Assets — What The Business Owns
+        </div>
+
+        {/* Current Assets */}
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", margin: "10px 0 4px" }}>
+          Current Assets
+        </div>
+        {glReport?.currentAssets?.accounts?.length > 0 ? (
+          glReport.currentAssets.accounts.map(acc => (
+            <PLRow key={acc.accountCode} label={acc.accountName} value={fmt(acc.balance)} indent />
+          ))
+        ) : (
+          <>
+            <PLRow label="Cash & Bank Balances" value={fmt(fallbackCash)} indent />
+            <PLRow label="Inventory on Hand" value={fmt(inventoryValue)} indent />
+          </>
+        )}
+        <PLRow label="Total Current Assets" value={fmt(currentAssets)} bold />
+
+        {/* Fixed Assets (PPE) */}
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", margin: "14px 0 4px" }}>
+          Property, Plant & Equipment (Fixed Assets)
+        </div>
+        {glReport?.fixedAssets?.grossPPE?.length > 0 ? (
+          glReport.fixedAssets.grossPPE.map(acc => (
+            <PLRow key={acc.accountCode} label={`${acc.accountName} (Cost)`} value={fmt(acc.balance)} indent />
+          ))
+        ) : (
+          <PLRow label="Production Equipment (Gross Cost)" value={fmt(grossPPE)} indent />
+        )}
+        {contraPPE > 0 && (
+          <PLRow label="Less: Accumulated Depreciation" value={`(${fmt(contraPPE)})`} indent color="#B03A2E" />
+        )}
+        <PLRow label="Net Fixed Assets (PPE)" value={fmt(netPPE)} bold />
+
+        <div style={{ margin: "6px 0 16px" }}>
+          <PLRow label="TOTAL ASSETS" value={fmt(totalAssets)} bold color="#1D6B40" />
+        </div>
+
+        {/* LIABILITIES SECTION */}
+        <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 1, color: "var(--gold)", fontWeight: 700, margin: "20px 0 8px", paddingBottom: 4, borderBottom: "1px solid var(--border)" }}>
+          Liabilities — What The Business Owes
+        </div>
+
+        {/* Current Liabilities */}
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", margin: "10px 0 4px" }}>
+          Current Liabilities
+        </div>
+        {glReport?.currentLiabilities?.accounts?.length > 0 ? (
+          glReport.currentLiabilities.accounts.map(acc => (
+            <PLRow key={acc.accountCode} label={acc.accountName} value={fmt(acc.balance)} indent />
+          ))
+        ) : (
+          <PLRow label="Customer Deposits & Payables" value={fmt(currentLiabilities)} indent />
+        )}
+        <PLRow label="Total Current Liabilities" value={fmt(currentLiabilities)} bold />
+
+        {/* Long-Term Liabilities */}
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", margin: "14px 0 4px" }}>
+          Long-Term Liabilities
+        </div>
+        {glReport?.longTermLiabilities?.accounts?.length > 0 ? (
+          glReport.longTermLiabilities.accounts.map(acc => (
+            <PLRow key={acc.accountCode} label={acc.accountName} value={fmt(acc.balance)} indent />
+          ))
+        ) : (
+          <PLRow label="Long-Term Loans" value={fmt(longTermLiabilities)} indent />
+        )}
+        <PLRow label="Total Long-Term Liabilities" value={fmt(longTermLiabilities)} bold />
+
+        <div style={{ margin: "6px 0 16px" }}>
+          <PLRow label="TOTAL LIABILITIES" value={fmt(totalLiabilities)} bold />
+        </div>
+
+        {/* EQUITY SECTION */}
+        <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 1, color: "var(--gold)", fontWeight: 700, margin: "20px 0 8px", paddingBottom: 4, borderBottom: "1px solid var(--border)" }}>
+          Equity — Owner's Stake & Retained Profit
+        </div>
+        {glReport?.equity?.accounts?.length > 0 ? (
+          glReport.equity.accounts.map(acc => (
+            <PLRow key={acc.accountCode} label={acc.accountName} value={fmt(acc.balance)} indent />
+          ))
+        ) : (
+          <PLRow label="Share Capital / Owner Investment" value={fmt(fallbackEquity)} indent />
+        )}
+        {glReport?.equity?.currentYearNetProfit !== undefined && (
+          <PLRow
+            label="Current Year Earnings (P&L Net Profit)"
+            value={fmt(glReport.equity.currentYearNetProfit)}
+            indent
+            color={glReport.equity.currentYearNetProfit >= 0 ? "#1D6B40" : "#B03A2E"}
+          />
+        )}
+        <PLRow label="TOTAL EQUITY" value={fmt(totalEquity)} bold />
+
+        {/* TOTAL LIABILITIES & EQUITY */}
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontWeight: 700,
+          fontSize: 15,
+          padding: "14px 16px",
+          background: "#FEF9EE",
+          border: "1px solid var(--gold)",
+          borderRadius: 8,
+          marginTop: 20
+        }}>
+          <span>TOTAL LIABILITIES & EQUITY</span>
+          <span>{fmt(totalLiabilitiesAndEquity)}</span>
+        </div>
+
+        <div style={{ marginTop: 14, fontSize: 11, color: "var(--muted)", lineHeight: 1.6 }}>
+          Computed directly from the double-entry General Ledger (Rule 3). Fixed assets reflect cost preservation with separate contra-asset depreciation (Ruling 10).
+        </div>
+      </Card>
     </div>
-
-    <Card style={{maxWidth:560}}>
-      <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:1,color:"var(--gold)",fontWeight:700,marginBottom:6,paddingBottom:4,borderBottom:"1px solid var(--border)"}}>Assets — what you own</div>
-      <PLRow label="Cash & bank balance" value={fmt(cash)} indent/>
-      <PLRow label="Inventory (ingredients in store)" value={fmt(inventoryValue)} indent/>
-      <PLRow label="Accounts receivable (owed by clients)" value={fmt(receivables)} indent/>
-      <PLRow label="Equipment" value={fmt(obEquip)} indent/>
-      <PLRow label="Total Assets" value={fmt(totalAssets)} bold/>
-
-      <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:1,color:"var(--gold)",fontWeight:700,margin:"16px 0 6px",paddingBottom:4,borderBottom:"1px solid var(--border)"}}>Liabilities — what you owe</div>
-      <PLRow label="Accounts payable (owed to suppliers)" value={fmt(payables)} indent/>
-      <PLRow label="Business loan outstanding" value={fmt(obLoan)} indent/>
-      <PLRow label="Total Liabilities" value={fmt(totalLiabilities)} bold/>
-
-      <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:1,color:"var(--gold)",fontWeight:700,margin:"16px 0 6px",paddingBottom:4,borderBottom:"1px solid var(--border)"}}>Equity — your stake</div>
-      <PLRow label="Owner's capital" value={fmt(obCapital)} indent/>
-      <PLRow label="Retained earnings (accumulated profit)" value={fmt(retainedEarnings)} indent/>
-      <PLRow label="Total Equity" value={fmt(totalEquity)} bold/>
-
-      <div style={{display:"flex",justifyContent:"space-between",fontWeight:700,fontSize:15,padding:"12px 14px",background:"#FEF9EE",borderRadius:8,marginTop:14}}>
-        <span>Liabilities + Equity</span><span>{fmt(totalLiabilities+totalEquity)}</span>
-      </div>
-      <div style={{textAlign:"center",marginTop:10,padding:9,background:balanced?"#E4F4EC":"#FAE8E6",borderRadius:8,color:balanced?"#1D7A4A":"#B03A2E",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
-        {balanced ? <><Check size={13}/> Balanced</> : <><AlertTriangle size={13}/> Out of balance by {fmt(Math.abs(totalAssets-(totalLiabilities+totalEquity)))}</>}
-      </div>
-    </Card>
-  </div>
+  )
 }
-
-// ═══════════════════════════════════════════════════════════
-//  CASH FLOW STATEMENT

@@ -6,11 +6,12 @@
  * and quick actions.
  * ----------------------------------------------------------------------------
  */
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { Btn, Card, Badge } from "../common/ui.jsx"
 import { fmt } from "../../lib/helpers.js"
 import { loadLocal, saveLocal } from "../../lib/data.js"
-import { AlertTriangle, Coins, Truck, Calendar, ClipboardList, Zap, Calculator, ShoppingCart, Banknote, Cake, Sparkles, Check } from "lucide-react"
+import { fetchDashboardMetrics } from "../../lib/accountingApi.js"
+import { AlertTriangle, Coins, Truck, Calendar, ClipboardList, Zap, Calculator, ShoppingCart, Banknote, Cake, Sparkles, Check, ArrowRight } from "lucide-react"
 
 export function Dashboard({ productions, inventory, expenses, setView, user, tenantInfo, onboarded, onboardingSkipped }) {
   const today = new Date()
@@ -143,6 +144,48 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
   const profit = rev - cost - expTotal
   const margin = rev > 0 ? Math.round((profit / rev) * 100) : 0
   const monthLabel = today.toLocaleString('default', { month: 'short', year: 'numeric' })
+
+  // 4b. BakeWealth 3 Foundation Metrics from Double-Entry General Ledger (Rule 3)
+  const [glMetrics, setGlMetrics] = useState(null)
+  const [loadingGl, setLoadingGl] = useState(false)
+
+  useEffect(() => {
+    let isMounted = true
+    if (user?.role === "owner" || !user) {
+      setLoadingGl(true)
+      fetchDashboardMetrics()
+        .then(data => {
+          if (isMounted) setGlMetrics(data)
+        })
+        .catch(err => {
+          console.warn("Unable to fetch GL dashboard foundation metrics:", err)
+        })
+        .finally(() => {
+          if (isMounted) setLoadingGl(false)
+        })
+    }
+    return () => { isMounted = false }
+  }, [user?.role])
+
+  const cashReceivedGL = glMetrics?.foundationMetrics?.cashReceivedThisMonth != null
+    ? glMetrics.foundationMetrics.cashReceivedThisMonth
+    : 0
+  const revenueGL = glMetrics?.foundationMetrics?.revenueThisMonth != null
+    ? glMetrics.foundationMetrics.revenueThisMonth
+    : rev
+  const paidAndNotDeliveredGL = glMetrics?.foundationMetrics?.paidForAndNotDelivered != null
+    ? glMetrics.foundationMetrics.paidForAndNotDelivered
+    : 0
+  const cogsGL = glMetrics?.operationalMetrics?.cogsThisMonth != null
+    ? glMetrics.operationalMetrics.cogsThisMonth
+    : cost
+  const opexGL = glMetrics?.operationalMetrics?.operatingExpensesThisMonth != null
+    ? glMetrics.operationalMetrics.operatingExpensesThisMonth
+    : expTotal
+  const netProfitGL = glMetrics?.operationalMetrics?.netProfitThisMonth != null
+    ? glMetrics.operationalMetrics.netProfitThisMonth
+    : profit
+  const glMargin = revenueGL > 0 ? Math.round((netProfitGL / revenueGL) * 100) : margin
 
   // Greeting logic
   const hour = today.getHours()
@@ -513,21 +556,92 @@ export function Dashboard({ productions, inventory, expenses, setView, user, ten
         </div>
       )}
 
-      {/* Summary Financials (Owner Only) */}
+      {/* BakeWealth General Ledger Foundation Metrics (Owner Only - Rule 3 & Rulings 1, 2) */}
       {user?.role === "owner" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, marginBottom: 14 }}>
-          {[
-            { label: `Revenue (${monthLabel})`, val: fmt(rev), sub: "Confirmed orders", c: "var(--gold)" },
-            { label: "Production Cost", val: fmt(cost), sub: "Ingredients + delivery", c: "#378ADD" },
-            { label: "Monthly Expenses", val: fmt(expTotal), sub: "Overhead expenses", c: "#888780" },
-            { label: "Net Profit Estimate", val: fmt(profit), sub: `${margin}% net margin`, c: profit >= 0 ? "#357A52" : "#B03A2E" },
-          ].map(s => (
-            <Card key={s.label} style={{ borderTop: `3px solid ${s.c}`, borderRadius: "0 0 12px 12px", padding: "14px 16px" }}>
-              <div style={{ fontSize: 9.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600, marginBottom: 5 }}>{s.label}</div>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 700, color: s.label.startsWith("Net Profit") ? s.c : "var(--text)" }}>{s.val}</div>
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>{s.sub}</div>
+        <div style={{ marginBottom: 16 }}>
+          {/* Top Row: The 3 Core Foundation Metrics */}
+          <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--gold)" }}>
+              BakeWealth Foundation Metrics — General Ledger
+            </span>
+            <div style={{ display: "flex", gap: 10, fontSize: 11.5 }}>
+              <span onClick={() => setView("pandl")} style={{ color: "var(--gold)", cursor: "pointer", fontWeight: 600 }}>P&L Statement →</span>
+              <span onClick={() => setView("balance")} style={{ color: "var(--gold)", cursor: "pointer", fontWeight: 600 }}>Balance Sheet →</span>
+              <span onClick={() => setView("ledger")} style={{ color: "var(--gold)", cursor: "pointer", fontWeight: 600 }}>General Ledger →</span>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 10 }}>
+            {/* Metric 1: Cash Received This Month */}
+            <Card style={{ borderTop: "3px solid #2D7A50", borderRadius: "0 0 12px 12px", padding: "14px 16px", background: "linear-gradient(180deg, #F9FDF9 0%, var(--panel) 100%)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 5 }}>
+                <span style={{ fontSize: 9.5, color: "#2D7A50", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>
+                  Cash Received ({monthLabel})
+                </span>
+                <span style={{ fontSize: 9.5, background: "#E8F5EE", color: "#1D6B40", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>
+                  Cash In
+                </span>
+              </div>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 700, color: "#1D6B40" }}>
+                {fmt(cashReceivedGL)}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                All Naira in (Bank & Cash debits)
+              </div>
             </Card>
-          ))}
+
+            {/* Metric 2: Revenue This Month (Delivered Only) */}
+            <Card style={{ borderTop: "3px solid var(--gold)", borderRadius: "0 0 12px 12px", padding: "14px 16px", background: "linear-gradient(180deg, #FFFDF8 0%, var(--panel) 100%)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 5 }}>
+                <span style={{ fontSize: 9.5, color: "var(--gold)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>
+                  Revenue ({monthLabel})
+                </span>
+                <span style={{ fontSize: 9.5, background: "#FFF4DD", color: "#8C6E52", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>
+                  Delivered
+                </span>
+              </div>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 700, color: "var(--text)" }}>
+                {fmt(revenueGL)}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                Delivered orders only (excl. unbaked deposits)
+              </div>
+            </Card>
+
+            {/* Metric 3: Paid for and Not Delivered */}
+            <Card style={{ borderTop: "3px solid #378ADD", borderRadius: "0 0 12px 12px", padding: "14px 16px", background: "linear-gradient(180deg, #F4F8FD 0%, var(--panel) 100%)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 5 }}>
+                <span style={{ fontSize: 9.5, color: "#378ADD", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>
+                  Paid & Not Delivered
+                </span>
+                <span style={{ fontSize: 9.5, background: "#E8EFFC", color: "#2A5F9A", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>
+                  Customer Deposits
+                </span>
+              </div>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 700, color: "#2A5F9A" }}>
+                {fmt(paidAndNotDeliveredGL)}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                Customer Deposits held as liability
+              </div>
+            </Card>
+          </div>
+
+          {/* Secondary Row: Profitability & Operating Results */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+            {[
+              { label: "Cost of Goods Sold", val: fmt(cogsGL), sub: "Ingredients & packaging", c: "#8C6E52" },
+              { label: "Operating Expenses", val: fmt(opexGL), sub: "Salaries, rent, utilities", c: "#888780" },
+              { label: "Net Profit (Accrual)", val: fmt(netProfitGL), sub: `${glMargin}% net margin`, c: netProfitGL >= 0 ? "#357A52" : "#B03A2E" },
+              { label: "Cash & Bank Balance", val: fmt(glMetrics?.operationalMetrics?.totalCashAndBank || 0), sub: "Cash & Bank Accounts", c: "#2D7A50" },
+            ].map(s => (
+              <Card key={s.label} style={{ borderTop: `2px solid ${s.c}`, borderRadius: "0 0 8px 8px", padding: "11px 14px" }}>
+                <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginBottom: 4 }}>{s.label}</div>
+                <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 17, fontWeight: 700, color: s.label.startsWith("Net Profit") ? s.c : "var(--text)" }}>{s.val}</div>
+                <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>{s.sub}</div>
+              </Card>
+            ))}
+          </div>
         </div>
       )}
 

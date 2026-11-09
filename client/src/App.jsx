@@ -61,7 +61,8 @@ import {
   LogOut,
   Coins,
   Home as HomeIcon,
-  Sparkles
+  Sparkles,
+  BookOpen
 } from "lucide-react"
 import { TokenPurchaseModal } from "./components/common/TokenPurchaseModal.jsx"
 import { PlanLimitModal } from "./components/common/PlanLimitModal.jsx"
@@ -98,6 +99,8 @@ const Reports = lazyRetry(() => import("./components/reports/Reports.jsx").then(
 const PandL = lazyRetry(() => import("./components/reports/PandL.jsx").then(m => ({ default: m.PandL })))
 const BalanceSheet = lazyRetry(() => import("./components/reports/BalanceSheet.jsx").then(m => ({ default: m.BalanceSheet })))
 const MonthlyOverview = lazyRetry(() => import("./components/reports/MonthlyOverview.jsx").then(m => ({ default: m.MonthlyOverview })))
+const CashFlow = lazyRetry(() => import("./components/reports/CashFlow.jsx").then(m => ({ default: m.CashFlow })))
+const GeneralLedgerView = lazyRetry(() => import("./components/reports/GeneralLedgerView.jsx").then(m => ({ default: m.GeneralLedgerView })))
 const ShoppingList = lazyRetry(() => import("./components/reports/ShoppingList.jsx").then(m => ({ default: m.ShoppingList })))
 const StockStatement = lazyRetry(() => import("./components/reports/StockStatement.jsx").then(m => ({ default: m.StockStatement })))
 const OpeningStock = lazyRetry(() => import("./components/inventory/OpeningStock.jsx").then(m => ({ default: m.OpeningStock })))
@@ -586,6 +589,8 @@ export default function App() {
     { id: "monthly", label: "Monthly Overview", icon: BarChart3, roles: ["owner"] },
     { id: "pandl", label: "P&L Statement", icon: TrendingUp, roles: ["owner"] },
     { id: "balance", label: "Balance Sheet", icon: Scale, roles: ["owner"] },
+    { id: "cashflow", label: "Cash Flow", icon: FileSpreadsheet, roles: ["owner"] },
+    { id: "ledger", label: "General Ledger", icon: BookOpen, roles: ["owner"] },
     { id: "_system", label: "System", icon: null, roles: ["owner", "production", "customer_service"], divider: true },
     { id: "settings", label: "Settings", icon: SettingsIcon, roles: ["owner"] },
   ].filter(n => n.roles.includes(role))
@@ -968,6 +973,8 @@ export default function App() {
               {view === "pandl" && <PandL productions={productions} expenses={expenses} company={company} />}
               {view === "payables" && <Payables inventory={inventory} setInventory={setInventory} />}
               {view === "balance" && <BalanceSheet productions={productions} expenses={expenses} inventory={inventory} transactions={transactions} company={company} />}
+              {view === "cashflow" && <CashFlow productions={productions} expenses={expenses} transactions={transactions} company={company} />}
+              {view === "ledger" && <GeneralLedgerView company={company} />}
               {view === "shopping" && <ShoppingList inventory={inventory} setInventory={setInventory} company={company} />}
               {view === "invoices" && <Invoices productions={productions} company={company} prefillProd={prefillProd} setPrefillProd={setPrefillProd} isOwner={!currentUser || currentUser?.role === "owner"} />}
               {view === "settings" && <Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory} setInventory={setInventory} user={currentUser} setView={setViewWithSync} initialTab={settingsTab} />}

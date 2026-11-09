@@ -37,7 +37,7 @@ const createOrderSchema = z.object({
         id: z.string().optional(),
         usages: z.array(orderUsageSchema).optional(),
         metadata: z.any().optional()
-    })
+    }).passthrough()
 });
 
 const updateOrderSchema = z.object({
@@ -52,7 +52,7 @@ const updateOrderSchema = z.object({
         notes: z.string().optional(),
         usages: z.array(orderUsageSchema).optional(),
         metadata: z.any().optional()
-    })
+    }).passthrough()
 });
 
 module.exports = {

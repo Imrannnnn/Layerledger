@@ -32,6 +32,14 @@ model Tenant {
   tokenTransactions TokenTransaction[]
   transactions      Transaction[]
   users             User[]
+  accounts          Account[]
+  journalEntries    JournalEntry[]
+  journalLines      JournalLine[]
+  bankAccounts      BankAccount[]
+  fixedAssets       FixedAsset[]
+  prepaymentSchedules PrepaymentSchedule[]
+  bankStatementLines BankStatementLine[]
+  accountingPeriods AccountingPeriod[]
 }
 
 model User {
@@ -139,6 +147,11 @@ model Order {
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
   ingredientsDeducted Boolean        @default(false)
+  isBaked             Boolean        @default(false)
+  bakedAt             DateTime?
+  deliveredAt         DateTime?
+  isForfeited         Boolean        @default(false)
+  forfeitedAt         DateTime?
   metadata            Json?          @default("{}")
   invoices            Invoice[]
   client              Client?        @relation(fields: [clientId], references: [id])
@@ -162,6 +175,8 @@ model OrderItem {
   flavorExtras Json?
   price        Float   @default(0)
   cost         Float   @default(0)
+  delivered    Boolean @default(false)
+  deliveredAt  DateTime?
   order        Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   recipe       Recipe? @relation(fields: [recipeId], references: [id])
 
@@ -205,6 +220,8 @@ model Expense {
   category    String
   description String?
   receiptUrl  String?
+  accountCode String?
+  journalEntryId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -275,6 +292,9 @@ model Purchase {
   total         Float?
   cpu           Float?
   stockAdded    Float?
+  destination   String?        @default("inventory") // inventory, expense, fixed_asset
+  journalEntryId String?
+  fixedAssetId  String?
   inventoryItem InventoryItem? @relation(fields: [itemId], references: [id])
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -459,4 +479,217 @@ model PaymentJob {
 
   @@index([status, runAt])
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DOUBLE-ENTRY GENERAL LEDGER ACCOUNTING ARCHITECTURE
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Account {
+  id               String        @id @default(uuid())
+  tenantId         String
+  accountCode      String        // e.g. "1100", "2120", "4000"
+  accountName      String
+  classification   String        // ASSET, LIABILITY, EQUITY, REVENUE, COGS, EXPENSE, OTHER_INCOME, OTHER_EXPENSE
+  accountType      String        // CURRENT_ASSET, FIXED_ASSET, FIXED_ASSET_CONTRA, CURRENT_LIABILITY, LONG_TERM_LIABILITY, EQUITY, REVENUE, COGS, ADMIN_EXPENSE, OTHER_REVENUE, OTHER_EXPENSE
+  description      String?
+  isSystemAccount  Boolean       @default(false)
+  isActive         Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  journalLines     JournalLine[]
+  fixedAssets      FixedAsset[]
+  bankAccounts     BankAccount[]
+
+  @@unique([tenantId, accountCode])
+  @@index([tenantId])
+  @@index([tenantId, classification])
+}
+
+model JournalEntry {
+  id             String        @id @default(uuid())
+  tenantId       String
+  entryNumber    String        // Sequential entry number e.g. "JE-2026-0001"
+  entryDate      DateTime      // Accounting date
+  memo           String?
+  sourceType     String        // order_deposit, order_bake, order_delivery, purchase, expense, depreciation, prepayment_release, owner_capital, owner_loan, owner_draw, bank_transfer, reversal, manual, opening_balance
+  sourceId       String?       // Reference ID of document that created this entry
+  status         String        @default("POSTED") // POSTED, REVERSED
+  reversalOfId   String?       @unique
+  createdBy      String?
+  createdAt      DateTime      @default(now())
+
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reversalOf     JournalEntry? @relation("JournalReversal", fields: [reversalOfId], references: [id])
+  reversedBy     JournalEntry? @relation("JournalReversal")
+  lines          JournalLine[]
+
+  @@index([tenantId])
+  @@index([tenantId, entryDate])
+  @@index([tenantId, sourceType, sourceId])
+  @@index([tenantId, entryNumber])
+}
+
+model JournalLine {
+  id             String       @id @default(uuid())
+  tenantId       String
+  journalEntryId String
+  accountId      String
+  debit          Decimal      @default(0) @db.Decimal(15, 2)
+  credit         Decimal      @default(0) @db.Decimal(15, 2)
+  description    String?
+
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account        Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([tenantId, accountId])
+  @@index([journalEntryId])
+}
+
+model BankAccount {
+  id             String              @id @default(uuid())
+  tenantId       String
+  accountId      String              // Links to Account (e.g. 1110 Bank or 1100 Cash)
+  accountName    String              // Friendly name e.g. "GTBank Main Bakery"
+  bankName       String              // e.g. "Guaranty Trust Bank", "Access Bank", "Cash Drawer"
+  accountNumber  String?
+  currency       String              @default("NGN")
+  isDefault      Boolean             @default(false)
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account        Account             @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  statementLines BankStatementLine[]
+
+  @@index([tenantId])
+  @@index([accountId])
+}
+
+model FixedAsset {
+  id                    String              @id @default(uuid())
+  tenantId              String
+  assetAccountId        String              // References 1200, 1210, 1220, 1230, 1240, 1280
+  name                  String              // e.g. "Industrial Spiral Dough Mixer 50kg"
+  assetCategory         String              // bakery_equipment, motor_vehicles, furniture, computers, leasehold, intangibles
+  acquisitionDate       DateTime
+  cost                  Decimal             @db.Decimal(15, 2)
+  residualValue         Decimal             @default(0) @db.Decimal(15, 2)
+  usefulLifeMonths      Int                 @default(60) // Default 5 years (60 months)
+  depreciationMethod    String              @default("STRAIGHT_LINE") // Straight line only
+  useType               String              @default("production") // "production" (5060) or "office" (6400) or "intangible" (6410)
+  accumulatedDepreciation Decimal           @default(0) @db.Decimal(15, 2)
+  netBookValue          Decimal             @db.Decimal(15, 2)
+  status                String              @default("ACTIVE") // ACTIVE, DISPOSED
+  purchaseId            String?
+  journalEntryId        String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assetAccount          Account             @relation(fields: [assetAccountId], references: [id], onDelete: Restrict)
+  depreciations         AssetDepreciation[]
+
+  @@index([tenantId])
+  @@index([assetAccountId])
+  @@index([tenantId, status])
+}
+
+model AssetDepreciation {
+  id             String       @id @default(uuid())
+  tenantId       String
+  fixedAssetId   String
+  periodDate     DateTime     // Last day of depreciation month e.g. 2026-01-31
+  amount         Decimal      @db.Decimal(15, 2)
+  journalEntryId String?
+  createdAt      DateTime     @default(now())
+
+  fixedAsset     FixedAsset   @relation(fields: [fixedAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([fixedAssetId, periodDate])
+  @@index([tenantId, periodDate])
+}
+
+model PrepaymentSchedule {
+  id                 String               @id @default(uuid())
+  tenantId           String
+  description        String               // e.g. "Bakery Premises Annual Rent 2026-2027"
+  totalAmount        Decimal              @db.Decimal(15, 2)
+  assetAccountId     String               // References 1130 Other Receivable & Prepaid Expenses
+  expenseAccountId   String               // Destination expense account (e.g. 5070 Production Rent or 6010 Rent)
+  startDate          DateTime
+  endDate            DateTime
+  totalMonths        Int
+  monthlyAmount      Decimal              @db.Decimal(15, 2)
+  releasedAmount     Decimal              @default(0) @db.Decimal(15, 2)
+  status             String               @default("ACTIVE") // ACTIVE, FULLY_AMORTIZED
+  sourcePurchaseId   String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  tenant             Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  releases           PrepaymentRelease[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+model PrepaymentRelease {
+  id             String             @id @default(uuid())
+  scheduleId     String
+  periodDate     DateTime           // e.g. 2026-02-28
+  amount         Decimal            @db.Decimal(15, 2)
+  journalEntryId String?
+  createdAt      DateTime           @default(now())
+
+  schedule       PrepaymentSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId])
+}
+
+model BankStatementLine {
+  id                   String       @id @default(uuid())
+  tenantId             String
+  bankAccountId        String
+  lineDate             DateTime
+  description          String
+  amount               Decimal      @db.Decimal(15, 2)
+  lineType             String       // "credit" or "debit"
+  status               String       @default("UNMATCHED") // UNMATCHED, MATCH_SUGGESTED, MATCHED, JOURNAL_CREATED
+  matchedJournalEntryId String?
+  suggestedAccountId   String?
+  reference            String?
+  rawMetadata          Json?        @default("{}")
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  tenant               Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bankAccount          BankAccount  @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, bankAccountId, status])
+}
+
+model AccountingPeriod {
+  id             String       @id @default(uuid())
+  tenantId       String
+  periodKey      String       // Format: "YYYY-MM" e.g. "2026-01"
+  startDate      DateTime
+  endDate        DateTime
+  isLocked       Boolean      @default(false)
+  lockedAt       DateTime?
+  lockedBy       String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, periodKey])
+  @@index([tenantId])
+}
+
 

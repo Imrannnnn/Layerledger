@@ -9,6 +9,7 @@
 import React, { useState } from "react"
 import { Btn, Card, SHead, Tabs } from "../common/ui.jsx"
 import { updateProdStatus } from "../../lib/data.js"
+import { bakeOrder, deliverOrder, cancelOrder } from "../../lib/accountingApi.js"
 import { Printer, Cake, Calendar, PenLine, FileText } from "lucide-react"
 
 export function ProductionList({ productions, setProductions, company, setView }) {
@@ -22,7 +23,7 @@ export function ProductionList({ productions, setProductions, company, setView }
   const startOfWeek = new Date(today)
   startOfWeek.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1)) // Adjust for Monday start
   startOfWeek.setHours(0, 0, 0, 0)
-  
+
   const ws = new Date(startOfWeek)
   ws.setDate(startOfWeek.getDate() + weekOffset * 7)
   const wsStr = ws.toISOString().slice(0, 10)
@@ -65,10 +66,24 @@ export function ProductionList({ productions, setProductions, company, setView }
   })
 
   // Status mappings
-  const statusColor = { pending: "#FAEEDA", "in progress": "#E8EFFC", ready: "#E5F4EC", delivered: "#F5F5F5" }
-  const statusTextColors = { pending: "#BA7517", "in progress": "#378ADD", ready: "#2D7A50", delivered: "#666" }
+  const statusColor = { pending: "#FAEEDA", "in progress": "#E8EFFC", ready: "#E5F4EC", delivered: "#F5F5F5", cancelled: "#FDECEB" }
+  const statusTextColors = { pending: "#BA7517", "in progress": "#378ADD", ready: "#2D7A50", delivered: "#666", cancelled: "#B03A2E" }
 
   const handleStatusChange = async (id, s) => {
+    try {
+      if (s === "ready") {
+        bakeOrder(id).catch(err => console.warn("GL bake posting warning:", err))
+      } else if (s === "delivered") {
+        deliverOrder(id).catch(err => console.warn("GL deliver posting warning:", err))
+      } else if (s === "cancelled") {
+        const choice = window.prompt("Cancel order financial resolution:\n1 = Forfeit deposit to Other Revenue\n2 = Refund customer deposit from Bank\n3 = Written off to Spoilage (Damaged/Goodwill)", "1")
+        const typeMap = { "1": "FORFEIT_BEFORE_BAKE", "2": "REFUND", "3": "GOODWILL_DISPUTE" }
+        const cType = typeMap[choice] || "FORFEIT_BEFORE_BAKE"
+        cancelOrder(id, { cancellationType: cType }).catch(err => console.warn("GL cancel posting warning:", err))
+      }
+    } catch (glErr) {
+      console.warn("Accounting sync note:", glErr)
+    }
     await updateProdStatus(id, s)
     setProductions(prev => prev.map(p => p.id === id ? { ...p, status: s } : p))
   }
@@ -83,7 +98,7 @@ export function ProductionList({ productions, setProductions, company, setView }
   const print = () => {
     const listToPrint = activeTab === "schedule" ? weekProds : unscheduledProds
     const titleLabel = activeTab === "schedule" ? `Baking Production List: ${weekLabel}` : "Unscheduled Baking Production List"
-    
+
     const w = window.open("", "_blank")
     w.document.write(`<!DOCTYPE html><html><head><title>${titleLabel}</title>
     <style>
@@ -111,12 +126,12 @@ export function ProductionList({ productions, setProductions, company, setView }
       </div>
       
       ${listToPrint.map((p, i) => {
-        const isCake = !p.productType || p.productType === "Cake" || p.productType === "Cupcakes"
-        const isDonuts = p.productType === "Donuts"
-        const isLoaf = p.productType === "Cake Loaf"
-        const isTart = p.productType === "Tarts / Pastry"
-        
-        return `
+      const isCake = !p.productType || p.productType === "Cake" || p.productType === "Cupcakes"
+      const isDonuts = p.productType === "Donuts"
+      const isLoaf = p.productType === "Cake Loaf"
+      const isTart = p.productType === "Tarts / Pastry"
+
+      return `
         <div class="card">
           <div class="card-header">
             <span>#${i + 1} - ${p.client || "Client name"} (${p.productType || "Cake"})</span>
@@ -124,8 +139,8 @@ export function ProductionList({ productions, setProductions, company, setView }
           </div>
 
           ${p.items && p.items.length > 0 ? p.items.map((it, idx) => {
-            const delivText = it.deliveryDetailsText || (it.sameDeliveryAsFirst ? `Same as above (${p.items[0]?.deliveryDate || p.deliveryDate || ""})` : (it.deliveryDate ? `${it.deliveryDate}${it.collectionTime ? " @ " + it.collectionTime : ""}` : (p.deliveryDate || "Date not set")))
-            return `
+        const delivText = it.deliveryDetailsText || (it.sameDeliveryAsFirst ? `Same as above (${p.items[0]?.deliveryDate || p.deliveryDate || ""})` : (it.deliveryDate ? `${it.deliveryDate}${it.collectionTime ? " @ " + it.collectionTime : ""}` : (p.deliveryDate || "Date not set")))
+        return `
               <div style="border-left: 3px solid #000; padding-left: 10px; margin-bottom: 10px; margin-top: 8px;">
                 <div style="display: flex; justify-content: space-between; font-weight: bold;">
                   <span>${it.type === "cake" ? "🎂 " : "🍩 "}${it.name || `Item ${idx + 1}`}</span>
@@ -143,7 +158,7 @@ export function ProductionList({ productions, setProductions, company, setView }
                 ${it.itemNote ? `<div style="font-size: 11px; font-style: italic; margin-top: 2px;">Note: ${it.itemNote}</div>` : ""}
               </div>
             `
-          }).join("") : `
+      }).join("") : `
           <!-- Cake details -->
           ${isCake && p.tiers?.length > 0 ? p.tiers.map((t, ti) => `
             <div class="tier-box">
@@ -194,7 +209,7 @@ export function ProductionList({ productions, setProductions, company, setView }
           ` : ""}
         </div>
         `
-      }).join("")}
+    }).join("")}
       
       ${listToPrint.length === 0 ? "<p style='text-align:center;font-size:14px;margin-top:40px;'>No orders to display.</p>" : ""}
       
@@ -536,6 +551,7 @@ export function ProductionList({ productions, setProductions, company, setView }
                       <option value="in progress">In Progress</option>
                       <option value="ready">Ready</option>
                       <option value="delivered">Delivered</option>
+                      <option value="cancelled">Cancelled</option>
                     </select>
                     <div style={{ fontSize: 11, color: "var(--muted)" }}>Due {p.deliveryDate || "Unscheduled"}{p.collectionTime ? ` at ${p.collectionTime}` : ""}</div>
                   </div>

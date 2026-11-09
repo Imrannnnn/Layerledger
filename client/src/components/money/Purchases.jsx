@@ -8,7 +8,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Card, SHead, TH, TR2, Spinner, Pagination, Modal } from "../common/ui.jsx"
 import { fmt, uid, DEFAULT_CATEGORIES, mapCategory, formatDateDMY, normalizeToIsoDate, isDateInMonth } from "../../lib/helpers.js"
 import { saveInventory, saveExpenses, loadLocal, saveLocal, savePurchases, fetchPaginatedPurchases, deletePurchaseFromServer, deletePurchasesFromServer, clearAllPurchasesFromServer, updatePurchaseOnServer } from "../../lib/data.js"
-import { Link, Receipt, Trash2, Check, Calendar, AlertCircle, Download, Pencil, Search, X } from "lucide-react"
+import { Link, Receipt, Trash2, Check, Calendar, AlertCircle, Download, Pencil, Search, X, Lightbulb } from "lucide-react"
 import { exportPurchasesPDF } from "../../lib/pdfReportGenerator.js"
 
 const formatMonthLabel = (m) => {
@@ -19,7 +19,7 @@ const formatMonthLabel = (m) => {
       const d = new Date(Number(y), Number(mon) - 1, 2)
       return d.toLocaleDateString("en-NG", { month: "short", year: "numeric" })
     }
-  } catch {}
+  } catch { }
   return m
 }
 
@@ -50,7 +50,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     try {
       const active = sessionStorage.getItem("ll_active_purchases_month")
       if (active) return active
-    } catch {}
+    } catch { }
     return new Date().toISOString().slice(0, 7)
   })
   const [stats, setStats] = useState(() => ({
@@ -66,6 +66,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
       unitSize: "",
       qty: "",
       price: "",
+      destination: "inventory",
       date: new Date().toISOString().slice(0, 10)
     }
   ])
@@ -183,7 +184,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
     if (selectedIds.size === 0) return
     const count = selectedIds.size
     if (!window.confirm(`Are you sure you want to delete the ${count} selected purchase record${count !== 1 ? "s" : ""}?`)) return
-    
+
     const idsToDelete = Array.from(selectedIds)
     // 1. Filter purchases locally
     const updatedPurchases = purchases.filter(p => !selectedIds.has(p.id))
@@ -297,6 +298,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
         unitSize: "",
         qty: "",
         price: "",
+        destination: "inventory",
         date: lastRow?.date || new Date().toISOString().slice(0, 10)
       }
     ])
@@ -438,13 +440,13 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
         const hasLegacyExp = expenses.some(e =>
           (e.id === id) || (e.purchaseId === id) ||
           ((e.source === "purchase" || String(e.description || '').toLowerCase().startsWith("purchase:")) &&
-           (e.description === `Purchase: ${oldItemName}` || e.description === oldItemName))
+            (e.description === `Purchase: ${oldItemName}` || e.description === oldItemName))
         )
         if (hasLegacyExp) {
           const updatedExpenses = expenses.filter(e =>
             !(e.id === id || e.purchaseId === id ||
               ((e.source === "purchase" || String(e.description || '').toLowerCase().startsWith("purchase:")) &&
-               (e.description === `Purchase: ${oldItemName}` || e.description === oldItemName)))
+                (e.description === `Purchase: ${oldItemName}` || e.description === oldItemName)))
           )
           setExpenses(updatedExpenses)
           await saveExpenses(updatedExpenses)
@@ -575,19 +577,20 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
         }
 
         // Purchases are tracked in Purchases and update inventory stock/cost — NOT in Expenses
-        const rec = { 
-          id: uid(), 
-          date: dp.date, 
-          itemId: selItem?.id || dp.item, 
-          item: selItem?.name || dp.newItemName || "", 
-          category: dp.category, 
-          unit: selItem?.unit || dp.unit || "", 
-          unitSize: +dp.unitSize, 
-          qty: +dp.qty, 
-          price: +dp.price, 
-          total, 
-          cpu, 
-          stockAdded 
+        const rec = {
+          id: uid(),
+          date: dp.date,
+          itemId: selItem?.id || dp.item,
+          item: selItem?.name || dp.newItemName || "",
+          category: dp.category,
+          unit: selItem?.unit || dp.unit || "",
+          unitSize: +dp.unitSize,
+          qty: +dp.qty,
+          price: +dp.price,
+          total,
+          cpu,
+          stockAdded,
+          destination: dp.destination || "inventory"
         }
         newPurchases = [rec, ...newPurchases]
       }
@@ -611,6 +614,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
           unitSize: "",
           qty: "",
           price: "",
+          destination: "inventory",
           date: new Date().toISOString().slice(0, 10)
         }
       ])
@@ -825,21 +829,21 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
           const stockAdded = dp.unitSize && dp.qty ? parseFloat(((+dp.unitSize) * (+dp.qty)).toFixed(3)) : 0
 
           return (
-            <div key={idx} style={{ 
-              display: "flex", 
-              flexDirection: "column", 
-              gap: 8, 
-              border: "1px solid var(--border)", 
-              borderRadius: 8, 
-              padding: 12, 
-              background: "var(--panel)", 
+            <div key={idx} style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: 12,
+              background: "var(--panel)",
               position: "relative"
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: "var(--gold)" }}>Purchase Item #{idx + 1}</span>
                 {draftPurchases.length > 1 && (
-                  <button 
-                    onClick={() => removeDraftPurchase(idx)} 
+                  <button
+                    onClick={() => removeDraftPurchase(idx)}
                     style={{ background: "none", border: "none", color: "#B03A2E", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}
                   >
                     <Trash2 size={11} /> Remove Item
@@ -899,7 +903,42 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
                 <Inp label="Qty bought *" type="number" value={dp.qty} onChange={v => updateDraftPurchaseField(idx, "qty", v)} placeholder="e.g. 3" small />
                 <Inp label="Price / pack (₦) *" type="number" value={dp.price} onChange={v => updateDraftPurchaseField(idx, "price", v)} placeholder="e.g. 57000" small />
                 <Inp label="Date" type="date" value={dp.date} onChange={v => updateDraftPurchaseField(idx, "date", v)} small />
+                <div>
+                  <label style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: .8, fontWeight: 500 }}>Accounting Routing</label>
+                  <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                    {[
+                      { id: "inventory", label: "Inventory" },
+                      { id: "expense", label: "Expense" },
+                      { id: "fixed_asset", label: "PPE Asset" }
+                    ].map(r => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => updateDraftPurchaseField(idx, "destination", r.id)}
+                        style={{
+                          padding: "5px 8px",
+                          borderRadius: 6,
+                          border: (dp.destination || "inventory") === r.id ? "1px solid var(--gold)" : "1px solid var(--border)",
+                          background: (dp.destination || "inventory") === r.id ? "var(--gold)" : "var(--panel)",
+                          color: (dp.destination || "inventory") === r.id ? "#fff" : "var(--text)",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: "pointer"
+                        }}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
+
+              {total >= 50000 && (dp.destination || "inventory") !== "fixed_asset" && (
+                <div style={{ background: "#FEF9EE", border: "1px solid var(--gold)", borderRadius: 6, padding: "6px 10px", fontSize: 11.5, color: "#7A5500", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Lightbulb size={13} style={{ flexShrink: 0 }} />
+                  <span><strong>₦50,000 Threshold (Ruling 8/9):</strong> Total is ₦{total.toLocaleString()}. If this item is bakery equipment, an oven, or machinery (useful life &gt; 1 yr), select <strong>Fixed Asset (PPE)</strong> to capitalise and depreciate over 4–5 years.</span>
+                </div>
+              )}
 
               {cpu > 0 && (
                 <div style={{ display: "flex", gap: 14, background: "rgba(200, 145, 42, 0.05)", padding: "6px 12px", borderRadius: 6, fontSize: 11.5, flexWrap: "wrap" }}>
@@ -912,7 +951,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
           )
         })}
       </div>
-      
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
         <Btn variant="outline" onClick={addDraftPurchase} disabled={logging}>+ Add Another Item</Btn>
         <div style={{ display: "flex", gap: 8 }}>
@@ -936,6 +975,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
                 unitSize: "",
                 qty: "",
                 price: "",
+                destination: "inventory",
                 date: new Date().toISOString().slice(0, 10)
               }
             ])
@@ -1076,7 +1116,7 @@ export function Purchases({ inventory, setInventory, expenses, setExpenses, setV
               fmt(p.price),
               <span style={{ fontWeight: 500 }}>{fmt(p.total)}</span>,
               <span style={{ color: "var(--gold)", fontWeight: 500 }}>{fmt(p.cpu)}/{displayUnit}</span>,
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, background: "#E8EFFC", color: "#2355A0", padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}><Link size={10}/> Updated</span>,
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, background: "#E8EFFC", color: "#2355A0", padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}><Link size={10} /> Updated</span>,
               ...(isOwner ? [
                 <div key={`act-${p.id}`} style={{ display: "flex", gap: 4, alignItems: "center" }}>
                   <Btn key={`edit-${p.id}`} small variant="outline" onClick={() => openEditModal(p)} title="Edit purchase" style={{ padding: "3px 6px", display: "inline-flex", alignItems: "center" }}>

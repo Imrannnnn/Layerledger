@@ -1,6 +1,8 @@
 const prisma = require('../prisma');
 const { asyncHandler } = require('../middleware/custommiddleware');
 const { getEffectivePlan, PLAN_LIMITS } = require('./planController');
+const orderAccountingService = require('../modules/accounting/services/orderAccounting.service');
+const reversalService = require('../modules/accounting/services/reversal.service');
 
 /**
  * @desc    Get all orders
@@ -251,9 +253,7 @@ const createOrder = asyncHandler(async (req, res) => {
                     if (!invItem) {
                         throw new Error(`Inventory item not found for usage: ${use.itemId}`);
                     }
-                    if (invItem.stock - use.qty < 0) {
-                        throw new Error(`Insufficient stock for ${invItem.name}. Attempted to use ${use.qty} but only ${invItem.stock} is on hand.`);
-                    }
+                    // Ruling 18: Negative stock allowed and flagged, never blocked
                 }
 
                 const historyRows = [];
@@ -264,7 +264,7 @@ const createOrder = asyncHandler(async (req, res) => {
                         const consumedValue = use.qty * invItem.cost;
                         const newQty = invItem.stock - use.qty;
                         const newValue = Math.max(0, invItem.totalValueOnHand - consumedValue);
-                        const finalValue = newQty === 0 ? 0 : newValue;
+                        const finalValue = newQty <= 0 ? 0 : newValue;
                         const newAvgCost = invItem.cost;
 
                         await tx.inventoryItem.update({
@@ -287,13 +287,36 @@ const createOrder = asyncHandler(async (req, res) => {
                             valueAfter: finalValue,
                             avgCostAfter: newAvgCost,
                             referenceId: order.id,
-                            reason: `Baking / production consumption for Order ${order.id}`
+                            reason: `Baking / production consumption for Order ${order.id}${newQty < 0 ? ' [WARNING: NEGATIVE STOCK]' : ''}`
                         });
                     })
                 );
 
                 if (historyRows.length > 0) {
                     await tx.inventoryHistory.createMany({ data: historyRows });
+                }
+            }
+        }
+
+        // Double-entry accounting triggers
+        if (order.status === 'baking') {
+            await orderAccountingService.recordOrderBaked(tenantId, order.id, {
+                usages: usages,
+                actualIngredientCost: order.totalCost
+            }, tx);
+        } else if (order.status === 'delivered') {
+            await orderAccountingService.recordOrderDelivered(tenantId, order.id, {
+                deliveredPrice: order.totalPrice,
+                actualCost: order.totalCost
+            }, tx);
+        }
+
+        if (order.payments?.length > 0) {
+            for (const payment of order.payments) {
+                if (order.status === 'delivered') {
+                    await orderAccountingService.recordBalancePayment(tenantId, order.id, payment, tx);
+                } else {
+                    await orderAccountingService.recordDepositPayment(tenantId, order.id, payment, tx);
                 }
             }
         }
@@ -439,14 +462,7 @@ const updateOrder = asyncHandler(async (req, res) => {
                                 `Inventory item not found for usage: ${use.itemId}`
                             );
                         }
-
-                        if (invItem.stock - use.qty < 0) {
-                            throw new Error(
-                                `Insufficient stock for ${invItem.name}. ` +
-                                `Attempted to use ${use.qty} ` +
-                                `but only ${invItem.stock} is on hand.`
-                            );
-                        }
+                        // Ruling 18: Negative stock allowed and flagged, never blocked
                     }
 
                     // ---------------------------------------------
@@ -461,7 +477,7 @@ const updateOrder = asyncHandler(async (req, res) => {
                                 0,
                                 invItem.totalValueOnHand - consumedValue
                             );
-                            const finalValue = newQty === 0 ? 0 : newValue;
+                            const finalValue = newQty <= 0 ? 0 : newValue;
                             const newAvgCost = invItem.cost;
 
                             await tx.inventoryItem.update({
@@ -484,7 +500,7 @@ const updateOrder = asyncHandler(async (req, res) => {
                                 valueAfter: finalValue,
                                 avgCostAfter: newAvgCost,
                                 referenceId: orderId,
-                                reason: `Baking / production consumption for Order ${orderId}`
+                                reason: `Baking / production consumption for Order ${orderId}${newQty < 0 ? ' [WARNING: NEGATIVE STOCK]' : ''}`
                             });
                         })
                     );
@@ -616,6 +632,25 @@ const updateOrder = asyncHandler(async (req, res) => {
              * =====================================================
              */
 
+            const existingPayments = await tx.orderPayment.findMany({ where: { orderId } });
+            const oldTotalPaid = existingPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+            const newTotalPaid = payments ? payments.reduce((sum, p) => sum + (p.amount || 0), 0) : oldTotalPaid;
+
+            if (newTotalPaid > oldTotalPaid) {
+                const diff = newTotalPaid - oldTotalPaid;
+                const latestPayment = payments[payments.length - 1];
+                const paymentInfo = {
+                    amount: diff,
+                    method: latestPayment?.method || 'bank_transfer',
+                    date: latestPayment?.date ? new Date(latestPayment.date) : new Date()
+                };
+                if (status === 'delivered' || existing.status === 'delivered') {
+                    await orderAccountingService.recordBalancePayment(tenantId, orderId, paymentInfo, tx);
+                } else {
+                    await orderAccountingService.recordDepositPayment(tenantId, orderId, paymentInfo, tx);
+                }
+            }
+
             await tx.orderItem.deleteMany({
                 where: {
                     orderId
@@ -676,7 +711,7 @@ const updateOrder = asyncHandler(async (req, res) => {
              * =====================================================
              */
 
-            return await tx.order.update({
+            const savedOrder = await tx.order.update({
                 where: {
                     id: orderId
                 },
@@ -692,6 +727,25 @@ const updateOrder = asyncHandler(async (req, res) => {
                     payments: true
                 }
             });
+
+            // Double-entry accounting triggers for status transitions
+            if (status === 'baking' && !existing.isBaked) {
+                await orderAccountingService.recordOrderBaked(tenantId, orderId, {
+                    usages,
+                    actualIngredientCost: totalCost || existing.totalCost
+                }, tx);
+            } else if (status === 'delivered' && existing.status !== 'delivered') {
+                await orderAccountingService.recordOrderDelivered(tenantId, orderId, {
+                    deliveredPrice: totalPrice || existing.totalPrice,
+                    actualCost: totalCost || existing.totalCost,
+                    isForfeited: req.body.isForfeited
+                }, tx);
+            } else if (status === 'cancelled' && existing.status !== 'cancelled') {
+                const cancelType = req.body.cancellationType || (existing.isBaked ? 'CANCELLED_INSIDE_NO_REFUND_AFTER_BAKE' : 'FORFEITED_BEFORE_BAKE');
+                await orderAccountingService.recordOrderCancellation(tenantId, orderId, cancelType, req.body, tx);
+            }
+
+            return savedOrder;
 
         },
         {
@@ -718,6 +772,13 @@ const deleteOrder = asyncHandler(async (req, res) => {
     }
 
     await prisma.$transaction(async (tx) => {
+        // Reverse any double-entry accounting records for this order
+        await reversalService.reverseBySource(tenantId, 'order_deposit', req.params.id, 'Order deleted', tx);
+        await reversalService.reverseBySource(tenantId, 'order_bake', req.params.id, 'Order deleted', tx);
+        await reversalService.reverseBySource(tenantId, 'order_delivery', req.params.id, 'Order deleted', tx);
+        await reversalService.reverseBySource(tenantId, 'order_payment', req.params.id, 'Order deleted', tx);
+        await reversalService.reverseBySource(tenantId, 'order_cancellation', req.params.id, 'Order deleted', tx);
+
         await tx.orderItem.deleteMany({ where: { orderId: req.params.id } });
         await tx.orderPayment.deleteMany({ where: { orderId: req.params.id } });
         await tx.invoice.deleteMany({ where: { orderId: req.params.id } });

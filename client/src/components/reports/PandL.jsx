@@ -6,11 +6,12 @@
  * Overhead Expenses (categorized), and Net Profit.
  * ----------------------------------------------------------------------------
  */
-import React, { useState, useMemo } from "react"
-import { Btn, Card, SHead } from "../common/ui.jsx"
+import React, { useState, useMemo, useEffect } from "react"
+import { Btn, Card, SHead, Badge } from "../common/ui.jsx"
 import { fmt, isDateInMonth } from "../../lib/helpers.js"
 import { mergeRevenueSources, PLSection, PLRow } from "../../lib/costing.jsx"
-import { Download } from "lucide-react"
+import { fetchProfitLoss } from "../../lib/accountingApi.js"
+import { Download, Sparkles, CheckCircle2 } from "lucide-react"
 
 export function PandL({ productions, expenses, company }) {
   const allRevenue = useMemo(() => mergeRevenueSources(productions), [productions])
@@ -24,8 +25,33 @@ export function PandL({ productions, expenses, company }) {
 
   const [sel, setSel] = useState(cur)
   const [drill, setDrill] = useState(null)
+  const [glReport, setGlReport] = useState(null)
+  const [loadingGl, setLoadingGl] = useState(false)
   const monthLabel = useMemo(() => new Date(sel + "-02").toLocaleDateString("en-NG", { month: "long", year: "numeric" }), [sel])
   const gold = company?.primaryColor || "var(--gold)"
+
+  // Fetch live General Ledger Profit & Loss Statement (Rule 3)
+  useEffect(() => {
+    let isMounted = true
+    const [y, m] = sel.split("-").map(Number)
+    const lastDay = new Date(y, m, 0).getDate()
+    const startDate = `${sel}-01`
+    const endDate = `${sel}-${String(lastDay).padStart(2, "0")}`
+
+    setLoadingGl(true)
+    fetchProfitLoss({ startDate, endDate })
+      .then(report => {
+        if (isMounted) setGlReport(report)
+      })
+      .catch(err => {
+        console.warn("Unable to fetch GL Profit & Loss statement:", err)
+      })
+      .finally(() => {
+        if (isMounted) setLoadingGl(false)
+      })
+
+    return () => { isMounted = false }
+  }, [sel])
 
   // Revenue comes from confirmed quotes/orders confirmed in the selected month
   const mRevenue = useMemo(() => allRevenue.filter(p => {
@@ -37,15 +63,12 @@ export function PandL({ productions, expenses, company }) {
 
   // Exclude gifts and samples from sales revenue
   const paid = useMemo(() => mRevenue.filter(p => p.paymentType !== "gift" && p.paymentType !== "sample"), [mRevenue])
-  const revenue = useMemo(() => paid.reduce((s, p) => s + (p.salePrice || 0), 0), [paid])
+  const legacyRevenue = useMemo(() => paid.reduce((s, p) => s + (p.salePrice || 0), 0), [paid])
+  const legacyCogs = useMemo(() => paid.reduce((s, p) => s + (p.cost || 0), 0), [paid])
+  const legacyGrossProfit = legacyRevenue - legacyCogs
+  const legacyGrossMargin = legacyRevenue > 0 ? Math.round((legacyGrossProfit / legacyRevenue) * 100) : 0
 
-  // Cost of Goods Sold: ingredient costs calculated from recipes
-  const cogs = useMemo(() => paid.reduce((s, p) => s + (p.cost || 0), 0), [paid])
-  
-  const grossProfit = revenue - cogs
-  const grossMargin = revenue > 0 ? Math.round((grossProfit / revenue) * 100) : 0
-
-  // Revenue by product type
+  // Revenue by product type (for drill-down breakdown)
   const byType = useMemo(() => mRevenue.reduce((acc, p) => {
     const t = p.productType || "Cake"
     if (!acc[t]) acc[t] = { qty: 0, rev: 0, cost: 0 }
@@ -62,7 +85,21 @@ export function PandL({ productions, expenses, company }) {
     const isPurchase = e.source === "purchase" || e.purchaseId || e.category === "Purchases" || desc.startsWith("purchase:") || desc.startsWith("purchase :")
     return !isPurchase
   }), [expenses, sel])
-  const overhead = useMemo(() => mExp.reduce((s, e) => s + (e.amount || 0), 0), [mExp])
+  const legacyOverhead = useMemo(() => mExp.reduce((s, e) => s + (e.amount || 0), 0), [mExp])
+  const legacyNetProfit = legacyGrossProfit - legacyOverhead
+  const legacyNetMargin = legacyRevenue > 0 ? Math.round((legacyNetProfit / legacyRevenue) * 100) : 0
+
+  // General Ledger Effective Metrics (Rule 3)
+  const revenue = glReport ? glReport.revenue.total : legacyRevenue
+  const cogs = glReport ? glReport.costOfGoodsSold.total : legacyCogs
+  const grossProfit = glReport ? glReport.grossProfit : legacyGrossProfit
+  const grossMargin = glReport ? glReport.grossMarginPercent : legacyGrossMargin
+  const overhead = glReport ? glReport.operatingExpenses.total : legacyOverhead
+  const operatingProfit = glReport ? glReport.operatingProfit : (legacyGrossProfit - legacyOverhead)
+  const otherIncome = glReport ? glReport.otherIncome.total : 0
+  const otherExpenses = glReport ? glReport.otherExpenses.total : 0
+  const netProfit = glReport ? glReport.netProfit : legacyNetProfit
+  const netMargin = glReport ? glReport.netMarginPercent : legacyNetMargin
 
   // Group overheads by category
   const overheadBycat = useMemo(() => mExp.reduce((acc, e) => {
@@ -71,23 +108,27 @@ export function PandL({ productions, expenses, company }) {
     return acc
   }, {}), [mExp])
 
-  const netProfit = grossProfit - overhead
-  const netMargin = revenue > 0 ? Math.round((netProfit / revenue) * 100) : 0
-
   const dl = () => {
     const w = window.open("", "_blank")
+    const revAccounts = glReport?.revenue?.accounts || []
+    const cogsAccounts = glReport?.costOfGoodsSold?.accounts || []
+    const opexAccounts = glReport?.operatingExpenses?.accounts || []
+    const otherIncAccounts = glReport?.otherIncome?.accounts || []
+    const otherExpAccounts = glReport?.otherExpenses?.accounts || []
+
     w.document.write(`<!DOCTYPE html><html><head><title>P&L Statement ${monthLabel}</title>
-    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;color:#291608;padding:36px;max-width:680px;margin:0 auto}
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;color:#291608;padding:36px;max-width:700px;margin:0 auto}
     h1{font-size:22px;font-weight:700;color:${gold}}
     h2{font-size:12px;color:#888;font-weight:400;margin:3px 0 24px}
-    .section{margin-bottom:20px}
-    .section-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#888;font-weight:600;padding:8px 0;border-bottom:2px solid ${gold};margin-bottom:10px}
-    .row{display:flex;justify-content:space-between;padding:7px 0;font-size:13px;border-bottom:1px solid #F0EBE3}
-    .row.indent{padding-left:16px;color:#555}
-    .row.subtotal{font-weight:600;background:#F5F0E4;padding:8px 10px;border-radius:4px;margin:4px 0}
-    .row.total{font-weight:700;font-size:15px;padding:12px 14px;background:${netProfit >= 0 ? "#E8F5EE" : "#FDEBE9"};border-radius:8px;color:${netProfit >= 0 ? "#1D6B40" : "#B03A2E"};margin-top:8px}
+    .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;background:#E8F5EE;color:#1D6B40;margin-bottom:12px;text-transform:uppercase}
+    .section{margin-bottom:18px}
+    .section-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#888;font-weight:700;padding:8px 0;border-bottom:2px solid ${gold};margin-bottom:8px}
+    .row{display:flex;justify-content:space-between;padding:6px 0;font-size:12.5px;border-bottom:1px solid #F0EBE3}
+    .row.indent{padding-left:16px;color:#444}
+    .row.subtotal{font-weight:700;background:#F5F0E4;padding:8px 10px;border-radius:4px;margin:4px 0}
+    .row.total{font-weight:700;font-size:15px;padding:12px 14px;background:${netProfit >= 0 ? "#E8F5EE" : "#FDEBE9"};border-radius:8px;color:${netProfit >= 0 ? "#1D6B40" : "#B03A2E"};margin-top:10px}
     .positive{color:#1D6B40}.negative{color:#B03A2E}
-    .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}
+    .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}
     .scard{border:1px solid #E0D3BB;border-radius:8px;padding:12px;text-align:center}
     .slabel{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#888;margin-bottom:4px}
     .sval{font-size:18px;font-weight:700;color:${gold}}
@@ -95,35 +136,45 @@ export function PandL({ productions, expenses, company }) {
     ${(company?.logo || "/Bakewealthlogo.jpeg") ? `<img src="${company?.logo || "/Bakewealthlogo.jpeg"}" style="height:44px;margin-bottom:12px;display:block;object-fit:contain"/>` : ""}
     <h1>${company?.name || "Bakery"} — Profit & Loss Statement</h1>
     <h2>${monthLabel}</h2>
+    <div class="badge">General Ledger Double-Entry (Accrual Basis)</div>
     <div class="summary">
-      <div class="scard"><div class="slabel">Revenue</div><div class="sval">₦${Math.round(revenue).toLocaleString()}</div></div>
+      <div class="scard"><div class="slabel">Revenue (Delivered)</div><div class="sval">₦${Math.round(revenue).toLocaleString()}</div></div>
       <div class="scard"><div class="slabel">Gross margin</div><div class="sval">${grossMargin}%</div></div>
       <div class="scard"><div class="slabel">Net margin</div><div class="sval ${netMargin >= 0 ? "positive" : "negative"}">${netMargin}%</div></div>
     </div>
+    
     <div class="section">
       <div class="section-title">Revenue</div>
-      ${Object.entries(byType).map(([type, data]) => `<div class="row indent"><span>${type} — ${data.qty} order${data.qty !== 1 ? "s" : ""}</span><span>₦${Math.round(data.rev).toLocaleString()}</span></div>`).join("")}
-      ${Object.keys(byType).length === 0 ? '<div class="row indent"><span>No confirmed orders this month</span><span>₦0</span></div>' : ""}
-      <div class="row subtotal"><span>Total Revenue (${paid.length} confirmed orders)</span><span>₦${Math.round(revenue).toLocaleString()}</span></div>
+      ${revAccounts.length > 0 ? revAccounts.map(a => `<div class="row indent"><span>${a.accountName}</span><span>₦${Math.round(a.balance).toLocaleString()}</span></div>`).join("") : `<div class="row indent"><span>Delivered Sales</span><span>₦${Math.round(revenue).toLocaleString()}</span></div>`}
+      <div class="row subtotal"><span>Total Revenue</span><span>₦${Math.round(revenue).toLocaleString()}</span></div>
     </div>
+
     <div class="section">
-      <div class="section-title">Sales Detail</div>
-      ${mRevenue.map(p => `<div class="row"><span>${p.client} — ${p.productType || "Cake"}${p.size ? " (" + p.size + ")" : ""}</span><span>₦${Math.round(p.salePrice || 0).toLocaleString()}</span></div>`).join("")}
+      <div class="section-title">Cost of Goods Sold (COGS)</div>
+      ${cogsAccounts.length > 0 ? cogsAccounts.map(a => `<div class="row indent"><span>${a.accountName}</span><span>₦${Math.round(a.balance).toLocaleString()}</span></div>`).join("") : `<div class="row indent"><span>Ingredient & Packaging Costs</span><span>₦${Math.round(cogs).toLocaleString()}</span></div>`}
+      <div class="row subtotal"><span>Total Cost of Goods Sold</span><span>₦${Math.round(cogs).toLocaleString()}</span></div>
     </div>
+
+    <div class="row subtotal" style="font-size:13.5px;margin-bottom:16px"><span>Gross Profit</span><span class="${grossProfit >= 0 ? "positive" : "negative"}">₦${Math.round(grossProfit).toLocaleString()} (${grossMargin}%)</span></div>
+
     <div class="section">
-      <div class="section-title">Cost of Goods Sold</div>
-      <div class="row indent"><span>Ingredient costs (recipes)</span><span>₦${Math.round(cogs).toLocaleString()}</span></div>
-      <div class="row subtotal"><span>Total COGS</span><span>₦${Math.round(cogs).toLocaleString()}</span></div>
+      <div class="section-title">Operating Expenses</div>
+      ${opexAccounts.length > 0 ? opexAccounts.map(a => `<div class="row indent"><span>${a.accountName}</span><span>₦${Math.round(a.balance).toLocaleString()}</span></div>`).join("") : Object.entries(overheadBycat).map(([cat, amt]) => `<div class="row indent"><span>${cat}</span><span>₦${Math.round(amt).toLocaleString()}</span></div>`).join("")}
+      <div class="row subtotal"><span>Total Operating Expenses</span><span>₦${Math.round(overhead).toLocaleString()}</span></div>
     </div>
-    <div class="row subtotal" style="font-size:14px;margin-bottom:20px"><span>Gross Profit</span><span class="${grossProfit >= 0 ? "positive" : "negative"}">₦${Math.round(grossProfit).toLocaleString()} (${grossMargin}%)</span></div>
-    <div class="section">
-      <div class="section-title">Overhead Expenses</div>
-      ${Object.entries(overheadBycat).map(([cat, amt]) => `<div class="row indent"><span>${cat}</span><span>₦${Math.round(amt).toLocaleString()}</span></div>`).join("")}
-      ${Object.keys(overheadBycat).length === 0 ? '<div class="row indent"><span>No overhead expenses</span><span>₦0</span></div>' : ""}
-      <div class="row subtotal"><span>Total Overheads</span><span>₦${Math.round(overhead).toLocaleString()}</span></div>
-    </div>
+
+    <div class="row subtotal" style="font-size:13.5px;margin-bottom:16px"><span>Operating Profit</span><span class="${operatingProfit >= 0 ? "positive" : "negative"}">₦${Math.round(operatingProfit).toLocaleString()}</span></div>
+
+    ${(otherIncAccounts.length > 0 || otherExpAccounts.length > 0) ? `
+      <div class="section">
+        <div class="section-title">Other Income & Expenses</div>
+        ${otherIncAccounts.map(a => `<div class="row indent"><span>${a.accountName}</span><span>+₦${Math.round(a.balance).toLocaleString()}</span></div>`).join("")}
+        ${otherExpAccounts.map(a => `<div class="row indent"><span>${a.accountName}</span><span>-₦${Math.round(a.balance).toLocaleString()}</span></div>`).join("")}
+      </div>
+    ` : ""}
+
     <div class="row total"><span>Net Profit / (Loss)</span><span>₦${Math.round(netProfit).toLocaleString()} (${netMargin}%)</span></div>
-    <p style="margin-top:28px;font-size:10px;color:#aaa">Generated by BakeWealth · ${new Date().toLocaleDateString()} · This is a management account and not a certified financial statement.</p>
+    <p style="margin-top:28px;font-size:10px;color:#aaa">Generated by BakeWealth · ${new Date().toLocaleDateString()} · Double-entry General Ledger single source of truth (Ruling 1, 2, 3).</p>
     <script>window.print()<\/script></body></html>`)
     w.document.close()
   }
@@ -177,24 +228,37 @@ export function PandL({ productions, expenses, company }) {
   return (
     <div>
       {drill && <DrillDown title={drill.title} rows={drill.rows} onClose={() => setDrill(null)} />}
-      <SHead title="P&L Statement" sub="Profit & Loss — tap any figure to see the detail behind it" />
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
-        <select value={sel} onChange={e => setSel(e.target.value)} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 13, color: "var(--text)" }}>
-          {allMonths.map(m => (
-            <option key={m} value={m}>
-              {new Date(m + "-02").toLocaleDateString("en-NG", { month: "long", year: "numeric" })}
-            </option>
-          ))}
-        </select>
-        <Btn onClick={dl} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <Download size={13} /> Download PDF
-        </Btn>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <SHead title="P&L Statement" sub="Profit & Loss — Double-entry General Ledger single source of truth" />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+            <span style={{ fontSize: 11, background: "#E8F5EE", color: "#1D6B40", padding: "2px 8px", borderRadius: 4, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <CheckCircle2 size={11} /> General Ledger Accrual
+            </span>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              Revenue recognized on delivery (Ruling 2)
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <select value={sel} onChange={e => setSel(e.target.value)} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", fontSize: 13, color: "var(--text)" }}>
+            {allMonths.map(m => (
+              <option key={m} value={m}>
+                {new Date(m + "-02").toLocaleDateString("en-NG", { month: "long", year: "numeric" })}
+              </option>
+            ))}
+          </select>
+          <Btn onClick={dl} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <Download size={13} /> Download PDF
+          </Btn>
+        </div>
       </div>
 
       {/* SUMMARY CARDS */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
         {[
-          { l: "Revenue", v: fmt(revenue), c: gold },
+          { l: "Revenue (Delivered)", v: fmt(revenue), c: gold },
           { l: "Gross Margin", v: grossMargin + "%", c: grossMargin >= 50 ? "#357A52" : "#B03A2E" },
           { l: "Net Margin", v: netMargin + "%", c: netMargin >= 30 ? "#357A52" : "#B03A2E" }
         ].map(s => (
@@ -205,49 +269,79 @@ export function PandL({ productions, expenses, company }) {
         ))}
       </div>
 
-      <Card style={{ maxWidth: 560 }}>
-        <PLSection gold={gold} title="Revenue">
-          {Object.entries(byType).length > 0 ? (
+      <Card style={{ maxWidth: 640 }}>
+        {/* REVENUE SECTION */}
+        <PLSection gold={gold} title="Revenue (Accrual)">
+          {glReport?.revenue?.accounts?.length > 0 ? (
+            glReport.revenue.accounts.map(acc => (
+              <PLRow key={acc.accountCode} label={acc.accountName} value={fmt(acc.balance)} indent />
+            ))
+          ) : Object.entries(byType).length > 0 ? (
             Object.entries(byType).map(([type, data]) => (
               <div key={type} onClick={showRevenue} style={{ cursor: "pointer" }}>
                 <PLRow label={`${type} (${data.qty} order${data.qty !== 1 ? "s" : ""})`} value={fmt(data.rev)} indent />
               </div>
             ))
           ) : (
-            <PLRow label="No confirmed orders this month" value={fmt(0)} indent />
+            <PLRow label="No delivered sales in this period" value={fmt(0)} indent />
           )}
-          <div onClick={showRevenue} style={{ cursor: "pointer" }}>
-            <PLRow label={`Total Revenue (${paid.length} confirmed order${paid.length !== 1 ? "s" : ""})`} value={fmt(revenue)} bold />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, marginLeft: 2 }}>Tap any row to see detail</div>
+          <PLRow label="Total Revenue" value={fmt(revenue)} bold />
         </PLSection>
 
+        {/* COGS SECTION */}
         <PLSection gold={gold} title="Cost of Goods Sold (COGS)">
-          <div onClick={showCOGS} style={{ cursor: "pointer" }}>
-            <PLRow label="Ingredient costs (recipes)" value={fmt(cogs)} indent />
-            <PLRow label="Total COGS" value={fmt(cogs)} bold />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, marginLeft: 2 }}>Tap to see order breakdown</div>
+          {glReport?.costOfGoodsSold?.accounts?.length > 0 ? (
+            glReport.costOfGoodsSold.accounts.map(acc => (
+              <PLRow key={acc.accountCode} label={acc.accountName} value={fmt(acc.balance)} indent />
+            ))
+          ) : (
+            <div onClick={showCOGS} style={{ cursor: "pointer" }}>
+              <PLRow label="Ingredient costs (recipes)" value={fmt(cogs)} indent />
+            </div>
+          )}
+          <PLRow label="Total Cost of Goods Sold" value={fmt(cogs)} bold />
         </PLSection>
 
         <PLRow label={`Gross Profit (${grossMargin}% margin)`} value={fmt(grossProfit)} bold color={grossProfit >= 0 ? "#357A52" : "#B03A2E"} />
 
         <div style={{ height: 16 }} />
 
-        <PLSection gold={gold} title="Overhead Expenses">
-          {Object.entries(overheadBycat).map(([cat, amt]) => (
-            <div key={cat} onClick={() => showOverhead(cat)} style={{ cursor: "pointer" }}>
-              <PLRow label={cat} value={fmt(amt)} indent />
-            </div>
-          ))}
-          {Object.keys(overheadBycat).length === 0 && <PLRow label="No overhead expenses logged" value="₦0" indent />}
-          <div onClick={() => showOverhead(null)} style={{ cursor: "pointer" }}>
-            <PLRow label="Total Overheads" value={fmt(overhead)} bold />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, marginLeft: 2 }}>Tap a category row to see detail</div>
+        {/* OPERATING EXPENSES SECTION */}
+        <PLSection gold={gold} title="Operating Expenses">
+          {glReport?.operatingExpenses?.accounts?.length > 0 ? (
+            glReport.operatingExpenses.accounts.map(acc => (
+              <PLRow key={acc.accountCode} label={acc.accountName} value={fmt(acc.balance)} indent />
+            ))
+          ) : (
+            Object.entries(overheadBycat).map(([cat, amt]) => (
+              <div key={cat} onClick={() => showOverhead(cat)} style={{ cursor: "pointer" }}>
+                <PLRow label={cat} value={fmt(amt)} indent />
+              </div>
+            ))
+          )}
+          {(!glReport?.operatingExpenses?.accounts?.length && Object.keys(overheadBycat).length === 0) && (
+            <PLRow label="No operating expenses recorded" value="₦0" indent />
+          )}
+          <PLRow label="Total Operating Expenses" value={fmt(overhead)} bold />
         </PLSection>
 
-        <div style={{ padding: "14px 16px", background: netProfit >= 0 ? "#E8F5EE" : "#FDEBE9", border: (netProfit >= 0 ? "1px solid #C2E0CF" : "1px solid #F09595"), borderRadius: 10, display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+        <PLRow label="Operating Profit" value={fmt(operatingProfit)} bold color={operatingProfit >= 0 ? "#357A52" : "#B03A2E"} />
+
+        {/* OTHER INCOME & EXPENSES (Rulings 13, 20) */}
+        {(glReport?.otherIncome?.accounts?.length > 0 || glReport?.otherExpenses?.accounts?.length > 0) && (
+          <div style={{ marginTop: 16 }}>
+            <PLSection gold={gold} title="Other Income & Expenses">
+              {glReport.otherIncome.accounts.map(acc => (
+                <PLRow key={acc.accountCode} label={acc.accountName} value={fmt(acc.balance)} indent />
+              ))}
+              {glReport.otherExpenses.map ? null : glReport.otherExpenses.accounts.map(acc => (
+                <PLRow key={acc.accountCode} label={acc.accountName} value={`(${fmt(acc.balance)})`} indent color="#B03A2E" />
+              ))}
+            </PLSection>
+          </div>
+        )}
+
+        <div style={{ padding: "14px 16px", background: netProfit >= 0 ? "#E8F5EE" : "#FDEBE9", border: (netProfit >= 0 ? "1px solid #C2E0CF" : "1px solid #F09595"), borderRadius: 10, display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
           <div>
             <div style={{ fontSize: 11, color: netProfit >= 0 ? "#085041" : "#501313", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 3 }}>Net Profit / (Loss)</div>
             <div style={{ fontSize: 11, color: netProfit >= 0 ? "#0F6E56" : "#791F1F" }}>{monthLabel}</div>
@@ -258,8 +352,8 @@ export function PandL({ productions, expenses, company }) {
           </div>
         </div>
 
-        <div style={{ marginTop: 12, fontSize: 11, color: "var(--muted)", lineHeight: 1.6 }}>
-          This is a management account generated by BakeWealth. It is not a certified financial statement.
+        <div style={{ marginTop: 14, fontSize: 11, color: "var(--muted)", lineHeight: 1.6 }}>
+          Directly computed from the double-entry General Ledger (Rule 3). Delivered revenue is recognized according to Ruling 2.
         </div>
       </Card>
     </div>

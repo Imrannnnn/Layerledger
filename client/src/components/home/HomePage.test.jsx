@@ -8,6 +8,7 @@ describe("HomePage Component Tests", () => {
   let container, root
 
   beforeEach(() => {
+    window.HTMLElement.prototype.scrollIntoView = jest.fn()
     container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
@@ -195,5 +196,132 @@ describe("HomePage Component Tests", () => {
     })
 
     expect(mockRegister).toHaveBeenCalled()
+  })
+
+  test("renders all 5 toolkit tabs including 'What a cake costs' and 'The Psychology of a Baker'", async () => {
+    await act(async () => {
+      root.render(<HomePage />)
+    })
+
+    const tabs = Array.from(container.querySelectorAll(".tabs .tab"))
+    expect(tabs).toHaveLength(5)
+    expect(tabs.map(t => t.textContent.trim())).toEqual([
+      "Weight ↔ volume",
+      "Recipe scaler",
+      "Pan size",
+      "What a cake costs",
+      "The Psychology of a Baker"
+    ])
+  })
+
+  test("What a cake costs tool calculates default cost, surface, margin price, and handles charge gap", async () => {
+    await act(async () => {
+      root.render(<HomePage />)
+    })
+
+    const costTab = Array.from(container.querySelectorAll(".tab")).find(b =>
+      b.textContent.includes("What a cake costs")
+    )
+    expect(costTab).toBeTruthy()
+
+    await act(async () => {
+      costTab.click()
+    })
+
+    // Cost panel is visible
+    const costPanel = container.querySelector("#t-cost")
+    expect(costPanel).toBeTruthy()
+
+    // Default calculations: 8" round, 3 layers, 2", choc, bc, 4h @ ₦2,500
+    // Expected: ₦30,408 cost, 201 square inches, sell for at least ₦61,000
+    const kOut = container.querySelector("#kOut")
+    const kNote = container.querySelector("#kNote")
+    const kPrice = container.querySelector("#kPrice")
+
+    expect(kOut.textContent).toBe("₦30,408")
+    expect(kNote.textContent).toContain("201 square inches to cover")
+    expect(kPrice.textContent).toContain("Sell it for at least ₦61,000 to keep a 50% margin")
+
+    // Type 35,000 into the charge input
+    const chargeInput = container.querySelector("#kCharge")
+    await act(async () => {
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value"
+      ).set
+      nativeInputValueSetter.call(chargeInput, "35000")
+      chargeInput.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+
+    // Expected verdict: ₦25,817 short, ₦103,268 a month
+    const verdict = container.querySelector("#kVerdict")
+    expect(verdict.textContent).toContain("₦25,817 short")
+    expect(verdict.textContent).toContain("₦103,268 a month")
+  })
+
+  test("The Psychology of a Baker quiz progresses, allows back, and calculates scores", async () => {
+    await act(async () => {
+      root.render(<HomePage />)
+    })
+
+    const testTab = Array.from(container.querySelectorAll(".tab")).find(b =>
+      b.textContent.includes("The Psychology of a Baker")
+    )
+    expect(testTab).toBeTruthy()
+
+    await act(async () => {
+      testTab.click()
+    })
+
+    const testPanel = container.querySelector("#t-test")
+    expect(testPanel).toBeTruthy()
+    expect(container.querySelector("#pb-count").textContent).toBe("Question 1 of 10")
+    expect(container.querySelector("#pb-back")).toBeNull() // Back hidden on question 1
+
+    // Answer worst option (option 2) for all 10 questions to score 0
+    for (let q = 0; q < 10; q++) {
+      const options = container.querySelectorAll("#pb-opts button")
+      expect(options.length).toBe(3)
+      await act(async () => {
+        options[2].click() // worst option = 0 points
+      })
+    }
+
+    // Should now show score screen
+    expect(container.querySelector("#pb-result")).toBeTruthy()
+    expect(container.querySelector("#pb-num").textContent).toBe("0")
+    expect(container.querySelector("#pb-band").textContent).toBe("You cannot tell whether you are making money")
+
+    // All 10 rows should carry "What to do" hints
+    const rows = container.querySelectorAll(".pb-row")
+    expect(rows).toHaveLength(10)
+    rows.forEach(row => {
+      expect(row.textContent).toContain("What to do")
+    })
+
+    // Take it again
+    const againBtn = container.querySelector("#pb-again")
+    await act(async () => {
+      againBtn.click()
+    })
+
+    expect(container.querySelector("#pb-count").textContent).toBe("Question 1 of 10")
+
+    // Answer best option (option 0) for all 10 questions to score 10
+    for (let q = 0; q < 10; q++) {
+      const options = container.querySelectorAll("#pb-opts button")
+      await act(async () => {
+        options[0].click() // best option = 1 point
+      })
+    }
+
+    expect(container.querySelector("#pb-num").textContent).toBe("10")
+    expect(container.querySelector("#pb-band").textContent).toBe("You are in the small minority")
+    // When score is 10, no "What to do" hints
+    const perfectRows = container.querySelectorAll(".pb-row")
+    expect(perfectRows).toHaveLength(10)
+    perfectRows.forEach(row => {
+      expect(row.textContent).not.toContain("What to do")
+    })
   })
 })
