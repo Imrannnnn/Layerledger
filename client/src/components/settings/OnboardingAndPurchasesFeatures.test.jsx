@@ -2,13 +2,34 @@ global.IS_REACT_ACT_ENVIRONMENT = true
 
 import React, { act } from "react"
 import { createRoot } from "react-dom/client"
-import { fireEvent } from "@testing-library/react"
 import { Onboarding } from "./Onboarding.jsx"
 import { Purchases } from "../money/Purchases.jsx"
 import { RecipeCard } from "../inventory/MasterList.jsx"
 import { OpeningStock } from "../inventory/OpeningStock.jsx"
 import { convertToGrams, parseExcelOrSpreadsheet } from "../../lib/helpers.js"
 import * as dataLib from "../../lib/data.js"
+
+// Lightweight event helper mimicking fireEvent.change without requiring external @testing-library/react dependency
+const fireEvent = {
+  change: (element, { target: { value } }) => {
+    const proto = element instanceof window.HTMLSelectElement
+      ? window.HTMLSelectElement.prototype
+      : (element instanceof window.HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype)
+    const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set
+    const lastValue = element.value
+    if (nativeSetter) {
+      nativeSetter.call(element, value)
+    } else {
+      element.value = value
+    }
+    const tracker = element._valueTracker
+    if (tracker) {
+      tracker.setValue(lastValue)
+    }
+    element.dispatchEvent(new Event("input", { bubbles: true }))
+    element.dispatchEvent(new Event("change", { bubbles: true }))
+  }
+}
 
 // Mock external data functions
 jest.mock("../../lib/data.js", () => {

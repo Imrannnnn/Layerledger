@@ -219,36 +219,41 @@ describe("Generate & Save Quote Flow & Feedback Tests", () => {
   })
 
   test("if saveQuotes fails, an error message is displayed and user can retry without losing inputs", async () => {
-    dataLib.saveQuotes.mockRejectedValueOnce(new Error("Plan limit reached. Upgrade to generate quotes."))
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      dataLib.saveQuotes.mockRejectedValueOnce(new Error("Plan limit reached. Upgrade to generate quotes."))
 
-    await setupCalculatorWithReadyQuote()
+      await setupCalculatorWithReadyQuote()
 
-    const saveBtn = Array.from(container.querySelectorAll("button")).find(
-      b => b.textContent.includes("Generate & save quote")
-    )
-    expect(saveBtn).toBeTruthy()
+      const saveBtn = Array.from(container.querySelectorAll("button")).find(
+        b => b.textContent.includes("Generate & save quote")
+      )
+      expect(saveBtn).toBeTruthy()
 
-    // Click save
-    await act(async () => {
-      saveBtn.click()
-    })
+      // Click save
+      await act(async () => {
+        saveBtn.click()
+      })
 
-    // Button re-enables and error message is displayed
-    expect(container.textContent).toContain("Plan limit reached. Upgrade to generate quotes.")
-    expect(saveBtn.disabled).toBe(false)
-    expect(saveBtn.getAttribute("data-loading")).toBe("false")
+      // Button re-enables and error message is displayed
+      expect(container.textContent).toContain("Plan limit reached. Upgrade to generate quotes.")
+      expect(saveBtn.disabled).toBe(false)
+      expect(saveBtn.getAttribute("data-loading")).toBe("false")
 
-    // The user's input was NOT cleared and is still intact
-    const clientInput = container.querySelector("div[data-testid='field-Client Name *'] input")
-    expect(clientInput.value).toBe("Adeola Balogun")
+      // The user's input was NOT cleared and is still intact
+      const clientInput = container.querySelector("div[data-testid='field-Client Name *'] input")
+      expect(clientInput.value).toBe("Adeola Balogun")
 
-    // Now user fixes / retries, and this time save succeeds
-    dataLib.saveQuotes.mockResolvedValueOnce(true)
-    await act(async () => {
-      saveBtn.click()
-    })
+      // Now user fixes / retries, and this time save succeeds
+      dataLib.saveQuotes.mockResolvedValueOnce(true)
+      await act(async () => {
+        saveBtn.click()
+      })
 
-    expect(dataLib.saveQuotes).toHaveBeenCalledTimes(2)
-    expect(container.textContent).toContain("Quote saved for Adeola Balogun!")
+      expect(dataLib.saveQuotes).toHaveBeenCalledTimes(2)
+      expect(container.textContent).toContain("Quote saved for Adeola Balogun!")
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 })
