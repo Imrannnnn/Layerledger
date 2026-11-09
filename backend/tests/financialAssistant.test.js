@@ -387,7 +387,7 @@ describe('AI Financial Assistant Unit & Business Logic Tests', () => {
         });
 
         test('chatWithAssistant endpoint returns 200 with complete structured response for premium user', async () => {
-            req.body = { message: 'How much have I spent, and on what?' };
+            req.body = { message: 'How much have I spent, and on what?', month: '2026-10' };
 
             await chatWithAssistant(req, res, next);
 

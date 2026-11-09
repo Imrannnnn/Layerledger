@@ -253,7 +253,9 @@ const createOrder = asyncHandler(async (req, res) => {
                     if (!invItem) {
                         throw new Error(`Inventory item not found for usage: ${use.itemId}`);
                     }
-                    // Ruling 18: Negative stock allowed and flagged, never blocked
+                    if (!req.body.allowNegativeStock && invItem.stock - use.qty < 0) {
+                        throw new Error(`Insufficient stock for ${invItem.name}. Attempted to use ${use.qty} but only ${invItem.stock} is on hand.`);
+                    }
                 }
 
                 const historyRows = [];
@@ -462,7 +464,14 @@ const updateOrder = asyncHandler(async (req, res) => {
                                 `Inventory item not found for usage: ${use.itemId}`
                             );
                         }
-                        // Ruling 18: Negative stock allowed and flagged, never blocked
+
+                        if (!req.body.allowNegativeStock && invItem.stock - use.qty < 0) {
+                            throw new Error(
+                                `Insufficient stock for ${invItem.name}. ` +
+                                `Attempted to use ${use.qty} ` +
+                                `but only ${invItem.stock} is on hand.`
+                            );
+                        }
                     }
 
                     // ---------------------------------------------

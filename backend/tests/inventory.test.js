@@ -2,8 +2,9 @@ require('dotenv').config();
 if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=require')) {
   process.env.DATABASE_URL = process.env.DATABASE_URL.replace('sslmode=require', 'sslmode=no-verify');
 }
-jest.setTimeout(30000);
+jest.setTimeout(60000);
 const prisma = require('../prisma');
+const chartOfAccountsService = require('../modules/accounting/services/chartOfAccounts.service');
 const { createItem, adjustItem } = require('../controller/inventoryController');
 const { createPurchase } = require('../controller/purchaseController');
 const { createOrder } = require('../controller/orderController');
@@ -56,6 +57,8 @@ describe('Weighted Average Cost (WAVCO) Inventory Valuation Integration Tests', 
                 role: 'owner'
             }
         });
+
+        await chartOfAccountsService.seedTenantChartOfAccounts(tenantId);
     });
 
     afterAll(async () => {

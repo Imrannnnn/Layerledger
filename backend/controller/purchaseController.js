@@ -199,7 +199,7 @@ const createPurchase = asyncHandler(async (req, res) => {
         }, tx);
 
         return purchase;
-    }, { maxWait: 10000, timeout: 30000 });
+    }, { maxWait: 15000, timeout: 60000 });
 
     res.status(201).json(result);
 });
@@ -392,7 +392,7 @@ const updatePurchase = asyncHandler(async (req, res) => {
         }, tx);
 
         return updatedPurchase;
-    }, { maxWait: 10000, timeout: 30000 });
+    }, { maxWait: 15000, timeout: 60000 });
 
     res.json(result);
 });
