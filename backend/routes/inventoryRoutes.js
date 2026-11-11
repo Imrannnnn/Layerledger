@@ -8,7 +8,8 @@ const {
     adjustItem,
     deleteAllInventory,
     deleteOpeningStock,
-    batchDeleteItems
+    batchDeleteItems,
+    batchStockAdjustment
 } = require('../controller/inventoryController');
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 const { validate } = require('../middleware/validationMiddleware');
@@ -18,7 +19,8 @@ router.route('/')
     .get(protect, getInventory)
     .post(protect, validate(createInventorySchema), createItem);
 
-// Bulk delete operations (placed before /:id to prevent route shadowing)
+// Bulk delete and adjustment operations (placed before /:id to prevent route shadowing)
+router.post('/adjustments', protect, batchStockAdjustment);
 router.delete('/all', protect, restrictTo('owner'), deleteAllInventory);
 router.delete('/opening-stock', protect, restrictTo('owner'), deleteOpeningStock);
 router.post('/batch-delete', protect, batchDeleteItems);

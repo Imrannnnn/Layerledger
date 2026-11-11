@@ -1,0 +1,269 @@
+<title>Batter Calibration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#EFE9DC;--card:#FDFBF6;--sunk:#F6F1E6;--sel:#FFF6E2;
+  --ink:#3D2B1A;--ink-2:#7A6A58;--ink-3:#A3927C;
+  --line:#E2D7C4;--accent:#B8860F;--go:#1E7A4D;--warn:#9A5B14;--bad:#9A2B1C;
+  --display:"Fraunces",Georgia,serif;--body:"IBM Plex Sans",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;--warn:#E3A054;--bad:#E8705C;color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;--warn:#E3A054;--bad:#E8705C;color-scheme:dark;}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;margin:0;-webkit-font-smoothing:antialiased}
+.wrap{max-width:680px;margin:0 auto;padding-inline:16px;padding-block:24px 64px}
+
+.tabs{display:flex;gap:4px;background:var(--sunk);border:1px solid var(--line);border-radius:12px;padding:5px;margin-bottom:20px}
+.tabs button{flex:1;font-family:var(--body);font-size:13.5px;font-weight:600;cursor:pointer;background:transparent;color:var(--ink-2);border:0;border-radius:8px;padding:9px 4px}
+.tabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.pane{display:none}
+.pane.on{display:block}
+
+.crumb{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:14px;overflow:hidden}
+.card.live{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.chead{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.step{width:22px;height:22px;flex:none;border-radius:50%;background:var(--sunk);color:var(--ink-2);font-size:12px;font-weight:600;display:grid;place-items:center}
+.step.ok{background:var(--go);color:#fff}
+.card.live .step{background:var(--accent);color:#fff}
+.ctitle{font-family:var(--display);font-weight:700;font-size:16.5px;letter-spacing:-.01em;flex:1}
+.cnote{font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums;text-align:right}
+.cbody{padding:16px 18px}
+.intro{font-size:13.5px;color:var(--ink-2);margin:0 0 15px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:12px}
+label{display:block;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);margin-bottom:5px;font-weight:600}
+select,input[type=number]{width:100%;font-family:var(--body);font-size:15px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px 11px;appearance:none;font-variant-numeric:tabular-nums}
+.seg{display:flex;gap:5px}
+.seg button{flex:1;font-family:var(--body);font-size:14.5px;font-weight:500;cursor:pointer;background:var(--card);color:var(--ink-2);border:1px solid var(--line);border-radius:9px;padding:9px 2px}
+.seg button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+:focus-visible{outline:2.5px solid var(--accent);outline-offset:2px}
+
+table.ing{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
+table.ing th{text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);font-weight:600;padding:0 0 7px;border-bottom:1px solid var(--line)}
+table.ing th:not(:first-child),table.ing td:not(:first-child){text-align:right}
+table.ing td{padding:7px 0;border-bottom:1px solid var(--line)}
+table.ing tr:last-child td{border-bottom:0}
+table.ing tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600;padding-top:10px}
+.addrow{margin-top:10px;font-size:13px;color:var(--accent);font-weight:600}
+
+.derived{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.derived div{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.derived small{display:block;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);font-weight:600;margin-bottom:2px}
+.derived span{font-family:var(--display);font-weight:700;font-size:17px;font-variant-numeric:tabular-nums}
+
+.ex{background:var(--sunk);border:1px solid var(--line);border-radius:11px;padding:13px 15px;margin-top:16px}
+.ex h4{margin:0 0 9px;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);font-weight:600}
+.ex table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
+.ex td{padding:4px 0}
+.ex td:last-child{text-align:right;font-weight:600}
+.ex tr.em td{border-top:1px solid var(--line);padding-top:8px}
+.ex tr.em td:last-child{font-family:var(--display);font-size:17px}
+
+details{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+summary{cursor:pointer;font-size:12.5px;color:var(--accent);font-weight:600;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"\25B8  ";display:inline-block;transition:transform .15s}
+details[open] summary::before{transform:rotate(90deg)}
+.detail{font-size:13px;color:var(--ink-2);margin-top:10px}
+.detail p{margin:0 0 9px}
+.detail code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--card);padding:1px 5px;border-radius:4px;color:var(--ink)}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.chips button{font-family:var(--body);font-size:12.5px;cursor:pointer;background:var(--sunk);color:var(--ink-2);border:1px solid var(--line);border-radius:999px;padding:5px 12px}
+.chips button:hover{border-color:var(--accent);color:var(--ink)}
+
+.flag{display:none;margin-top:14px;background:var(--sunk);border:1px solid var(--warn);border-radius:10px;padding:11px 14px;font-size:13px}
+.flag.on{display:block}
+.flag b{color:var(--warn)}
+
+table.tot{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.tot td{padding:8px 0;border-bottom:1px solid var(--line)}
+table.tot td:last-child{text-align:right;font-weight:500;white-space:nowrap}
+table.tot td .mut{display:block;font-size:12px;color:var(--ink-2);font-weight:400}
+table.tot tr.em td{font-weight:600;border-bottom:0;border-top:2px solid var(--ink);padding-top:12px}
+table.tot tr.em td:last-child{font-family:var(--display);font-weight:700;font-size:25px;color:var(--go)}
+
+.cta{display:block;width:100%;margin-top:16px;font-family:var(--body);font-size:15px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;border:0;border-radius:10px;padding:12px}
+
+.note{font-size:13px;color:var(--ink-2);background:var(--sunk);border:1px dashed var(--line);border-radius:11px;padding:11px 14px;margin-bottom:14px}
+.note b{color:var(--ink)}
+
+.rsec{margin-bottom:20px}
+.rsec:last-child{margin-bottom:0}
+.rsec h5{margin:0 0 3px;font-family:var(--display);font-weight:700;font-size:15px}
+.rsec .sub{font-size:12.5px;color:var(--ink-2);margin:0 0 9px;font-variant-numeric:tabular-nums}
+table.prod{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
+table.prod th{text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);font-weight:600;padding:0 0 6px;border-bottom:1px solid var(--line)}
+table.prod th:last-child,table.prod td:last-child{text-align:right}
+table.prod td{padding:6px 0;border-bottom:1px solid var(--line)}
+table.prod tr:last-child td{border-bottom:0}
+table.prod td .hint{font-size:11.5px;color:var(--ink-2)}
+td.short{color:var(--bad);font-weight:600}
+.shortnote{margin-top:12px;background:var(--sunk);border:1px solid var(--bad);border-radius:10px;padding:10px 13px;font-size:13px}
+.shortnote b{color:var(--bad)}
+.ticket{background:var(--sunk);border:1px solid var(--line);border-radius:11px;padding:12px 15px;margin-bottom:16px;font-size:13.5px}
+.ticket b{font-family:var(--display);font-size:15px;display:block;margin-bottom:2px}
+.ticket span{color:var(--ink-2)}
+</style>
+
+<div class="wrap">
+
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-t="r">Base recipe</button>
+  <button role="tab" aria-selected="false" data-t="o">Order calculator</button>
+  <button role="tab" aria-selected="false" data-t="p">Production sheet</button>
+</div>
+
+<!-- ========== BASE RECIPE ========== -->
+<div class="pane on" id="pane-r">
+<div class="crumb">Recipes &rsaquo; Vanilla sponge &rsaquo; Edit</div>
+
+<div class="card">
+  <div class="chead"><span class="step ok">1</span><span class="ctitle">What goes in it</span><span class="cnote">Batter</span></div>
+  <div class="cbody">
+    <table class="ing">
+      <thead><tr><th>Ingredient</th><th>Weight</th><th>&#8358;/g</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td>Unsalted butter</td><td>250 g</td><td>15.56</td><td>&#8358;3,890</td></tr>
+        <tr><td>Granulated sugar</td><td>250 g</td><td>1.50</td><td>&#8358;375</td></tr>
+        <tr><td>Eggs</td><td>250 g</td><td>5.83</td><td>&#8358;1,457</td></tr>
+        <tr><td>Plain flour</td><td>300 g</td><td>1.14</td><td>&#8358;342</td></tr>
+        <tr><td>Whole milk</td><td>150 g</td><td>3.70</td><td>&#8358;555</td></tr>
+        <tr><td>Baking powder</td><td>10 g</td><td>3.00</td><td>&#8358;30</td></tr>
+        <tr><td>Salt</td><td>3 g</td><td>0.60</td><td>&#8358;2</td></tr>
+        <tr><td>Vanilla extract</td><td>8 g</td><td>12.22</td><td>&#8358;98</td></tr>
+      </tbody>
+      <tfoot><tr><td>One batch</td><td>1,221 g</td><td></td><td>&#8358;6,749</td></tr></tfoot>
+    </table>
+    <div class="addrow">+ Add ingredient</div>
+    <div class="derived">
+      <div><small>Batch yield</small><span>1,221 g</span></div>
+      <div><small>Cost per gram</small><span>&#8358;5.53</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="card live">
+  <div class="chead"><span class="step">2</span><span class="ctitle">How this batter bakes</span><span class="cnote" id="dens"></span></div>
+  <div class="cbody">
+    <p class="intro">Weigh the batter you pour into one pan you bake often, for a single layer. Two minutes, once per flavour. Everything else is worked out from it.</p>
+    <div class="grid">
+      <div><label for="cd">Pan size</label><input type="number" id="cd" value="6" min="2" max="40" step="0.5"></div>
+      <div><label>Shape of that pan</label><div class="seg" id="cshape">
+        <button type="button" data-v="round" aria-pressed="true">Round</button>
+        <button type="button" data-v="square" aria-pressed="false">Square</button></div></div>
+      <div><label for="ch">Baked layer height</label><input type="number" id="ch" value="2" min="0.5" max="6" step="0.25"></div>
+      <div><label for="cg">Grams for one layer</label><input type="number" id="cg" value="640" min="1" step="5"></div>
+    </div>
+    <div class="ex">
+      <h4>So a 10 inch round, 3 layers, would need</h4>
+      <table>
+        <tr><td>Batter</td><td id="e1"></td></tr>
+        <tr><td>In each pan, as you pour</td><td id="e2"></td></tr>
+        <tr class="em"><td>Batter cost</td><td id="e4"></td></tr>
+      </table>
+    </div>
+    <details>
+      <summary>See the detail</summary>
+      <div class="detail">
+        <p>Your vanilla works out at <b id="d1"></b> grams per cubic inch of finished cake. Chocolate is 11.14 and red velvet 13.09, which is why one shared setting across all three would misprice red velvet by about 16 per cent.</p>
+        <p>Any other cake is <code>grams per cubic inch &times; area &times; total height</code>, where area is <code>&pi;D&sup2;/4</code> round and <code>D&sup2;</code> square. Nothing is read off a table, so there is no largest size.</p>
+      </div>
+    </details>
+  </div>
+</div>
+</div>
+
+<!-- ========== ORDER CALCULATOR ========== -->
+<div class="pane" id="pane-o">
+<div class="crumb">Orders &rsaquo; New order &rsaquo; Mrs Adeyemi, 14 Nov</div>
+
+<div class="note">Costing only. Grams, batches and ingredient quantities have moved to the production sheet, where the kitchen will actually read them.</div>
+
+<div class="card live">
+  <div class="chead"><span class="step">1</span><span class="ctitle">The cake</span></div>
+  <div class="cbody">
+    <div class="grid">
+      <div><label for="fl">Flavour</label><select id="fl">
+        <option value="van">Vanilla sponge</option>
+        <option value="choc">Chocolate</option>
+        <option value="rv">Red velvet</option></select></div>
+      <div><label for="od">Size</label><input type="number" id="od" value="10" min="2" max="40" step="0.5"></div>
+      <div><label>Shape</label><div class="seg" id="oshape">
+        <button type="button" data-v="round" aria-pressed="true">Round</button>
+        <button type="button" data-v="square" aria-pressed="false">Square</button></div></div>
+      <div><label for="ol">Layers</label><input type="number" id="ol" value="3" min="1" max="8" step="1"></div>
+      <div><label for="oh">Each layer</label><input type="number" id="oh" value="2" min="0.5" max="6" step="0.25"></div>
+      <div><label for="fi">Filling</label><select id="fi">
+        <option value="bc">Buttercream</option>
+        <option value="wc">Whipped cream</option>
+        <option value="">None</option></select></div>
+      <div><label for="co">Covering</label><select id="co">
+        <option value="fd">Fondant</option>
+        <option value="bc">Buttercream</option>
+        <option value="wc">Whipped cream</option>
+        <option value="">None</option></select></div>
+    </div>
+    <div class="chips">
+      <button type="button" data-p="8,round,2,2">8&Prime; round</button>
+      <button type="button" data-p="10,round,3,2">10&Prime; round</button>
+      <button type="button" data-p="14,square,4,2">14&Prime; square</button>
+      <button type="button" data-p="20,square,4,2">20&Prime; square</button>
+      <button type="button" data-p="10,round,3,1.5">10&Prime;, 1.5&Prime; layers</button>
+    </div>
+    <div class="flag" id="flag"><b>Worth telling the client.</b> <span id="flagt"></span></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="chead"><span class="step ok">2</span><span class="ctitle">What this cake costs you</span></div>
+  <div class="cbody">
+    <table class="tot">
+      <tr><td>Batter<span class="mut" id="t1m"></span></td><td id="t1"></td></tr>
+      <tr><td>Filling<span class="mut" id="t2m"></span></td><td id="t2"></td></tr>
+      <tr><td>Covering<span class="mut" id="t3m"></span></td><td id="t3"></td></tr>
+      <tr class="em"><td>Ingredients, this cake</td><td id="t4"></td></tr>
+    </table>
+    <button class="cta" id="confirm">Confirm order</button>
+  </div>
+</div>
+</div>
+
+<!-- ========== PRODUCTION SHEET ========== -->
+<div class="pane" id="pane-p">
+<div class="crumb">Orders &rsaquo; ORD-0412 &rsaquo; Production sheet</div>
+
+<div class="note">Printed for the kitchen when the order is confirmed. Nobody multiplies anything by hand.</div>
+
+<div class="card">
+  <div class="chead"><span class="step ok">&#10003;</span><span class="ctitle">What to bake</span><span class="cnote">ORD-0412</span></div>
+  <div class="cbody">
+    <div class="ticket"><b id="pk"></b><span id="pk2"></span></div>
+    <div id="recipes"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="chead"><span class="step ok">&#10003;</span><span class="ctitle">Pull from store</span><span class="cnote">every recipe added up</span></div>
+  <div class="cbody">
+    <table class="prod" id="pull">
+      <thead><tr><th>Ingredient</th><th>Needed</th><th>In store</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="shortnote" id="short" style="display:none"></div>
+  </div>
+</div>
+</div>
+
+</div>
+
+

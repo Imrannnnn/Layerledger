@@ -1,0 +1,56 @@
+[
+  {
+    "id": "ba126346",
+    "uuid": "ba126346-f31d-47af-86c6-571d126a9250",
+    "title": "1-order-calculator.html",
+    "type": "text/html",
+    "description": "Calculate cake costs instantly with this interactive pricing tool. Input ingredients, layers, fillings, and decorations to generate accurate quotes for custom orders.",
+    "filename": "ba126346_1-order-calculator.html",
+    "length": 21658
+  },
+  {
+    "id": "ee79e7fd",
+    "uuid": "ee79e7fd-c0b0-4a32-9b0f-1f25058c6320",
+    "title": "2-recipes-and-pricing.html",
+    "type": "text/html",
+    "description": "Calculate ingredient costs, portion pricing, and profit margins for cakes, fillings, and pastries. Interactive recipe costing tool for bakers and cake businesses.",
+    "filename": "ee79e7fd_2-recipes-and-pricing.html",
+    "length": 39673
+  },
+  {
+    "id": "b07cb659",
+    "uuid": "b07cb659-4089-42fa-a254-de91f6ae2715",
+    "title": "3-production-sheet.html",
+    "type": "text/html",
+    "description": "Interactive production sheet for bakeries. Calculate ingredients, plan bake sequences, and generate shopping lists for multi-tier cakes and custom orders with real-time inventory tracking.",
+    "filename": "b07cb659_3-production-sheet.html",
+    "length": 23150
+  },
+  {
+    "id": "4649f4e3",
+    "uuid": "4649f4e3-7f76-4a99-ac22-f869e5db5a12",
+    "title": "4-batter-calibration.html",
+    "type": "text/html",
+    "description": "Calculate cake batter density, estimate ingredient costs, and generate production sheets. Interactive tool for bakeries to price orders and manage recipes accurately.",
+    "filename": "4649f4e3_4-batter-calibration.html",
+    "length": 23712
+  },
+  {
+    "id": "d4ae948c",
+    "uuid": "d4ae948c-7f88-436c-b930-2c98b81bf51e",
+    "title": "5-recipe-job-tags.html",
+    "type": "text/html",
+    "description": "Interactive recipe calculator that tracks ingredient costs, batch yields, and tags recipes by usage (filling, crumb coat, covering). Perfect for bakers and cake decorators.",
+    "filename": "d4ae948c_5-recipe-job-tags.html",
+    "length": 16347
+  },
+  {
+    "id": "8923c10e",
+    "uuid": "8923c10e-82fc-4756-9cd5-6288d0df8ce6",
+    "title": "6-stock-adjustment.html",
+    "type": "text/html",
+    "description": "Track stock adjustments, record inventory losses, and view detailed movement reports. Manage spoilage, damage, and counting discrepancies with real-time cost calculations.",
+    "filename": "8923c10e_6-stock-adjustment.html",
+    "length": 18664
+  }
+]

@@ -1,0 +1,637 @@
+<title>Recipes and Pricing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#EFE9DC;--card:#FDFBF6;--sunk:#F6F1E6;--sel:#FFF6E2;
+  --ink:#3D2B1A;--ink-2:#7A6A58;--ink-3:#A3927C;
+  --line:#E2D7C4;--accent:#B8860F;--go:#1E7A4D;
+  --display:"Fraunces",Georgia,serif;--body:"IBM Plex Sans",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;color-scheme:dark;}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;margin:0;-webkit-font-smoothing:antialiased}
+.wrap{max-width:660px;margin:0 auto;padding-inline:16px;padding-block:22px 64px}
+
+.tabs{display:flex;gap:3px;background:var(--sunk);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:6px;overflow-x:auto}
+.tabs button{flex:1 0 auto;font-family:var(--body);font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:var(--ink-2);border:0;border-radius:8px;padding:8px 10px;white-space:nowrap;line-height:1.3;text-align:center}
+.tabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.tabs button em{display:block;font-style:normal;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:700}
+.tabs button[aria-selected="true"] em{color:var(--accent)}
+.pane{display:none}.pane.on{display:block}
+
+.crumb{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin:16px 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:14px;overflow:hidden}
+.card.live{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.chead{display:flex;align-items:center;gap:10px;padding:13px 17px;border-bottom:1px solid var(--line)}
+.step{width:22px;height:22px;flex:none;border-radius:50%;background:var(--sunk);color:var(--ink-2);font-size:12px;font-weight:600;display:grid;place-items:center}
+.step.ok{background:var(--go);color:#fff}
+.card.live .step{background:var(--accent);color:#fff}
+.ctitle{font-family:var(--display);font-weight:700;font-size:16.5px;flex:1;letter-spacing:-.01em}
+.cnote{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;text-align:right}
+.cbody{padding:15px 17px}
+.intro{font-size:13px;color:var(--ink-2);margin:0 0 13px}
+
+label{display:block;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);margin-bottom:5px;font-weight:600}
+select,input[type=number]{width:100%;font-family:var(--body);font-size:15px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px 10px;appearance:none;font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px}
+.seg{display:flex;gap:4px}
+.seg button{flex:1;font-family:var(--body);font-size:13.5px;font-weight:500;cursor:pointer;background:var(--card);color:var(--ink-2);border:1px solid var(--line);border-radius:9px;padding:9px 2px}
+.seg button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+:focus-visible{outline:2.5px solid var(--accent);outline-offset:2px}
+
+table.ing{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13.5px}
+table.ing th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);font-weight:600;padding:0 0 6px;border-bottom:1px solid var(--line)}
+table.ing th:not(:first-child),table.ing td:not(:first-child){text-align:right}
+table.ing td{padding:6px 0;border-bottom:1px solid var(--line)}
+table.ing tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600;padding-top:9px}
+.addrow{margin-top:9px;font-size:13px;color:var(--accent);font-weight:600}
+#oAdd{cursor:pointer;user-select:none}
+.flv{display:grid;grid-template-columns:28px 1fr 64px 30px;gap:7px;align-items:center;margin-bottom:7px}
+.flv .tag{font-size:12px;color:var(--ink-3);font-weight:600}
+.flv .del{cursor:pointer;background:transparent;border:0;color:var(--ink-3);font-size:17px;padding:0;line-height:1}
+.derived{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}
+.derived div{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+.derived small{display:block;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);font-weight:600;margin-bottom:1px}
+.derived span{font-family:var(--display);font-weight:700;font-size:16.5px;font-variant-numeric:tabular-nums}
+
+.sec{margin-top:15px;padding-top:13px;border-top:1px solid var(--line)}
+.sec h5{margin:0 0 9px;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);font-weight:600}
+.jobs{display:grid;gap:8px}
+.job{border:1px solid var(--line);border-radius:10px;background:var(--card)}
+.job.on{border-color:var(--accent);background:var(--sel)}
+.jh{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer}
+.box{width:20px;height:20px;flex:none;border:2px solid var(--line);border-radius:6px;background:var(--card);display:grid;place-items:center;font-size:12px;color:transparent;font-weight:700}
+.job.on .box{border-color:var(--accent);background:var(--accent);color:#fff}
+.jt{flex:1}.jt b{display:block;font-size:14px;font-weight:600}.jt em{font-style:normal;font-size:12px;color:var(--ink-2)}
+.jb{display:none;padding:0 12px 11px 42px;align-items:center;gap:8px}
+.job.on .jb{display:flex}
+.jb input{width:84px;text-align:right}
+.jb span{font-size:13px;color:var(--ink-2)}
+
+.ex{background:var(--sunk);border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin-top:15px}
+.ex h4{margin:0 0 8px;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);font-weight:600}
+.ex table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13.5px}
+.ex td{padding:3px 0}.ex td:last-child{text-align:right;font-weight:600}
+.ex tr.em td{border-top:1px solid var(--line);padding-top:7px}
+.ex tr.em td:last-child{font-family:var(--display);font-size:16.5px}
+.why{font-size:11.5px;color:var(--ink-3);margin:9px 0 0;font-variant-numeric:tabular-nums}
+
+.note{font-size:12.5px;color:var(--ink-2);background:var(--sunk);border:1px dashed var(--line);border-radius:11px;padding:10px 13px;margin-bottom:14px}
+.note b{color:var(--ink)}
+.pan{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:9px;margin-top:12px}
+.pan div{background:var(--sel);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+.pan small{display:block;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);font-weight:600;margin-bottom:1px}
+.pan span{font-family:var(--display);font-weight:700;font-size:16.5px;font-variant-numeric:tabular-nums}
+
+table.tot{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.tot td{padding:6px 0;border-bottom:1px solid var(--line)}
+table.tot td:last-child{text-align:right;font-weight:500;white-space:nowrap}
+table.tot td .mut{display:block;font-size:11.5px;color:var(--ink-2);font-weight:400}
+table.tot tr.sub td{font-weight:600;border-bottom:2px solid var(--line)}
+table.tot tr.em td{font-weight:600;border-bottom:0;border-top:2px solid var(--ink);padding-top:11px}
+table.tot tr.em td:last-child{font-family:var(--display);font-weight:700;font-size:25px;color:var(--go)}
+.src{font-size:12px;color:var(--ink-2);margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
+</style>
+
+<div class="wrap">
+
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-t="b"><em>Recipe</em>Cake layers</button>
+  <button role="tab" aria-selected="false" data-t="c"><em>Recipe</em>Fillings &amp; coverings</button>
+  <button role="tab" aria-selected="false" data-t="p"><em>Recipe</em>Pastry &amp; desserts</button>
+  <button role="tab" aria-selected="false" data-t="o"><em>Order</em>Portions</button>
+  <button role="tab" aria-selected="false" data-t="z"><em>Order</em>Pricing</button>
+</div>
+
+<!-- ============ CAKE LAYERS ============ -->
+<div class="pane on" id="pane-b">
+<div class="crumb">Recipes &rsaquo; Cake layers &rsaquo; Vanilla sponge</div>
+<div class="card">
+  <div class="chead"><span class="step ok">1</span><span class="ctitle">What goes in it</span><span class="cnote">Cake layer</span></div>
+  <div class="cbody">
+    <table class="ing"><thead><tr><th>Ingredient</th><th>Weight</th><th>&#8358;/g</th><th>Cost</th></tr></thead>
+    <tbody id="bIng"></tbody>
+    <tfoot><tr><td>One batch</td><td id="bQ"></td><td></td><td id="bC"></td></tr></tfoot></table>
+    <div class="addrow">+ Add ingredient</div>
+    <div class="derived"><div><small>Batch yield</small><span id="bY"></span></div>
+    <div><small>Cost per gram</small><span id="bG"></span></div></div>
+  </div>
+</div>
+<div class="card live">
+  <div class="chead"><span class="step">2</span><span class="ctitle">How this batter bakes</span><span class="cnote" id="bD"></span></div>
+  <div class="cbody">
+    <p class="intro">Pour one pan, weigh what you poured, bake it, level it, and measure the layer you are left with. Nothing here knows whether it will become a wedding cake or three hundred slices.</p>
+    <div class="grid">
+      <div><label>Reference pan</label><div class="seg" id="bShape">
+        <button type="button" data-v="round" aria-pressed="true">Round</button>
+        <button type="button" data-v="square" aria-pressed="false">Square</button>
+        <button type="button" data-v="rect" aria-pressed="false">Rect</button></div></div>
+      <div><label for="bA" id="bLabA">Diameter</label><input type="number" id="bA" value="6" step="0.5" min="1"></div>
+      <div id="bWrapB" style="display:none"><label for="bB">Width</label><input type="number" id="bB" value="8" step="0.5" min="1"></div>
+      <div><label for="bW">Grams poured</label><input type="number" id="bW" value="617" step="5" min="1"></div>
+      <div><label for="bH">Height after levelling</label><input type="number" id="bH" value="2" step="0.25" min="0.25"></div>
+      <div><label for="bT">Trim &amp; levelling %</label><input type="number" id="bT" value="8" step="1" min="0"></div>
+    </div>
+    <div class="ex"><h4>So a 10&Prime; round, 3 layers</h4><table id="bEx"></table></div>
+    <p class="why" id="bWhy"></p>
+  </div>
+</div>
+</div>
+
+<!-- ============ FILLINGS & COVERINGS ============ -->
+<div class="pane" id="pane-c">
+<div class="crumb">Recipes &rsaquo; Fillings &amp; coverings &rsaquo; <span id="cName"></span></div>
+<div class="note">Switch recipe: <span id="cSw"></span></div>
+<div class="card">
+  <div class="chead"><span class="step ok">1</span><span class="ctitle">What goes in it</span><span class="cnote">Filling &amp; covering</span></div>
+  <div class="cbody">
+    <table class="ing"><thead><tr><th>Ingredient</th><th>Weight</th><th>&#8358;/g</th><th>Cost</th></tr></thead>
+    <tbody id="cIng"></tbody>
+    <tfoot><tr><td>One batch</td><td id="cQ"></td><td></td><td id="cC"></td></tr></tfoot></table>
+    <div class="addrow">+ Add ingredient</div>
+    <div class="derived"><div><small>Batch yield</small><span id="cY"></span></div>
+    <div><small>Cost per gram</small><span id="cG"></span></div></div>
+  </div>
+</div>
+<div class="card live">
+  <div class="chead"><span class="step">2</span><span class="ctitle">Where do you use this?</span><span class="cnote" id="cJobs"></span></div>
+  <div class="cbody">
+    <div class="jobs">
+      <div class="job" id="jf"><div class="jh"><span class="box">&#10003;</span><span class="jt"><b>Between the layers</b><em>Filling</em></span></div>
+        <div class="jb"><input type="number" id="tf" step="0.1" min="0"><span>mm thick</span></div></div>
+      <div class="job" id="jc"><div class="jh"><span class="box">&#10003;</span><span class="jt"><b>Crumb coat</b><em>Seals the crumbs before the finish</em></span></div>
+        <div class="jb"><input type="number" id="tc" step="0.1" min="0"><span>mm thick</span></div></div>
+      <div class="job" id="jn"><div class="jh"><span class="box">&#10003;</span><span class="jt"><b>Outside finish</b><em>What the client sees</em></span></div>
+        <div class="jb"><input type="number" id="tn" step="0.1" min="0"><span>mm thick</span></div></div>
+    </div>
+    <div class="sec"><h5>How the material behaves</h5>
+      <div class="grid">
+        <div><label for="cDen">Density g/cm&sup3;</label><input type="number" id="cDen" step="0.01" min="0.1"></div>
+        <div><label for="cWas">Waste %</label><input type="number" id="cWas" step="1" min="0"></div>
+      </div>
+      <p class="why">Buttercream about 0.90 &middot; ganache 1.10 &middot; fondant 1.35 &middot; whipped cream 0.45</p>
+    </div>
+    <div class="sec"><h5>Or calibrate it</h5>
+      <p class="intro">Cover one cake, weigh what left the bowl, and the thickness works itself out.</p>
+      <div class="grid">
+        <div><label>Shape</label><select><option>Round</option><option>Square</option><option>Rectangle</option></select></div>
+        <div><label>Size</label><input type="number" value="8" step="0.5"></div>
+        <div><label>Layers</label><input type="number" value="3" step="1"></div>
+        <div><label>Grams used</label><input type="number" placeholder="0"></div>
+      </div>
+    </div>
+    <div class="ex"><h4>So a 10&Prime; round, 3 layers at 2&Prime;</h4><table id="cEx"></table></div>
+  </div>
+</div>
+</div>
+
+<!-- ============ PASTRY & DESSERTS ============ -->
+<div class="pane" id="pane-p">
+<div class="crumb">Recipes &rsaquo; Pastry &amp; desserts &rsaquo; <span id="pName"></span></div>
+<div class="note"><b>One tab for everything that comes out of a batch in countable pieces or by weight.</b> Doughnuts, chin chin, bread, cake pops, mousse cups. No geometry, because none of them have any. Switch recipe: <span id="pSw"></span></div>
+<div class="card">
+  <div class="chead"><span class="step ok">1</span><span class="ctitle">What goes in one batch</span><span class="cnote">Pastry &amp; dessert</span></div>
+  <div class="cbody">
+    <table class="ing"><thead><tr><th>Item</th><th>Amount</th><th>&#8358;/unit</th><th>Cost</th></tr></thead>
+    <tbody id="pIng"></tbody>
+    <tfoot><tr><td>One batch</td><td id="pQ"></td><td></td><td id="pC"></td></tr></tfoot></table>
+    <div class="addrow">+ Add item</div>
+    <p class="why">Cups, lids, sticks and spoons sit here as counted store items, not in packaging, because they scale with the number of pieces rather than with the order.</p>
+    <div class="derived"><div><small>Batch yield</small><span id="pY"></span></div>
+    <div><small>Cost per gram</small><span id="pG"></span></div></div>
+  </div>
+</div>
+<div class="card live">
+  <div class="chead"><span class="step">2</span><span class="ctitle">How this batch divides</span><span class="cnote" id="pD"></span></div>
+  <div class="cbody">
+    <div><label>How do you sell it?</label><div class="seg" id="pMode">
+      <button type="button" data-v="piece" aria-pressed="true">By the piece</button>
+      <button type="button" data-v="weight" aria-pressed="false">By weight</button></div></div>
+    <div class="grid" style="margin-top:12px">
+      <div id="pWrapN"><label for="pN">Pieces a batch makes</label><input type="number" id="pN" value="30" step="1" min="1"></div>
+      <div id="pWrapP" style="display:none"><label for="pP">Pack size (g)</label><input type="number" id="pP" value="500" step="50" min="1"></div>
+      <div><label for="pWas">Breakage &amp; waste %</label><input type="number" id="pWas" value="5" step="1" min="0"></div>
+    </div>
+    <div class="ex"><h4>What that costs you</h4><table id="pEx"></table></div>
+  </div>
+</div>
+</div>
+
+<!-- ============ ORDER: PORTIONS ============ -->
+<div class="pane" id="pane-o">
+<div class="crumb">Orders &rsaquo; New quote &rsaquo; Add item &rsaquo; Portions</div>
+<div class="note"><b>This is the order, not a recipe.</b> The client asked for a number of servings. There are two ways to make them, and the card asks which.</div>
+<div class="card live">
+  <div class="chead"><span class="step">1</span><span class="ctitle">Portions</span><span class="cnote" id="oNote"></span></div>
+  <div class="cbody">
+    <div><label>How are these made?</label><div class="seg" id="oRoute">
+      <button type="button" data-v="slab" aria-pressed="true">Cut from a cake</button>
+      <button type="button" data-v="count" aria-pressed="false">Counted items</button></div></div>
+
+    <div id="oSlab">
+      <div class="grid" style="margin-top:13px">
+        <div><label for="oN">Servings</label><input type="number" id="oN" value="100" step="10" min="1"></div>
+        <div><label for="oW">Slice width (in)</label><input type="number" id="oW" value="2" step="0.5" min="0.5"></div>
+        <div><label for="oL">Slice length (in)</label><input type="number" id="oL" value="2" step="0.5" min="0.5"></div>
+        <div><label for="oHt">Slice height (in)</label><input type="number" id="oHt" value="4" step="0.25" min="0.5"></div>
+        <div><label for="oAl">Cutting allowance %</label><input type="number" id="oAl" value="5" step="1" min="0"></div>
+      </div>
+      <div class="sec"><h5>What it is made of</h5>
+        <label>Flavours &middot; how many layers of each</label>
+        <div id="oFlv" style="margin-top:7px"></div>
+        <div class="addrow" id="oAdd" role="button" tabindex="0">+ Add another flavour</div>
+        <div class="grid" style="margin-top:13px">
+          <div><label for="oFi">Filling</label><select id="oFi"><option value="bc">Buttercream</option><option value="gn">Dark ganache</option><option value="cm">Caramel sauce</option><option value="">None</option></select></div>
+          <div><label for="oTp">Top finish</label><select id="oTp"><option value="">None</option><option value="bc">Buttercream</option><option value="gn">Dark ganache</option></select></div>
+        </div>
+        <p class="why" id="oLh"></p>
+      </div>
+      <div class="sec"><h5>Which pan, and how many</h5>
+        <div><label for="oPan">Pan</label><select id="oPan"></select></div>
+        <div class="pan">
+          <div><small>Slices a slab gives</small><span id="oPer"></span></div>
+          <div><small>Slabs to build</small><span id="oSlabs"></span></div>
+          <div><small>Pans to bake</small><span id="oPans"></span></div>
+          <div><small>Batter</small><span id="oBat"></span></div>
+        </div>
+        <p class="why" id="oWhy"></p>
+      </div>
+      <div class="ex"><h4>What it costs you</h4><table id="oEx"></table></div>
+    </div>
+
+    <div id="oCount" style="display:none">
+      <div class="grid" style="margin-top:13px">
+        <div><label for="oCn">Servings</label><input type="number" id="oCn" value="40" step="5" min="1"></div>
+        <div><label for="oCr">Item</label><select id="oCr"></select></div>
+      </div>
+      <div class="ex"><h4>What it costs you</h4><table id="oCex"></table></div>
+      <p class="why">Nothing geometric here. The recipe already says how many a batch makes, so the app multiplies.</p>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ PRICING ============ -->
+<div class="pane" id="pane-z">
+<div class="crumb">Orders &rsaquo; New quote &rsaquo; Mrs Adeyemi, 14 Nov</div>
+<div class="note"><b>One order, three kinds of item.</b> Each works out its own direct cost its own way. From that line down, nothing knows which is which, which is why hours, accessories, overhead and margin sit on the order.</div>
+<div class="card">
+  <div class="chead"><span class="step ok">1</span><span class="ctitle">What is on this order</span></div>
+  <div class="cbody">
+    <table class="tot">
+      <tr><td>Cake &middot; 10&Prime; round, 3 vanilla layers<span class="mut">buttercream filling, ganache crumb, fondant finish</span></td><td id="zCake"></td></tr>
+      <tr><td>Portions &middot; 100 slices<span class="mut">cut from vanilla slabs, buttercream filling</span></td><td id="zPor"></td></tr>
+      <tr><td>Doughnuts &middot; 30<span class="mut">counted, from a batch of 30</span></td><td id="zPas"></td></tr>
+      <tr><td>Decoration extras<span class="mut">gold leaf 3 g, pearls 45 g</span></td><td id="zDec"></td></tr>
+      <tr><td>Toppers and packaging</td><td id="zPack"></td></tr>
+      <tr class="sub"><td>Direct cost</td><td id="zDir"></td></tr>
+    </table>
+  </div>
+</div>
+<div class="card live">
+  <div class="chead"><span class="step">2</span><span class="ctitle">The order's own settings</span></div>
+  <div class="cbody">
+    <div class="grid">
+      <div><label for="zHrs">Hours</label><input type="number" id="zHrs" value="14" step="0.5" min="0"></div>
+      <div><label for="zAcc">Accessories %</label><input type="number" id="zAcc" value="15" step="1" min="0"></div>
+      <div><label for="zMar">Profit margin %</label><input type="number" id="zMar" value="50" step="1" min="1" max="95"></div>
+      <div><label for="zRush">Rush %</label><input type="number" id="zRush" value="0" step="5" min="0"></div>
+      <div><label for="zSea">Season %</label><input type="number" id="zSea" value="0" step="5" min="0"></div>
+    </div>
+    <div class="sec"><h5>Overhead</h5>
+      <div class="seg" id="zOhm">
+        <button type="button" data-v="pct" aria-pressed="true">Percentage</button>
+        <button type="button" data-v="hr" aria-pressed="false">Per hour</button>
+        <button type="button" data-v="ord" aria-pressed="false">Per order</button></div>
+      <p class="why" id="zWhyOh"></p>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="chead"><span class="step ok">3</span><span class="ctitle">The quote</span></div>
+  <div class="cbody">
+    <table class="tot">
+      <tr><td>Direct cost</td><td id="q1"></td></tr>
+      <tr><td>Accessories</td><td id="q2"></td></tr>
+      <tr><td>Overhead<span class="mut" id="q3m"></span></td><td id="q3"></td></tr>
+      <tr class="sub"><td>Total cost</td><td id="q4"></td></tr>
+      <tr><td>Profit margin</td><td id="q5"></td></tr>
+      <tr><td>Rush and season</td><td id="q6"></td></tr>
+      <tr class="em"><td>Charge the client</td><td id="q7"></td></tr>
+    </table>
+    <p class="src">Every item type lands in Direct cost, and nothing below that line knows whether it came from a cake, a slab of slices or a tray of doughnuts.</p>
+  </div>
+</div>
+</div>
+
+</div>
+
+<script>
+var CM2=6.4516;
+function g(n){return Math.round(n).toLocaleString('en-US');}
+function kg(n){return n>=1000?(n/1000).toFixed(2)+' kg':g(n)+' g';}
+function N(n){return '₦'+Math.round(n).toLocaleString('en-US');}
+function num(id){return parseFloat(document.getElementById(id).value)||0;}
+function seg(id){return document.querySelector('#'+id+' button[aria-pressed="true"]').dataset.v;}
+function plan(s,a,b){return s==='round'?Math.PI*a*a/4:(s==='square'?a*a:a*b);}
+function peri(s,a,b){return s==='round'?Math.PI*a:(s==='square'?4*a:2*(a+b));}
+function rows(el,list){
+  var t=0,q=0,h='';
+  list.forEach(function(x){ var c=x[1]*x[2]; t+=c; if(!x[3]) q+=x[1];
+    h+='<tr><td>'+x[0]+'</td><td>'+(x[3]||g(x[1])+' g')+'</td><td>'+x[2].toFixed(2)+'</td><td>'+N(c)+'</td></tr>'; });
+  document.getElementById(el).innerHTML=h; return {t:t,q:q};
+}
+var PANS=[['9 × 13 tray',9,13],['12 × 18 tray',12,18],['16 × 24 tray',16,24],['10 × 10 square',10,10]];
+var oFlv=[{r:'van',n:2},{r:'cho',n:1}], oSig='';
+function perPan(W,L,w,l){
+  var a=Math.floor(L/l)*Math.floor(W/w), b=Math.floor(L/w)*Math.floor(W/l);
+  return Math.max(a,b);
+}
+
+/* ---------- cake layers ---------- */
+var bList=[['Unsalted butter',250,15.56],['Granulated sugar',250,1.50],['Eggs',250,5.83],
+ ['Plain flour',300,1.14],['Whole milk',150,3.699],['Baking powder',10,3.00],['Salt',3,0.60],['Vanilla extract',8,12.22]];
+var BAT={van:{n:'Vanilla sponge',cal:617},cho:{n:'Chocolate',cal:627},rv:{n:'Red velvet',cal:741}};
+function drawB(){
+  var r=rows('bIng',bList); var cpg=r.t/r.q;
+  document.getElementById('bQ').textContent=g(r.q)+' g';
+  document.getElementById('bC').textContent=N(r.t);
+  document.getElementById('bY').textContent=g(r.q)+' g';
+  document.getElementById('bG').textContent='₦'+cpg.toFixed(2);
+  var s=seg('bShape'),a=num('bA'),b=num('bB');
+  document.getElementById('bLabA').textContent=s==='round'?'Diameter':(s==='square'?'Side':'Length');
+  document.getElementById('bWrapB').style.display=s==='rect'?'':'none';
+  var ra=plan(s,a,b),d=num('bW')/ra/num('bH'),tr=num('bT')/100;
+  document.getElementById('bD').textContent=d.toFixed(2)+' g per in² per inch';
+  var pa=plan('round',10,0),perL=d*pa*num('bH')*(1+tr),tot=perL*3;
+  document.getElementById('bEx').innerHTML=
+    '<tr><td>In each pan</td><td>'+g(perL)+' g</td></tr>'
+    +'<tr><td>Three pans</td><td>'+kg(tot)+'</td></tr>'
+    +'<tr class="em"><td>Batter cost</td><td>'+N(tot*cpg)+'</td></tr>';
+  document.getElementById('bWhy').textContent=
+    'Trim of '+num('bT')+'% is in those grams, because the dome you level off still left your store.';
+  Object.keys(BAT).forEach(function(k){ BAT[k].d=BAT[k].cal/(Math.PI*9)/2; BAT[k].cpg=cpg; BAT[k].tr=tr; });
+  return {d:d,cpg:cpg,tr:tr,h:num('bH')};
+}
+
+/* ---------- coverings ---------- */
+var C={
+ bc:{n:'Buttercream',jobs:{f:1,c:1,n:1},t:{f:4.5,c:1.0,n:4.9},den:0.90,was:15,
+     ing:[['Unsalted butter',450,15.56],['Reconstituted cream',200,8.667],['Icing sugar',450,2.40],['Milk powder',6,13.00],['Vanilla extract',5,12.22],['Salt',1.5,0.60]]},
+ gn:{n:'Dark ganache',jobs:{f:1,c:1,n:1},t:{f:3.0,c:1.2,n:4.0},den:1.10,was:10,
+     ing:[['Dark compound chocolate',400,14.00],['Reconstituted cream',200,8.667],['Unsalted butter',30,15.56]]},
+ fd:{n:'Fondant',jobs:{f:0,c:0,n:1},t:{f:0,c:0,n:8.0},den:1.35,was:25,
+     ing:[['Icing sugar',900,2.40],['Gelatine',10,17.50],['Water',60,0],['Glucose syrup',100,3.00],['Glycerine',10,3.50],['CMC / Tylose',10,5.00],['Margarine',20,1.20],['Vanilla extract',3,12.22]]},
+ cm:{n:'Caramel sauce',jobs:{f:1,c:0,n:0},t:{f:1.5,c:0,n:0},den:1.30,was:5,
+     ing:[['Granulated sugar',300,1.50],['Unsalted butter',100,15.56],['Whole milk',180,3.699],['Salt',3,0.60]]}
+};
+Object.keys(C).forEach(function(k){ var R=C[k],t=0,q=0;
+  R.ing.forEach(function(x){t+=x[1]*x[2];q+=x[1];}); R.cpg=t/q; });
+var cur='bc';
+function drawC(){
+  var R=C[cur];
+  document.getElementById('cName').textContent=R.n;
+  document.getElementById('cSw').innerHTML=Object.keys(C).map(function(k){
+    return '<a href="#" data-k="'+k+'" style="color:'+(k===cur?'var(--ink)':'var(--accent)')+';font-weight:600;text-decoration:none;margin-right:10px">'+C[k].n+'</a>';}).join('');
+  var r=rows('cIng',R.ing); var cpg=r.t/r.q; R.cpg=cpg;
+  document.getElementById('cQ').textContent=g(r.q)+' g';
+  document.getElementById('cC').textContent=N(r.t);
+  document.getElementById('cY').textContent=g(r.q)+' g';
+  document.getElementById('cG').textContent='₦'+cpg.toFixed(2);
+  [['f','jf','tf'],['c','jc','tc'],['n','jn','tn']].forEach(function(p){
+    document.getElementById(p[1]).classList.toggle('on',!!R.jobs[p[0]]);
+    document.getElementById(p[2]).value=R.t[p[0]];
+  });
+  var nj=['f','c','n'].filter(function(k){return R.jobs[k];}).length;
+  document.getElementById('cJobs').textContent=nj+(nj===1?' job':' jobs');
+  document.getElementById('cDen').value=R.den;
+  document.getElementById('cWas').value=R.was;
+  var pa=plan('round',10,0),H=6,gap=pa*2,surf=pa+peri('round',10,0)*H;
+  function m(area,mm){return area*CM2*(mm/10)*R.den*(1+R.was/100);}
+  var h='';
+  if(R.jobs.f) h+='<tr><td>Between the layers</td><td>'+g(m(gap,R.t.f))+' g</td></tr>';
+  if(R.jobs.c) h+='<tr><td>Crumb coat</td><td>'+g(m(surf,R.t.c))+' g</td></tr>';
+  if(R.jobs.n) h+='<tr><td>Outside finish</td><td>'+g(m(surf,R.t.n))+' g</td></tr>';
+  var tot=(R.jobs.f?m(gap,R.t.f):0)+(R.jobs.c?m(surf,R.t.c):0)+(R.jobs.n?m(surf,R.t.n):0);
+  h+='<tr class="em"><td>If it did every job it can</td><td>'+N(tot*cpg)+'</td></tr>';
+  document.getElementById('cEx').innerHTML=h;
+}
+function covMass(area,mm,k){var R=C[k];return area*CM2*(mm/10)*R.den*(1+R.was/100);}
+
+/* ---------- pastry & desserts ---------- */
+var P={
+ dn:{n:'Doughnuts',mode:'piece',per:30,was:5,
+     ing:[['Plain flour',1000,1.14],['Granulated sugar',150,1.50],['Instant yeast',20,8.00],['Whole milk',400,3.699],['Eggs',100,5.83],['Unsalted butter',100,15.56],['Salt',10,0.60]]},
+ mc:{n:'Chocolate mousse cup',mode:'piece',per:24,was:4,
+     ing:[['Dark compound chocolate',1080,14.00],['Reconstituted cream',1440,8.667],['Eggs',480,5.83],['Granulated sugar',360,1.50],['Unsalted butter',240,15.56],['Serving cup with lid',24,45.00,'24 pcs']]},
+ cc:{n:'Chin chin',mode:'weight',per:500,was:3,
+     ing:[['Plain flour',1000,1.14],['Granulated sugar',200,1.50],['Unsalted butter',150,15.56],['Whole milk',200,3.699],['Eggs',100,5.83],['Nutmeg',5,20.00]]}
+};
+var pcur='dn';
+function pEach(k){
+  var R=P[k],t=0,q=0;
+  R.ing.forEach(function(x){t+=x[1]*x[2]; if(!x[3]) q+=x[1];});
+  return R.mode==='piece' ? t/R.per*(1+R.was/100) : t/q*R.per*(1+R.was/100);
+}
+function drawP(){
+  var R=P[pcur];
+  document.getElementById('pName').textContent=R.n;
+  document.getElementById('pSw').innerHTML=Object.keys(P).map(function(k){
+    return '<a href="#" data-pk="'+k+'" style="color:'+(k===pcur?'var(--ink)':'var(--accent)')+';font-weight:600;text-decoration:none;margin-right:10px">'+P[k].n+'</a>';}).join('');
+  var r=rows('pIng',R.ing); var cpg=r.t/r.q;
+  document.getElementById('pQ').textContent=g(r.q)+' g'+(r.q<r.t/cpg?'':'');
+  document.getElementById('pC').textContent=N(r.t);
+  document.getElementById('pY').textContent=g(r.q)+' g';
+  document.getElementById('pG').textContent='₦'+cpg.toFixed(2);
+  var mode=seg('pMode');
+  document.getElementById('pWrapN').style.display=mode==='piece'?'':'none';
+  document.getElementById('pWrapP').style.display=mode==='weight'?'':'none';
+  R.mode=mode; R.was=num('pWas');
+  var h='';
+  if(mode==='piece'){
+    R.per=num('pN');
+    h='<tr><td>One piece weighs</td><td>'+g(r.q/R.per)+' g</td></tr>'
+     +'<tr><td>Ingredients a piece</td><td>'+N(r.t/R.per)+'</td></tr>'
+     +'<tr><td>With '+R.was+'% breakage</td><td>'+N(r.t/R.per*(1+R.was/100))+'</td></tr>'
+     +'<tr class="em"><td>Cost a piece</td><td>'+N(pEach(pcur))+'</td></tr>';
+  } else {
+    R.per=num('pP');
+    h='<tr><td>One pack</td><td>'+g(R.per)+' g</td></tr>'
+     +'<tr><td>With '+R.was+'% waste</td><td>'+g(R.per*(1+R.was/100))+' g</td></tr>'
+     +'<tr class="em"><td>Cost a pack</td><td>'+N(pEach(pcur))+'</td></tr>';
+  }
+  document.getElementById('pEx').innerHTML=h;
+  document.getElementById('pD').textContent=mode==='piece'?R.per+' a batch':'sold by weight';
+}
+
+/* ---------- order: portions ---------- */
+function drawO(){
+  var route=seg('oRoute');
+  document.getElementById('oSlab').style.display=route==='slab'?'':'none';
+  document.getElementById('oCount').style.display=route==='count'?'':'none';
+  var sel=document.getElementById('oPan');
+  if(!sel.options.length) sel.innerHTML=PANS.map(function(p,i){
+    return '<option value="'+i+'"'+(i===1?' selected':'')+'>'+p[0]+'</option>';}).join('');
+  var csel=document.getElementById('oCr');
+  if(!csel.options.length) csel.innerHTML=Object.keys(P).map(function(k){
+    return '<option value="'+k+'"'+(k==='mc'?' selected':'')+'>'+P[k].n+'</option>';}).join('');
+
+  if(route==='count'){
+    var k=csel.value,n=num('oCn'),each=pEach(k);
+    document.getElementById('oCex').innerHTML=
+      '<tr><td>Cost each</td><td>'+N(each)+'</td></tr>'
+      +'<tr><td>Batches to make</td><td>'+(n/P[k].per).toFixed(2)+'</td></tr>'
+      +'<tr class="em"><td>'+n+' servings</td><td>'+N(each*n)+'</td></tr>';
+    document.getElementById('oNote').textContent=n+' counted servings';
+    return each*n;
+  }
+
+  var pIdx=+sel.value,pan=PANS[pIdx],W=pan[1],L=pan[2];
+  var need=Math.ceil(num('oN')*(1+num('oAl')/100));
+  var per=perPan(W,L,num('oW'),num('oL'));
+  var slabs=Math.max(1,Math.ceil(need/per));
+  var pa=W*L,Ht=num('oHt');
+  var Ly=oFlv.reduce(function(s,F){return s+F.n;},0)||1, th=Ht/Ly;
+  var frows='',batRows='',batG=0,batC=0;
+  oFlv.forEach(function(F,i){
+    var B=BAT[F.r], ppg=B.d*pa*th*(1+B.tr), np=F.n*slabs, fg=ppg*np;
+    batG+=fg; batC+=fg*B.cpg;
+    batRows+='<tr><td>'+B.n+'<span class="mut">'+np+' pan'+(np>1?'s':'')+' at '+g(ppg)+' g &middot; '
+      +F.n+' layer'+(F.n>1?'s':'')+' of '+th.toFixed(2)+'″ &middot; '+kg(fg)+'</span></td><td>'+N(fg*B.cpg)+'</td></tr>';
+    frows+='<div class="flv" data-i="'+i+'"><span class="tag">F'+(i+1)+'</span>'
+      +'<select class="fr">'+Object.keys(BAT).map(function(k){
+        return '<option value="'+k+'"'+(k===F.r?' selected':'')+'>'+BAT[k].n+'</option>';}).join('')+'</select>'
+      +'<input type="number" class="fn" value="'+F.n+'" min="1" step="1">'
+      +'<button class="del" type="button">&times;</button></div>';
+  });
+  var sig=oFlv.length+'|'+oFlv.map(function(F){return F.r;}).join(',');
+  if(sig!==oSig){ document.getElementById('oFlv').innerHTML=frows; oSig=sig; }
+  document.getElementById('oLh').textContent=
+    'A slice is '+Ht+'″ tall with '+Ly+' layer'+(Ly>1?'s':'')+' inside, so every layer is cut to '+th.toFixed(2)+'″. '
+    +'The height decides the batter and each flavour is weighed by its own calibration. '
+    +Ly+' layers also means '+(Ly-1)+' gap'+(Ly-1===1?'':'s')+' of filling, so the buttercream moves whenever you change the layers.';
+  var gapA=pa*Math.max(Ly-1,0)*slabs, topA=pa*slabs;
+  var fk=document.getElementById('oFi').value, tk=document.getElementById('oTp').value;
+  var filG=fk?covMass(gapA,C[fk].t.f,fk):0, filC=filG*(fk?C[fk].cpg:0);
+  var topG=tk?covMass(topA,C[tk].t.n,tk):0, topC=topG*(tk?C[tk].cpg:0);
+
+  document.getElementById('oPer').textContent=per;
+  document.getElementById('oSlabs').textContent=slabs;
+  document.getElementById('oPans').textContent=Ly*slabs;
+  document.getElementById('oBat').textContent=kg(batG);
+  document.getElementById('oWhy').textContent=
+    'A '+pan[0]+' cuts '+per+' slices at '+num('oW')+'″ × '+num('oL')+'″. '
+    +need+' needed with the allowance, so '+slabs+' slab'+(slabs>1?'s':'')+' of '+Ly+' layer'+(Ly>1?'s':'')
+    +', which is '+(Ly*slabs)+' pans. The full scaled recipe for each pan prints on the production sheet.';
+  var tot=batC+filC+topC;
+  document.getElementById('oEx').innerHTML=
+    batRows
+    +(fk?'<tr><td>'+C[fk].n+' filling &middot; '+kg(filG)+'</td><td>'+N(filC)+'</td></tr>':'')
+    +(tk?'<tr><td>'+C[tk].n+' on top &middot; '+kg(topG)+'</td><td>'+N(topC)+'</td></tr>':'')
+    +'<tr class="em"><td>'+num('oN')+' servings &middot; '+N(tot/num('oN'))+' each</td><td>'+N(tot)+'</td></tr>';
+  document.getElementById('oNote').textContent=num('oN')+' slices · '+pan[0];
+  return tot;
+}
+
+/* ---------- pricing ---------- */
+function drawZ(){
+  var B=drawB();
+  var pa=plan('round',10,0),H=6,gap=pa*2,surf=pa+peri('round',10,0)*H;
+  var cake=B.d*pa*B.h*(1+B.tr)*3*B.cpg
+    + covMass(gap,C.bc.t.f,'bc')*C.bc.cpg
+    + covMass(surf,C.gn.t.c,'gn')*C.gn.cpg
+    + covMass(surf,C.fd.t.n,'fd')*C.fd.cpg;
+  var por=drawO(), pas=30*pEach('dn');
+  var dec=3*450+45*18, pack=4500;
+  var dir=cake+por+pas+dec+pack;
+  document.getElementById('zCake').textContent=N(cake);
+  document.getElementById('zPor').textContent=N(por);
+  document.getElementById('zPas').textContent=N(pas);
+  document.getElementById('zDec').textContent=N(dec);
+  document.getElementById('zPack').textContent=N(pack);
+  document.getElementById('zDir').textContent=N(dir);
+  var acc=dir*num('zAcc')/100,ohm=seg('zOhm');
+  var oh=ohm==='pct'?(dir+acc)*0.27:(ohm==='hr'?num('zHrs')*5997:44979);
+  document.getElementById('zWhyOh').textContent=ohm==='pct'
+    ?'27% of cost. What the app does today, and the default.'
+    :(ohm==='hr'?num('zHrs')+' hours × ₦5,997 an hour, from your shop costs ÷ 1,800 production hours a year'
+                :'₦899,583 a month ÷ 20 orders.');
+  var tot=dir+acc+oh,mar=num('zMar')/100,price=tot/(1-mar);
+  var up=price*(num('zRush')+num('zSea'))/100,charge=Math.ceil((price+up)/500)*500;
+  document.getElementById('q1').textContent=N(dir);
+  document.getElementById('q2').textContent=N(acc);
+  document.getElementById('q3').textContent=N(oh);
+  document.getElementById('q3m').textContent=ohm==='hr'?num('zHrs')+' hours':(ohm==='ord'?'per order':'27% of cost');
+  document.getElementById('q4').textContent=N(tot);
+  document.getElementById('q5').textContent=N(price-tot);
+  document.getElementById('q6').textContent=up?N(up):'—';
+  document.getElementById('q7').textContent=N(charge);
+}
+
+function all(){ drawB(); drawC(); drawP(); drawZ(); }
+document.querySelectorAll('.tabs button').forEach(function(t){
+  t.addEventListener('click',function(){
+    document.querySelectorAll('.tabs button').forEach(function(x){x.setAttribute('aria-selected',x===t);});
+    ['b','c','p','o','z'].forEach(function(k){
+      document.getElementById('pane-'+k).classList.toggle('on',k===t.dataset.t);});
+    window.scrollTo(0,0);
+  });
+});
+document.querySelectorAll('.seg').forEach(function(sg){
+  sg.addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b) return;
+    sg.querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed',x===b);});
+    all();
+  });
+});
+document.getElementById('cSw').addEventListener('click',function(e){
+  var a=e.target.closest('a'); if(!a) return; e.preventDefault(); cur=a.dataset.k; drawC();
+});
+document.getElementById('pSw').addEventListener('click',function(e){
+  var a=e.target.closest('a'); if(!a) return; e.preventDefault(); pcur=a.dataset.pk;
+  document.querySelectorAll('#pMode button').forEach(function(x){x.setAttribute('aria-pressed',x.dataset.v===P[pcur].mode);});
+  document.getElementById('pN').value=P[pcur].mode==='piece'?P[pcur].per:30;
+  document.getElementById('pP').value=P[pcur].mode==='weight'?P[pcur].per:500;
+  document.getElementById('pWas').value=P[pcur].was; all();
+});
+['tf','tc','tn','cDen','cWas'].forEach(function(id){
+  document.getElementById(id).addEventListener('input',function(e){
+    var R=C[cur],v=parseFloat(e.target.value)||0;
+    if(id==='cDen') R.den=v; else if(id==='cWas') R.was=v;
+    else R.t[{tf:'f',tc:'c',tn:'n'}[id]]=v;
+    all();
+  });
+});
+[['jf','f'],['jc','c'],['jn','n']].forEach(function(p){
+  document.querySelector('#'+p[0]+' .jh').addEventListener('click',function(){
+    C[cur].jobs[p[1]]=C[cur].jobs[p[1]]?0:1; drawC();
+  });
+});
+var oflvEl=document.getElementById('oFlv');
+oflvEl.addEventListener('change',function(e){
+  var row=e.target.closest('.flv'); if(!row) return;
+  if(e.target.classList.contains('fr')){ oFlv[+row.dataset.i].r=e.target.value; all(); }
+});
+oflvEl.addEventListener('input',function(e){
+  var row=e.target.closest('.flv'); if(!row) return;
+  if(e.target.classList.contains('fn')){ var v=parseInt(e.target.value,10); if(v>0){ oFlv[+row.dataset.i].n=v; all(); } }
+});
+oflvEl.addEventListener('click',function(e){
+  if(!e.target.classList.contains('del')||oFlv.length<2) return;
+  oFlv.splice(+e.target.closest('.flv').dataset.i,1); all();
+});
+document.getElementById('oAdd').addEventListener('click',function(){
+  if(oFlv.length>3) return; oFlv.push({r:'rv',n:1}); all();
+});
+document.querySelectorAll('input,select').forEach(function(el){ el.addEventListener('input',all); el.addEventListener('change',all); });
+all();
+</script>

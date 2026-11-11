@@ -49,14 +49,18 @@ describe('Recipe Controller & Validation Resilience Tests', () => {
 
     afterAll(async () => {
         try {
-            await prisma.recipeIngredient.deleteMany({
-                where: { recipe: { tenantId } }
-            });
-            await prisma.recipe.deleteMany({ where: { tenantId } });
-            await prisma.inventoryItem.deleteMany({ where: { tenantId } });
-            await prisma.tenant.delete({ where: { id: tenantId } });
+            if (tenantId) {
+                await prisma.recipeIngredient.deleteMany({
+                    where: { recipe: { tenantId } }
+                });
+                await prisma.recipe.deleteMany({ where: { tenantId } });
+                await prisma.inventoryItem.deleteMany({ where: { tenantId } });
+                await prisma.tenant.delete({ where: { id: tenantId } });
+            }
         } catch (e) {
             console.error('Cleanup error:', e);
+        } finally {
+            await prisma.$disconnect();
         }
     });
 

@@ -65,7 +65,7 @@ class FixedAssetService {
                 useType = accountCode === '1200' ? 'production' : (accountCode === '1280' ? 'intangible' : 'office');
             }
 
-            const assetAccount = await chartOfAccountsService.getAccountByCode(tenantId, accountCode);
+            const assetAccount = await chartOfAccountsService.getAccountByCode(tenantId, accountCode, tx);
             if (!assetAccount) {
                 throw new Error(`Asset account code ${accountCode} not found in chart of accounts`);
             }

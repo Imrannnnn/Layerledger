@@ -62,7 +62,8 @@ import {
   Coins,
   Home as HomeIcon,
   Sparkles,
-  BookOpen
+  BookOpen,
+  ClipboardCheck
 } from "lucide-react"
 import { TokenPurchaseModal } from "./components/common/TokenPurchaseModal.jsx"
 import { PlanLimitModal } from "./components/common/PlanLimitModal.jsx"
@@ -83,6 +84,7 @@ const HomePage = lazyRetry(() => import("./components/home/HomePage.jsx").then(m
 const Login = lazyRetry(() => import("./components/auth/Login.jsx").then(m => ({ default: m.Login })))
 const Dashboard = lazyRetry(() => import("./components/dashboard/Dashboard.jsx").then(m => ({ default: m.Dashboard })))
 const MasterList = lazyRetry(() => import("./components/inventory/MasterList.jsx").then(m => ({ default: m.MasterList })))
+const StockAdjustment = lazyRetry(() => import("./components/inventory/StockAdjustment.jsx").then(m => ({ default: m.StockAdjustment })))
 const ProductionEntry = lazyRetry(() => import("./components/orders/ProductionEntry.jsx").then(m => ({ default: m.ProductionEntry })))
 const Records = lazyRetry(() => import("./components/orders/Records.jsx").then(m => ({ default: m.Records })))
 const OrderCalculator = lazyRetry(() => import("./components/orders/OrderCalculator.jsx").then(m => ({ default: m.OrderCalculator })))
@@ -179,8 +181,10 @@ export default function App() {
     return ["dashboard"]
   })
   const goTo = (v) => {
-    try { sessionStorage.setItem("ll_active_view", v) } catch {}
-    setViewHistory(h => { if (h[h.length - 1] === v) return h; return [...h.slice(-9), v] }); setView(v)
+    const targetView = typeof v === "string" ? v : "dashboard";
+    try { sessionStorage.setItem("ll_active_view", targetView) } catch {}
+    setViewHistory(h => { if (h[h.length - 1] === targetView) return h; return [...h.slice(-9), targetView] });
+    setView(targetView);
   }
   const goBack = () => {
     setViewHistory(h => {
@@ -446,19 +450,20 @@ export default function App() {
   }, [activationToken])
 
   const setViewWithSync = (v) => {
-    goTo(v)
-    if (v === "monthly" || v === "pandl" || v === "balance" || v === "expenses" || v === "records") {
-      setExpenses(loadExpenses([]))
-      setProductions(loadProductions([]))
+    const targetView = typeof v === "string" ? v : "dashboard";
+    goTo(targetView);
+    if (targetView === "monthly" || targetView === "pandl" || targetView === "balance" || targetView === "expenses" || targetView === "records") {
+      setExpenses(loadExpenses([]));
+      setProductions(loadProductions([]));
     }
 
     // Fetch data on-demand specifically for the requested screen quietly in background
-    fetchPageDataOnDemand(v).then(() => {
-      if (v === "bank") setTransactions(loadTransactions([]))
-      if (v === "expenses" || v === "monthly" || v === "pandl" || v === "balance") setExpenses(loadExpenses([]))
-      if (v === "masterlist") {
-        const recs = loadRecipes()
-        if (recs) setRecipes(recs)
+    fetchPageDataOnDemand(targetView).then(() => {
+      if (targetView === "bank") setTransactions(loadTransactions([]));
+      if (targetView === "expenses" || targetView === "monthly" || targetView === "pandl" || targetView === "balance") setExpenses(loadExpenses([]));
+      if (targetView === "masterlist") {
+        const recs = loadRecipes();
+        if (recs) setRecipes(recs);
       }
     }).catch(err => {
       console.warn("Page data fetch notice:", err)
@@ -570,6 +575,7 @@ export default function App() {
     { id: "home", label: "BakeWealth Home", icon: HomeIcon, roles: ["owner", "production", "customer_service"] },
     { id: "_ops", label: "Operations", icon: null, roles: ["owner", "production", "customer_service"], divider: true },
     { id: "masterlist", label: "Master List", icon: Layers, roles: ["owner", "production"] },
+    { id: "stockadjust", label: "Stock Adjustment", icon: ClipboardCheck, roles: ["owner", "production"] },
     { id: "calculator", label: "Order Calculator", icon: Calculator, roles: ["owner", "production"] },
     { id: "clients", label: "Clients", icon: Users, roles: ["owner", "customer_service", "production"] },
 
@@ -712,11 +718,12 @@ export default function App() {
       <Suspense fallback={<FullPageLoader message="Loading BakeWealth Home..." />}>
         <HomePage
           onGoToDashboard={(target) => {
-            if (target === "credits" || target === "tokens" || target === "settings") {
-              setSettingsTab("tokens")
-              goTo("settings")
+            const dest = typeof target === "string" ? target : "dashboard";
+            if (dest === "credits" || dest === "tokens" || dest === "settings") {
+              setSettingsTab("tokens");
+              goTo("settings");
             } else {
-              goTo(target || "dashboard")
+              goTo(dest);
             }
           }}
           currentUser={currentUser}
@@ -861,7 +868,7 @@ export default function App() {
             )}
             <img src={company.logo || "/Bakewealthlogo.jpeg"} alt="logo" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(200,145,42,0.3)", background: "#fff" }} />
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: gold, fontWeight: 700 }}>{company.name || "BakeWealth"}</div>
-            {!isMobile && <div style={{ fontSize: 12, color: "#8B6B4A", marginLeft: 10, background: "rgba(200,145,42,0.1)", padding: "2px 8px", borderRadius: 4 }}>{nav.find(n => n.id === view)?.label || (view === "onboarding" ? "Setup Wizard" : view)}</div>}
+            {!isMobile && <div style={{ fontSize: 12, color: "#8B6B4A", marginLeft: 10, background: "rgba(200,145,42,0.1)", padding: "2px 8px", borderRadius: 4 }}>{nav.find(n => n.id === view)?.label || (view === "onboarding" ? "Setup Wizard" : (typeof view === "string" ? view : ""))}</div>}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -946,6 +953,7 @@ export default function App() {
                 />
               )}
               {view === "masterlist" && <MasterList inventory={inventory} setInventory={setInventory} recipes={recipes} setRecipes={setRecipes} user={currentUser} setView={setViewWithSync} company={company} />}
+              {view === "stockadjust" && <StockAdjustment inventory={inventory} setInventory={setInventory} setView={setViewWithSync} />}
               {(view === "openingstock" || view === "stock") && <Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory} setInventory={setInventory} user={currentUser} setView={setViewWithSync} initialTab="stock" />}
               {view === "calculator" && <OrderCalculator inventory={inventory} recipes={recipes} settings={settings} setView={setViewWithSync} company={company} />}
               {view === "clients" && <Clients setView={setViewWithSync} company={company} />}
@@ -955,7 +963,7 @@ export default function App() {
               {view === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} isOwner={!currentUser || currentUser?.role === "owner"} company={company} />}
               {view === "quotes" && <QuotesPage inventory={inventory} setInventory={setInventory} recipes={recipes} setView={setViewWithSync} productions={productions} setProductions={setProductions} />}
               {view === "records" && <Records productions={productions} setProductions={setProductions} setView={setViewWithSync} setPrefillProd={setPrefillProd} user={currentUser} company={company} />}
-              {view === "prodlist" && <ProductionList productions={productions} setProductions={setProductions} company={company} setView={setViewWithSync} />}
+              {view === "prodlist" && <ProductionList productions={productions} setProductions={setProductions} company={company} setView={setViewWithSync} inventory={inventory} setInventory={setInventory} recipes={recipes} />}
               {view === "bank" && <BankImport transactions={transactions} setTransactions={setTransactions} productions={productions} setProductions={setProductions} expenses={expenses} setExpenses={setExpenses} />}
               {view === "assistant" && (
                 <FinancialAssistant

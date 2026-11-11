@@ -1,0 +1,381 @@
+<title>Order Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#EFE9DC;--card:#FDFBF6;--sunk:#F6F1E6;--sel:#FFF6E2;
+  --ink:#3D2B1A;--ink-2:#7A6A58;--ink-3:#A3927C;
+  --line:#E2D7C4;--accent:#B8860F;--go:#1E7A4D;--warn:#9A5B14;
+  --display:"Fraunces",Georgia,serif;--body:"IBM Plex Sans",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;--warn:#E3A054;color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;--warn:#E3A054;color-scheme:dark;}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;margin:0;-webkit-font-smoothing:antialiased}
+.wrap{max-width:660px;margin:0 auto;padding-inline:16px;padding-block:22px 64px}
+
+.demo{background:var(--sunk);border:1px dashed var(--line);border-radius:12px;padding:12px 15px;margin-bottom:18px;font-size:13px;color:var(--ink-2)}
+.demo b{color:var(--ink);display:block;margin-bottom:7px;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase}
+.demo .sw{display:flex;flex-wrap:wrap;gap:6px}
+.demo button{font-family:var(--body);font-size:12.5px;font-weight:600;cursor:pointer;background:var(--card);color:var(--ink-2);border:1px solid var(--line);border-radius:999px;padding:6px 13px;text-align:left}
+.demo button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--card)}
+
+.crumb{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:14px;overflow:hidden}
+.card.live{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.chead{display:flex;align-items:center;gap:10px;padding:13px 17px;border-bottom:1px solid var(--line)}
+.step{width:22px;height:22px;flex:none;border-radius:50%;background:var(--sunk);color:var(--ink-2);font-size:12px;font-weight:600;display:grid;place-items:center}
+.step.ok{background:var(--go);color:#fff}
+.card.live .step{background:var(--accent);color:#fff}
+.ctitle{font-family:var(--display);font-weight:700;font-size:16.5px;letter-spacing:-.01em;flex:1}
+.cnote{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;text-align:right}
+.cbody{padding:15px 17px}
+
+label{display:block;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);margin-bottom:5px;font-weight:600}
+select,input[type=number]{width:100%;font-family:var(--body);font-size:15px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px 10px;appearance:none;font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px}
+.seg{display:flex;gap:4px}
+.seg button{flex:1;font-family:var(--body);font-size:13.5px;font-weight:500;cursor:pointer;background:var(--card);color:var(--ink-2);border:1px solid var(--line);border-radius:9px;padding:9px 2px}
+.seg button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+:focus-visible{outline:2.5px solid var(--accent);outline-offset:2px}
+
+.sec{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.sec h5{margin:0 0 9px;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);font-weight:600}
+.lyr{display:grid;grid-template-columns:28px 1fr 64px 30px;gap:7px;align-items:center;margin-bottom:7px}
+.lyr .tag{font-size:12px;color:var(--ink-3);font-weight:600}
+.mat{display:grid;grid-template-columns:1fr 150px 30px;gap:8px;align-items:center;margin-bottom:7px}
+@media(max-width:520px){.mat{grid-template-columns:1fr 118px 30px}}
+.out{background:var(--sel);border:1px solid var(--line);border-radius:9px;padding:7px 9px;font-variant-numeric:tabular-nums;text-align:right;font-weight:600;font-size:14px;white-space:nowrap}
+.out small{display:block;font-weight:400;font-size:10.5px;color:var(--ink-2);letter-spacing:.02em}
+.del{background:transparent;border:1px solid var(--line);border-radius:8px;color:var(--ink-3);font-size:16px;cursor:pointer;height:38px;line-height:1}
+.add{margin-top:3px;font-size:13px;color:var(--accent);font-weight:600;cursor:pointer;background:none;border:0;padding:3px 0;font-family:var(--body)}
+.why{font-size:11.5px;color:var(--ink-3);margin:-3px 0 9px;font-variant-numeric:tabular-nums}
+.cakefoot{display:flex;justify-content:space-between;align-items:baseline;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-weight:600;font-variant-numeric:tabular-nums}
+.flag{display:none;margin-top:12px;background:var(--sunk);border:1px solid var(--warn);border-radius:9px;padding:9px 12px;font-size:12.5px}
+.flag.on{display:block}
+.flag b{color:var(--warn)}
+
+table.tot{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.tot td{padding:6px 0;border-bottom:1px solid var(--line)}
+table.tot td:last-child{text-align:right;font-weight:500;white-space:nowrap}
+table.tot td .mut{display:block;font-size:11.5px;color:var(--ink-2);font-weight:400}
+table.tot tr.sub td{font-weight:600;border-bottom:2px solid var(--line)}
+table.tot tr.em td{font-weight:600;border-bottom:0;border-top:2px solid var(--ink);padding-top:11px}
+table.tot tr.em td:last-child{font-family:var(--display);font-weight:700;font-size:25px;color:var(--go)}
+.mini{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+</style>
+
+<div class="wrap">
+
+<div class="demo">
+  <b>Mock-up &middot; load one of your three examples</b>
+  <div class="sw" id="sw">
+    <button data-s="0" aria-pressed="true">Buttercream throughout</button>
+    <button data-s="1" aria-pressed="false">Buttercream fill &middot; ganache crumb &middot; fondant finish</button>
+    <button data-s="2" aria-pressed="false">Two fillings &middot; ganache crumb &middot; fondant finish</button>
+  </div>
+</div>
+
+<div class="crumb">Orders &rsaquo; New quote &rsaquo; Mrs Adeyemi, 14 Nov</div>
+
+<div class="card live">
+  <div class="chead"><span class="step">1</span><span class="ctitle">Cake 1</span><span class="cnote" id="geo"></span></div>
+  <div class="cbody">
+    <div class="grid">
+      <div><label>Shape</label><div class="seg" id="shape">
+        <button type="button" data-v="round" aria-pressed="true">Round</button>
+        <button type="button" data-v="square" aria-pressed="false">Square</button>
+        <button type="button" data-v="rect" aria-pressed="false">Rect</button></div></div>
+      <div><label for="sa" id="laA">Size</label><input type="number" id="sa" value="10" min="1" step="0.5"></div>
+      <div id="wrapB" style="display:none"><label for="sb">Width</label><input type="number" id="sb" value="8" min="1" step="0.5"></div>
+    </div>
+
+    <div class="sec">
+      <h5>Flavours &middot; how many layers of each</h5>
+      <div id="layers"></div>
+      <button class="add" id="addLayer">+ Add another flavour</button>
+      <div class="grid" style="margin-top:11px">
+        <div><label for="cakeH">Cake height (in)</label><input type="number" id="cakeH" step="0.25" min="0.5"></div>
+        <div><label for="eachH">Each layer (in)</label><input type="number" id="eachH" step="0.25" min="0.25"></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h5>Between the layers</h5>
+      <div id="fills"></div>
+      <button class="add" id="addFill">+ Add filling</button>
+    </div>
+
+    <div class="sec">
+      <h5>Crumb coat</h5>
+      <div id="crumbs"></div>
+    </div>
+
+    <div class="sec">
+      <h5>Outside finish</h5>
+      <div id="finishes"></div>
+    </div>
+
+    <div class="flag" id="flagCrumb"><b>No crumb coat.</b> <span id="flagCrumbT"></span></div>
+
+    <div class="cakefoot"><span>Cake 1</span><span id="cakeCost"></span></div>
+  </div>
+</div>
+
+<div class="card"><div class="cbody" style="padding:13px 17px">
+  <button class="add" style="font-size:14px">+ Add another cake</button>
+</div></div>
+
+<div class="card">
+  <div class="chead"><span class="step">2</span><span class="ctitle">Decoration extras</span><span class="cnote">weighed from your store</span></div>
+  <div class="cbody">
+    <div id="decs"></div>
+    <button class="add" id="addDec">+ Add material</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="chead"><span class="step">3</span><span class="ctitle">This order</span></div>
+  <div class="cbody">
+    <div class="grid">
+      <div><label for="hrs">Hours</label><input type="number" id="hrs" value="6" min="0" step="0.5"></div>
+      <div><label for="pack">Packaging &#8358;</label><input type="number" id="pack" value="2000" min="0" step="100"></div>
+      <div><label for="topp">Toppers &#8358;</label><input type="number" id="topp" value="0" min="0" step="500"></div>
+      <div><label for="rush">Rush %</label><input type="number" id="rush" value="0" min="0" step="5"></div>
+      <div><label for="seas">Season %</label><input type="number" id="seas" value="0" min="0" step="5"></div>
+    </div>
+    <div class="sec">
+      <h5>Overhead method</h5>
+      <div class="seg" id="ohm">
+        <button type="button" data-v="pct" aria-pressed="true">Percentage</button>
+        <button type="button" data-v="hr" aria-pressed="false">Per hour</button>
+        <button type="button" data-v="ord" aria-pressed="false">Per order</button>
+      </div>
+      <p class="why" id="whyOh"></p>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="chead"><span class="step ok">4</span><span class="ctitle">The quote</span></div>
+  <div class="cbody">
+    <table class="tot">
+      <tr><td>Batter<span class="mut" id="m1"></span></td><td id="t1"></td></tr>
+      <tr><td>Filling<span class="mut" id="m2"></span></td><td id="t2"></td></tr>
+      <tr><td>Crumb coat<span class="mut" id="m3"></span></td><td id="t3"></td></tr>
+      <tr><td>Finish<span class="mut" id="m4"></span></td><td id="t4"></td></tr>
+      <tr><td>Decoration extras<span class="mut" id="m5"></span></td><td id="t5"></td></tr>
+      <tr><td>Toppers and packaging</td><td id="t6"></td></tr>
+      <tr class="sub"><td>Direct cost</td><td id="t7"></td></tr>
+      <tr><td>Accessories 15%</td><td id="t8"></td></tr>
+      <tr><td>Overhead<span class="mut" id="m9"></span></td><td id="t9"></td></tr>
+      <tr class="sub"><td>Total cost</td><td id="t10"></td></tr>
+      <tr><td>Profit margin 50%</td><td id="t11"></td></tr>
+      <tr class="em"><td>Charge the client</td><td id="t12"></td></tr>
+    </table>
+  </div>
+</div>
+
+</div>
+
+<script>
+/* ---- batter recipes: density g per sq in per inch, from calibration ---- */
+var B = {
+  van:{n:'Vanilla sponge', cal:617, ra:Math.PI*9, rh:2, trim:0.08, cpg:5.527},
+  cho:{n:'Chocolate',      cal:627, ra:Math.PI*9, rh:2, trim:0.08, cpg:5.669},
+  rv: {n:'Red velvet',     cal:741, ra:Math.PI*9, rh:2, trim:0.08, cpg:5.150}
+};
+Object.keys(B).forEach(function(k){ B[k].d = B[k].cal / B[k].ra / B[k].rh; });
+
+/* ---- coverings: jobs, density g/cm3, waste, thickness mm ---- */
+var C = {
+  bc:{n:'Buttercream',   fill:4.5, crumb:1.0, fin:4.9, den:0.90,  waste:0.15, cpg:8.947},
+  gn:{n:'Dark ganache',  fill:3.0, crumb:1.2, fin:4.0, den:1.10,  waste:0.10, cpg:12.381},
+  fd:{n:'Fondant',       fill:0,   crumb:0,   fin:8.0, den:1.35,  waste:0.25, cpg:2.498},
+  wc:{n:'Whipped cream', fill:4.0, crumb:0,   fin:4.9, den:0.452, waste:0.15, cpg:8.667},
+  cm:{n:'Caramel sauce', fill:1.5, crumb:0,   fin:0,   den:1.30,  waste:0.05, cpg:4.586}
+};
+var D = {
+  pearl:{n:'Edible pearls', cpg:18}, leaf:{n:'Gold leaf', cpg:450},
+  dust:{n:'Lustre dust', cpg:120}, glit:{n:'Edible glitter', cpg:60}, spr:{n:'Sprinkles', cpg:9}
+};
+
+var SC = [
+  {fills:[{r:'bc'}], crumb:'bc', fin:'bc', dec:[{r:'spr',g:40}]},
+  {fills:[{r:'bc'}], crumb:'gn', fin:'fd', dec:[{r:'pearl',g:60},{r:'dust',g:8}]},
+  {fills:[{r:'bc'},{r:'cm'}], crumb:'gn', fin:'fd', dec:[{r:'leaf',g:3},{r:'pearl',g:45}]}
+];
+var st = {shape:'round', layers:[{r:'van',n:1},{r:'cho',n:1},{r:'rv',n:1}], lh:7/3, fills:[{r:'bc'}], crumb:'bc', fin:'bc',
+          dec:[{r:'spr',g:40}], oh:'pct'};
+
+var CM2 = 6.4516;
+function plan(s,a,b){ return s==='round' ? Math.PI*a*a/4 : (s==='square' ? a*a : a*b); }
+function peri(s,a,b){ return s==='round' ? Math.PI*a : (s==='square' ? 4*a : 2*(a+b)); }
+function g(n){ return Math.round(n).toLocaleString('en-US'); }
+function kg(n){ return n>=1000 ? (n/1000).toFixed(2)+' kg' : g(n)+' g'; }
+function naira(n){ return '₦'+Math.round(n).toLocaleString('en-US'); }
+function num(id){ return parseFloat(document.getElementById(id).value)||0; }
+function setIf(id,v){ var el=document.getElementById(id); if(el && document.activeElement!==el) el.value=v; }
+function seg(id){ return document.querySelector('#'+id+' button[aria-pressed="true"]').dataset.v; }
+function opts(obj,sel,test){ return Object.keys(obj).filter(function(k){ return !test||test(obj[k]); })
+  .map(function(k){ return '<option value="'+k+'"'+(k===sel?' selected':'')+'>'+obj[k].n+'</option>'; }).join(''); }
+function mass(areaIn2, mm, den, waste){ return areaIn2*CM2*(mm/10)*den*(1+waste); }
+
+function draw(){
+  var s = st.shape, a = num('sa'), b = num('sb');
+  document.getElementById('laA').textContent = s==='round' ? 'Diameter' : (s==='square' ? 'Side' : 'Length');
+  document.getElementById('wrapB').style.display = s==='rect' ? '' : 'none';
+  var pa = plan(s,a,b), pe = peri(s,a,b);
+
+  /* layers */
+  var lh='', nL=0, batG=0, batC=0;
+  st.layers.forEach(function(L){ nL += L.n; });
+  var H = nL*st.lh, nat = B[st.layers[0].r];
+  st.layers.forEach(function(L,i){
+    var r=B[L.r];
+    var gpl = r.d*pa*st.lh*(1+r.trim);
+    batG += gpl*L.n; batC += gpl*L.n*r.cpg;
+    lh += '<div class="lyr" data-i="'+i+'"><span class="tag">F'+(i+1)+'</span>'
+      + '<select class="lr">'+opts(B,L.r)+'</select>'
+      + '<input type="number" class="ln" value="'+L.n+'" min="1" step="1">'
+      + '<button class="del" type="button">&times;</button></div>';
+  });
+  document.getElementById('layers').innerHTML = lh;
+  var gap = pa*Math.max(nL-1,0), surf = pa + pe*H;
+  document.getElementById('geo').innerHTML = g(surf)+' in&sup2; outside &middot; '+(+H.toFixed(1))+'&Prime; tall';
+  setIf('cakeH', +(nL*st.lh).toFixed(2));
+  setIf('eachH', +st.lh.toFixed(2));
+
+
+  /* fillings */
+  var fh='', filG=0, filC=0;
+  st.fills.forEach(function(F,i){
+    var r=C[F.r], m=mass(gap,r.fill,r.den,r.waste); filG+=m; filC+=m*r.cpg;
+    fh += '<div class="mat" data-i="'+i+'"><select class="fr">'+opts(C,F.r,function(x){return x.fill>0;})+'</select>'
+      + '<div class="out">'+g(m)+' g<small>'+naira(m*r.cpg)+'</small></div>'
+      + '<button class="del" type="button">&times;</button></div>'
+      + '<p class="why">'+r.fill+' mm over '+g(gap)+' in² of gap · density '+r.den+'</p>';
+  });
+  document.getElementById('fills').innerHTML = fh || '<p class="why">None</p>';
+
+  /* crumb */
+  var cr = st.crumb?C[st.crumb]:null, crG = cr?mass(surf,cr.crumb,cr.den,cr.waste):0;
+  document.getElementById('crumbs').innerHTML =
+    '<div class="mat"><select id="crsel"><option value=""'+(st.crumb?'':' selected')+'>None</option>'
+    + opts(C,st.crumb,function(x){return x.crumb>0;})+'</select>'
+    + '<div class="out">'+(cr?g(crG)+' g':'—')+'<small>'+(cr?naira(crG*cr.cpg):'')+'</small></div><span></span></div>'
+    + (cr?'<p class="why">'+cr.crumb+' mm over '+g(surf)+' in² of surface</p>':'');
+
+  /* finish */
+  var fi = st.fin?C[st.fin]:null, fiG = fi?mass(surf,fi.fin,fi.den,fi.waste):0;
+  document.getElementById('finishes').innerHTML =
+    '<div class="mat"><select id="fisel"><option value=""'+(st.fin?'':' selected')+'>None</option>'
+    + opts(C,st.fin,function(x){return x.fin>0;})+'</select>'
+    + '<div class="out">'+(fi?g(fiG)+' g':'—')+'<small>'+(fi?naira(fiG*fi.cpg):'')+'</small></div><span></span></div>'
+    + (fi?'<p class="why">'+fi.fin+' mm over '+g(surf)+' in² · density '+fi.den+' · '+Math.round(fi.waste*100)+'% waste</p>':'');
+
+  var ff = document.getElementById('flagCrumb');
+  if (fi && (st.fin==='fd'||st.fin==='wc') && !st.crumb) {
+    ff.classList.add('on');
+    document.getElementById('flagCrumbT').textContent =
+      fi.n+' needs something underneath to seal the crumbs. This cake will not hold.';
+  } else ff.classList.remove('on');
+
+  /* decoration */
+  var dh='', decC=0;
+  st.dec.forEach(function(X,i){
+    var r=D[X.r]; decC += X.g*r.cpg;
+    dh += '<div class="mat" data-i="'+i+'"><select class="dr">'+opts(D,X.r)+'</select>'
+      + '<div class="out" style="display:flex;gap:6px;align-items:center"><input type="number" class="dg" value="'+X.g+'" min="0" step="1" style="width:62px;text-align:right">'
+      + '<span style="font-weight:400;font-size:12px">g &middot; '+naira(X.g*r.cpg)+'</span></div>'
+      + '<button class="del" type="button">&times;</button></div>';
+  });
+  document.getElementById('decs').innerHTML = dh || '<p class="why">None</p>';
+
+  var crC = cr?crG*cr.cpg:0, fiC = fi?fiG*fi.cpg:0;
+  document.getElementById('cakeCost').textContent = naira(batC+filC+crC+fiC);
+
+  /* quote */
+  var extras = num('pack')+num('topp');
+  var direct = batC+filC+crC+fiC+decC+extras;
+  var acc = direct*0.15;
+  var oh = st.oh==='pct' ? (direct+acc)*0.27 : (st.oh==='hr' ? num('hrs')*5997 : 44979);
+  document.getElementById('whyOh').textContent = st.oh==='pct'
+    ? '27% of cost. What the app does today. Overcharges ingredient-heavy jobs, undercharges time-heavy ones.'
+    : (st.oh==='hr' ? num('hrs')+' hours × ₦5,997, from your shop costs ÷ 1,800 production hours a year'
+                    : '₦899,583 a month ÷ 20 orders. Only sensible if every order is a similar size.');
+  var total = direct+acc+oh, price = total/0.5;
+  var charge = Math.ceil(price*(1+num('rush')/100+num('seas')/100)/500)*500;
+
+  function put(i,v,m){ document.getElementById('t'+i).textContent=v; if(m!==undefined) document.getElementById('m'+i).textContent=m; }
+  put(1,naira(batC), kg(batG));
+  put(2, filC?naira(filC):'—', st.fills.map(function(F){return C[F.r].n;}).join(' + ') || 'none');
+  put(3, cr?naira(crC):'—', cr?cr.n+' · '+g(crG)+' g':'none');
+  put(4, fi?naira(fiC):'—', fi?fi.n+' · '+kg(fiG):'none');
+  put(5, decC?naira(decC):'—', st.dec.map(function(X){return D[X.r].n;}).join(' + ') || 'none');
+  put(6,naira(extras));
+  put(7,naira(direct)); put(8,naira(acc));
+  put(9,naira(oh), st.oh==='hr'?num('hrs')+' hours':(st.oh==='ord'?'per order':'27% of cost'));
+  put(10,naira(total)); put(11,naira(price-total)); put(12,naira(charge));
+  wire();
+}
+
+function wire(){
+  document.querySelectorAll('#layers .lyr').forEach(function(el){
+    var i=+el.dataset.i;
+    el.querySelector('.lr').onchange=function(e){ st.layers[i].r=e.target.value; draw(); };
+    el.querySelector('.ln').oninput=function(e){ st.layers[i].n=Math.max(1,parseInt(e.target.value)||1); draw(); };
+    el.querySelector('.del').onclick=function(){ if(st.layers.length>1){st.layers.splice(i,1); draw();} };
+  });
+  document.querySelectorAll('#fills .mat').forEach(function(el){
+    var i=+el.dataset.i;
+    el.querySelector('.fr').onchange=function(e){ st.fills[i].r=e.target.value; draw(); };
+    el.querySelector('.del').onclick=function(){ st.fills.splice(i,1); draw(); };
+  });
+  document.querySelectorAll('#decs .mat').forEach(function(el){
+    var i=+el.dataset.i;
+    el.querySelector('.dr').onchange=function(e){ st.dec[i].r=e.target.value; draw(); };
+    el.querySelector('.dg').oninput=function(e){ st.dec[i].g=parseFloat(e.target.value)||0; draw(); };
+    el.querySelector('.del').onclick=function(){ st.dec.splice(i,1); draw(); };
+  });
+  var cs=document.getElementById('crsel'); if(cs) cs.onchange=function(e){ st.crumb=e.target.value; draw(); };
+  var fs=document.getElementById('fisel'); if(fs) fs.onchange=function(e){ st.fin=e.target.value; draw(); };
+}
+
+document.getElementById('addLayer').onclick=function(){ st.layers.push({r:'van',n:1}); draw(); };
+document.getElementById('cakeH').addEventListener('input',function(e){
+  var n=st.layers.reduce(function(s,L){return s+L.n;},0);
+  var v=parseFloat(e.target.value); if(v>0&&n>0){ st.lh=v/n; draw(); }
+});
+document.getElementById('eachH').addEventListener('input',function(e){
+  var v=parseFloat(e.target.value); if(v>0){ st.lh=v; draw(); }
+});
+document.getElementById('addFill').onclick=function(){ st.fills.push({r:'bc'}); draw(); };
+document.getElementById('addDec').onclick=function(){ st.dec.push({r:'dust',g:5}); draw(); };
+document.querySelectorAll('.seg').forEach(function(sg){
+  sg.addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b) return;
+    sg.querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed',x===b); });
+    if(sg.id==='shape') st.shape=b.dataset.v;
+    if(sg.id==='ohm') st.oh=b.dataset.v;
+    draw();
+  });
+});
+document.getElementById('sw').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#sw button').forEach(function(x){ x.setAttribute('aria-pressed',x===b); });
+  var p=SC[+b.dataset.s];
+  st.fills=p.fills.map(function(x){return{r:x.r};}); st.crumb=p.crumb; st.fin=p.fin;
+  st.dec=p.dec.map(function(x){return{r:x.r,g:x.g};});
+  draw();
+});
+document.querySelectorAll('input').forEach(function(el){ el.addEventListener('input',draw); });
+draw();
+</script>

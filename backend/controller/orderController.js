@@ -151,8 +151,9 @@ const createOrder = asyncHandler(async (req, res) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+        // Build spec: Stock is deducted when an order is marked delivered, not when confirmed.
         let ingredientsDeducted = false;
-        if (status === 'confirmed' || status === 'baking') {
+        if (status === 'delivered') {
             ingredientsDeducted = true;
         }
 
@@ -253,7 +254,8 @@ const createOrder = asyncHandler(async (req, res) => {
                     if (!invItem) {
                         throw new Error(`Inventory item not found for usage: ${use.itemId}`);
                     }
-                    if (!req.body.allowNegativeStock && invItem.stock - use.qty < 0) {
+                    // Build spec: Allow negative stock, flag it, do not block delivery unless explicitly requested
+                    if (req.body.blockNegativeStock && invItem.stock - use.qty < 0) {
                         throw new Error(`Insufficient stock for ${invItem.name}. Attempted to use ${use.qty} but only ${invItem.stock} is on hand.`);
                     }
                 }
@@ -367,18 +369,18 @@ const updateOrder = asyncHandler(async (req, res) => {
     }
 
     // ---------------------------------------------------------
-    // 2. Determine inventory action
+    // 2. Determine inventory action (BakeWealth Build Spec)
+    // Stock is deducted on delivered, not confirmed.
     // ---------------------------------------------------------
-    const isProductionStatus =
-        status === 'confirmed' || status === 'baking';
+    const isDeliveryStatus = status === 'delivered';
 
     const shouldDeduct =
-        isProductionStatus && !existing.ingredientsDeducted;
+        isDeliveryStatus && !existing.ingredientsDeducted;
 
     const shouldRestore =
         existing.ingredientsDeducted &&
         status &&
-        !isProductionStatus;
+        !isDeliveryStatus;
 
     const ingredientsDeducted = shouldDeduct
         ? true
@@ -465,7 +467,8 @@ const updateOrder = asyncHandler(async (req, res) => {
                             );
                         }
 
-                        if (!req.body.allowNegativeStock && invItem.stock - use.qty < 0) {
+                        // Build spec: Allow negative stock, flag it, do not block delivery unless explicitly requested
+                        if (req.body.blockNegativeStock && invItem.stock - use.qty < 0) {
                             throw new Error(
                                 `Insufficient stock for ${invItem.name}. ` +
                                 `Attempted to use ${use.qty} ` +

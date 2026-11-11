@@ -8,13 +8,15 @@
  */
 import React, { useState } from "react"
 import { Btn, Card, SHead, Tabs } from "../common/ui.jsx"
-import { updateProdStatus } from "../../lib/data.js"
+import { updateProdStatus, calculateOrderUsages, saveInventory } from "../../lib/data.js"
 import { bakeOrder, deliverOrder, cancelOrder } from "../../lib/accountingApi.js"
 import { Printer, Cake, Calendar, PenLine, FileText } from "lucide-react"
+import { ProductionSheet } from "./ProductionSheet.jsx"
 
-export function ProductionList({ productions, setProductions, company, setView }) {
+export function ProductionList({ productions, setProductions, company, setView, inventory = [], setInventory, recipes = [] }) {
   const [activeTab, setActiveTab] = useState("schedule") // "schedule" or "unscheduled"
   const [weekOffset, setWeekOffset] = useState(0)
+  const [selectedProductionSheetQuote, setSelectedProductionSheetQuote] = useState(null)
 
   const today = new Date()
   const todayStr = today.toISOString().slice(0, 10)
@@ -75,6 +77,27 @@ export function ProductionList({ productions, setProductions, company, setView }
         bakeOrder(id).catch(err => console.warn("GL bake posting warning:", err))
       } else if (s === "delivered") {
         deliverOrder(id).catch(err => console.warn("GL deliver posting warning:", err))
+        // Deduct inventory when order is marked delivered (allow & flag negative stock)
+        try {
+          const targetProd = productions.find(p => p.id === id)
+          if (targetProd && inventory && inventory.length > 0) {
+            const usages = calculateOrderUsages(targetProd, inventory, recipes)
+            if (usages && usages.length > 0) {
+              const updInv = inventory.map(item => {
+                const u = usages.find(x => x.itemId === item.id)
+                if (!u) return item
+                const nextStock = parseFloat(((Number(item.stock) || 0) - u.qty).toFixed(3))
+                return { ...item, stock: nextStock }
+              })
+              if (typeof setInventory === "function") {
+                setInventory(updInv)
+              }
+              await saveInventory(updInv)
+            }
+          }
+        } catch (invErr) {
+          console.warn("Stock deduction on delivery notice:", invErr)
+        }
       } else if (s === "cancelled") {
         const choice = window.prompt("Cancel order financial resolution:\n1 = Forfeit deposit to Other Revenue\n2 = Refund customer deposit from Bank\n3 = Written off to Spoilage (Damaged/Goodwill)", "1")
         const typeMap = { "1": "FORFEIT_BEFORE_BAKE", "2": "REFUND", "3": "GOODWILL_DISPUTE" }
@@ -554,12 +577,41 @@ export function ProductionList({ productions, setProductions, company, setView }
                       <option value="cancelled">Cancelled</option>
                     </select>
                     <div style={{ fontSize: 11, color: "var(--muted)" }}>Due {p.deliveryDate || "Unscheduled"}{p.collectionTime ? ` at ${p.collectionTime}` : ""}</div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProductionSheetQuote(p)}
+                      style={{
+                        marginTop: 6,
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        border: "1px solid var(--border)",
+                        background: "var(--panel)",
+                        color: "var(--text)",
+                        fontSize: 11.5,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontWeight: 500
+                      }}
+                    >
+                      <FileText size={12} /> Production Sheet
+                    </button>
                   </div>
                 </div>
               </Card>
             )
           })}
         </div>
+      )}
+
+      {selectedProductionSheetQuote && (
+        <ProductionSheet
+          quote={selectedProductionSheetQuote}
+          inventory={inventory}
+          recipes={recipes}
+          onClose={() => setSelectedProductionSheetQuote(null)}
+        />
       )}
     </div>
   )

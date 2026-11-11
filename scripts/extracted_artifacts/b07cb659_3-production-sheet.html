@@ -1,0 +1,401 @@
+<title>Production Sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#EFE9DC;--card:#FDFBF6;--sunk:#F6F1E6;--sel:#FFF6E2;
+  --ink:#3D2B1A;--ink-2:#7A6A58;--ink-3:#A3927C;
+  --line:#E2D7C4;--accent:#B8860F;--go:#1E7A4D;--warn:#B3261E;
+  --display:"Fraunces",Georgia,serif;--body:"IBM Plex Sans",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;--warn:#F2938C;color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;--warn:#F2938C;color-scheme:dark;}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;margin:0;-webkit-font-smoothing:antialiased}
+.wrap{max-width:660px;margin:0 auto;padding-inline:16px;padding-block:22px 64px}
+
+.hdr{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px}
+.hdr .pill{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:#fff;background:var(--go);border-radius:20px;padding:4px 9px;white-space:nowrap;margin-top:5px}
+.hdr h1{font-family:var(--display);font-weight:700;font-size:24px;letter-spacing:-.02em;margin:0;line-height:1.2}
+.hdr p{font-size:12.5px;color:var(--ink-2);margin:3px 0 0}
+
+.tabs{display:flex;gap:3px;background:var(--sunk);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:6px}
+.tabs button{flex:1;font-family:var(--body);font-size:12.5px;font-weight:600;cursor:pointer;background:transparent;color:var(--ink-2);border:0;border-radius:8px;padding:9px 6px;line-height:1.3}
+.tabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.pane{display:none}.pane.on{display:block}
+
+.crumb{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin:18px 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:14px;overflow:hidden}
+.chead{display:flex;align-items:baseline;gap:10px;padding:13px 17px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.ctitle{font-family:var(--display);font-weight:700;font-size:16.5px;flex:1;letter-spacing:-.01em;min-width:120px}
+.cnote{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;text-align:right}
+.cbody{padding:15px 17px}
+.intro{font-size:13px;color:var(--ink-2);margin:0 0 13px}
+
+table.t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13.5px}
+table.t th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);font-weight:600;padding:0 0 6px;border-bottom:1px solid var(--line)}
+table.t th:not(:first-child),table.t td:not(:first-child){text-align:right;white-space:nowrap}
+table.t td{padding:6px 0;border-bottom:1px solid var(--line);vertical-align:top}
+table.t td .mut{display:block;font-size:11px;color:var(--ink-3);font-weight:400}
+table.t tr.short td{color:var(--warn)}
+table.t tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600;padding-top:9px}
+
+.note{font-size:12.5px;color:var(--ink-2);background:var(--sunk);border:1px dashed var(--line);border-radius:11px;padding:10px 13px;margin-bottom:14px}
+.note b{color:var(--ink)}
+.alert{font-size:12.5px;color:var(--warn);background:var(--sunk);border:1px solid var(--warn);border-radius:11px;padding:10px 13px;margin-bottom:14px}
+.alert b{display:block;font-size:13px;margin-bottom:2px}
+.why{font-size:11.5px;color:var(--ink-3);margin:9px 0 0;font-variant-numeric:tabular-nums}
+
+.tins{display:grid;gap:7px}
+.tin{display:grid;grid-template-columns:32px 1fr auto;gap:11px;align-items:center;background:var(--sel);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.tin .no{width:32px;height:32px;border-radius:9px;background:var(--card);border:1px solid var(--line);display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--ink-2);font-variant-numeric:tabular-nums;line-height:1}
+.tin b{display:block;font-size:14px;font-weight:600}
+.tin em{font-style:normal;font-size:11.5px;color:var(--ink-2);display:block}
+.tin .wt{font-family:var(--display);font-weight:700;font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+ol.steps{margin:0;padding:0;list-style:none;counter-reset:s}
+ol.steps li{counter-increment:s;position:relative;padding:0 0 13px 34px;font-size:14px}
+ol.steps li:before{content:counter(s);position:absolute;left:0;top:1px;width:23px;height:23px;border-radius:50%;background:var(--sunk);border:1px solid var(--line);color:var(--ink-2);font-size:11.5px;font-weight:700;display:grid;place-items:center}
+ol.steps li b{display:block;font-weight:600}
+ol.steps li span{font-size:12.5px;color:var(--ink-2)}
+ol.steps li i{font-style:normal;font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;color:var(--accent)}
+
+.ai{font-size:11.5px;color:var(--ink-3);margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
+.ai b{color:var(--accent);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase}
+</style>
+
+<div class="wrap">
+
+<div class="hdr">
+  <span class="pill">Confirmed</span>
+  <div><h1>Production sheet</h1>
+  <p id="sub"></p></div>
+</div>
+
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-t="s">Shopping list</button>
+  <button role="tab" aria-selected="false" data-t="b">Bake sheet</button>
+  <button role="tab" aria-selected="false" data-t="m">Build order</button>
+</div>
+
+<!-- ======== SHOPPING LIST ======== -->
+<div class="pane on" id="pane-s">
+<div class="crumb" style="margin-top:16px">Orders &rsaquo; <span class="oc"></span> &rsaquo; Production &rsaquo; Shopping list</div>
+<div class="note"><b>Every ingredient on the whole order, added up once.</b> Butter runs through six of the recipes below. The list adds them together rather than printing butter six times, because that is what you carry to the market.</div>
+<div id="alerts"></div>
+<div class="card">
+  <div class="chead"><span class="ctitle">What to buy or pull</span><span class="cnote" id="sN"></span></div>
+  <div class="cbody">
+    <table class="t"><thead><tr><th>Ingredient</th><th>Needed</th><th>In stock</th><th>Short</th></tr></thead>
+    <tbody id="sIng"></tbody></table>
+    <p class="why" id="sWhy"></p>
+  </div>
+</div>
+<div class="card">
+  <div class="chead"><span class="ctitle">Batches to make</span><span class="cnote" id="bbN"></span></div>
+  <div class="cbody">
+    <p class="intro">The recipe is one batch. These are not whole numbers and they are not meant to be. Scale the ingredients, do not round the batches.</p>
+    <table class="t"><thead><tr><th>Recipe</th><th>Needed</th><th>One batch</th><th>Batches</th></tr></thead>
+    <tbody id="bbs"></tbody></table>
+  </div>
+</div>
+</div>
+
+<!-- ======== BAKE SHEET ======== -->
+<div class="pane" id="pane-b">
+<div class="crumb" style="margin-top:16px">Orders &rsaquo; <span class="oc"></span> &rsaquo; Production &rsaquo; Bake sheet</div>
+<div class="note"><b>One card per pan size and flavour, with the base recipe already scaled to it.</b> Not "1,851 g of vanilla sponge" with nothing behind it. The flour, butter, eggs and milk that add up to those 1,851 g, for that pan.</div>
+<div class="card">
+  <div class="chead"><span class="ctitle">Weigh-out list</span><span class="cnote" id="tN"></span></div>
+  <div class="cbody"><div class="tins" id="tins"></div>
+  <p class="why" id="tWhy"></p></div>
+</div>
+<div class="crumb">Batter &middot; the recipe for each pan</div>
+<div id="groups"></div>
+<div class="crumb">Fillings, coverings and everything else</div>
+<div id="others"></div>
+</div>
+
+<!-- ======== BUILD ORDER ======== -->
+<div class="pane" id="pane-m">
+<div class="crumb" style="margin-top:16px">Orders &rsaquo; <span class="oc"></span> &rsaquo; Production &rsaquo; Build order</div>
+<div class="note"><b>The sequence, not the recipes.</b> Each recipe keeps its own method. This page only says what has to happen before what, based on which steps need resting, chilling or setting time.</div>
+<div class="card">
+  <div class="chead"><span class="ctitle">How this order gets made</span><span class="cnote" id="mN"></span></div>
+  <div class="cbody">
+    <ol class="steps" id="steps"></ol>
+    <div class="ai"><b>Generated</b><br>Read from the recipes on this order, their resting and chilling times, and the delivery date. Edit any step and the app keeps your version for this order.</div>
+  </div>
+</div>
+</div>
+
+</div>
+
+<script>
+var CM2=6.4516;
+function g(n){return Math.round(n).toLocaleString('en-US');}
+function kg(n){return n>=1000?(n/1000).toFixed(2)+' kg':g(n)+' g';}
+function plan(s,a,b){return s==='round'?Math.PI*a*a/4:(s==='square'?a*a:a*b);}
+function peri(s,a,b){return s==='round'?Math.PI*a:(s==='square'?4*a:2*(a+b));}
+function perPan(W,L,w,l){return Math.max(Math.floor(L/l)*Math.floor(W/w),Math.floor(L/w)*Math.floor(W/l));}
+
+/* ---------- base recipes, exactly as the Recipes tab holds them ---------- */
+var REC={
+ van:{n:'Vanilla sponge',cal:617,ra:Math.PI*9,rh:2,trim:0.08,
+   ing:[['Unsalted butter',250],['Granulated sugar',250],['Eggs',250],['Plain flour',300],
+        ['Whole milk',150],['Baking powder',10],['Salt',3],['Vanilla extract',8]]},
+ cho:{n:'Chocolate',cal:627,ra:Math.PI*9,rh:2,trim:0.08,
+   ing:[['Unsalted butter',250],['Granulated sugar',280],['Eggs',250],['Plain flour',250],
+        ['Cocoa powder',70],['Whole milk',200],['Baking powder',12],['Salt',3],['Vanilla extract',8]]},
+ rv:{n:'Red velvet',cal:741,ra:Math.PI*9,rh:2,trim:0.08,
+   ing:[['Unsalted butter',230],['Granulated sugar',300],['Eggs',200],['Plain flour',300],
+        ['Cocoa powder',25],['Buttermilk',240],['White vinegar',10],['Baking soda',8],
+        ['Salt',3],['Red food colour',12],['Vanilla extract',8]]}
+};
+Object.keys(REC).forEach(function(k){var R=REC[k];
+  R.d=R.cal/R.ra/R.rh; R.y=R.ing.reduce(function(s,x){return s+x[1];},0);});
+
+var COV={
+ bc:{n:'Buttercream',t:{f:4.5,c:1.0,n:4.9},den:0.90,was:0.15,
+   ing:[['Unsalted butter',450],['Reconstituted cream',200],['Icing sugar',450],
+        ['Milk powder',6],['Vanilla extract',5],['Salt',1.5]]},
+ gn:{n:'Dark ganache',t:{f:3.0,c:1.2,n:4.0},den:1.10,was:0.10,
+   ing:[['Dark compound chocolate',400],['Reconstituted cream',200],['Unsalted butter',30]]},
+ fd:{n:'Fondant',t:{f:0,c:0,n:8.0},den:1.35,was:0.25,
+   ing:[['Icing sugar',900],['Gelatine',10],['Water',60],['Glucose syrup',100],
+        ['Glycerine',10],['CMC / Tylose',10],['Margarine',20],['Vanilla extract',3]]}
+};
+Object.keys(COV).forEach(function(k){var R=COV[k];
+  R.y=R.ing.reduce(function(s,x){return s+x[1];},0);});
+function covMass(area,mm,k){var R=COV[k];return area*CM2*(mm/10)*R.den*(1+R.was);}
+
+var PAS={dn:{n:'Doughnuts',per:30,
+  ing:[['Plain flour',1000],['Granulated sugar',150],['Instant yeast',20],['Whole milk',400],
+       ['Eggs',100],['Unsalted butter',100],['Salt',10]]}};
+
+var DEC=[['Edible gold leaf',3],['Sugar pearls',45]];
+
+/* ---------- the confirmed order ---------- */
+var ORDER={client:'Mrs Adeyemi',date:'Saturday 14 November',items:[
+ {t:'cake',label:'Cake',sum:'3 tiers, 10&Prime; / 8&Prime; / 6&Prime; round',shape:'round',
+  fill:'bc',crumb:'gn',fin:'fd',
+  tiers:[{a:10,b:0,h:6,flav:[['van',1],['cho',1],['rv',1]]},
+         {a:8, b:0,h:4,flav:[['van',2]]},
+         {a:6, b:0,h:4,flav:[['cho',2]]}]},
+ {t:'slab',label:'Portions',sum:'100 slices, 2&Prime; &times; 2&Prime; &times; 4&Prime;',
+  n:100,w:2,l:2,ht:4,allow:5,pan:['12 &times; 18 tray',12,18],
+  flav:[['van',2],['cho',1]],fill:'bc',top:'bc'},
+ {t:'count',label:'Doughnuts',sum:'30 pieces',r:'dn',n:30}
+]};
+
+/* ---------- work it out ---------- */
+var tins=[],groups=[],batNeed={},covNeed={},pasNeed={},ing={};
+function addIng(list,mult){list.forEach(function(x){ing[x[0]]=(ing[x[0]]||0)+x[1]*mult;});}
+function pushTin(rk,n,grams,where,note){
+  for(var i=0;i<n;i++){tins.push({r:rk,g:grams,w:where,note:note});}
+  batNeed[rk]=(batNeed[rk]||0)+grams*n;
+  groups.push({r:rk,n:n,g:grams,w:where,note:note});
+}
+function needCov(k,area,mm,job){
+  if(!k||!mm)return; var m=covMass(area,mm,k);
+  covNeed[k]=covNeed[k]||{g:0,jobs:[]};
+  covNeed[k].g+=m; if(covNeed[k].jobs.indexOf(job)<0) covNeed[k].jobs.push(job);
+}
+
+ORDER.items.forEach(function(it){
+  if(it.t==='cake'){
+    var gapA=0,surfA=0;
+    it.tiers.forEach(function(T){
+      var pa=plan(it.shape,T.a,T.b),pe=peri(it.shape,T.a,T.b);
+      var nL=T.flav.reduce(function(s,f){return s+f[1];},0),th=T.h/nL;
+      T.nL=nL; T.th=th;
+      T.flav.forEach(function(f){
+        var R=REC[f[0]];
+        pushTin(f[0],f[1],R.d*pa*th*(1+R.trim),T.a+'″ round',th.toFixed(2)+'″ layer');
+      });
+      gapA+=pa*(nL-1); surfA+=pa+pe*T.h;
+    });
+    needCov(it.fill,gapA,COV[it.fill].t.f,'Between the layers');
+    needCov(it.crumb,surfA,COV[it.crumb].t.c,'Crumb coat');
+    needCov(it.fin,surfA,COV[it.fin].t.n,'Outside finish');
+  }
+  if(it.t==='slab'){
+    var need=Math.ceil(it.n*(1+it.allow/100));
+    var per=perPan(it.pan[1],it.pan[2],it.w,it.l);
+    var slabs=Math.max(1,Math.ceil(need/per)),pa=it.pan[1]*it.pan[2];
+    var nL=it.flav.reduce(function(s,f){return s+f[1];},0),th=it.ht/nL;
+    it.th=th; it.nL=nL; it.slabs=slabs; it.per=per; it.needQty=need;
+    it.flav.forEach(function(f){
+      var R=REC[f[0]];
+      pushTin(f[0],f[1]*slabs,R.d*pa*th*(1+R.trim),it.pan[0],th.toFixed(2)+'″ layer');
+    });
+    needCov(it.fill,pa*(nL-1)*slabs,COV[it.fill].t.f,'Between the layers');
+    needCov(it.top,pa*slabs,COV[it.top].t.n,'On top');
+  }
+  if(it.t==='count'){ pasNeed[it.r]=(pasNeed[it.r]||0)+it.n; }
+});
+
+Object.keys(batNeed).forEach(function(k){addIng(REC[k].ing,batNeed[k]/REC[k].y);});
+Object.keys(covNeed).forEach(function(k){addIng(COV[k].ing,covNeed[k].g/COV[k].y);});
+Object.keys(pasNeed).forEach(function(k){addIng(PAS[k].ing,pasNeed[k]/PAS[k].per);});
+DEC.forEach(function(x){ing[x[0]]=(ing[x[0]]||0)+x[1];});
+
+/* stock: generous by default, two deliberate shortfalls */
+var STOCK={};
+Object.keys(ing).forEach(function(k){STOCK[k]=Math.ceil(ing[k]*1.6/50)*50;});
+STOCK['Unsalted butter']=8000; STOCK['Red food colour']=15;
+
+/* ---------- shared bits ---------- */
+var LIQ=['Whole milk','Buttermilk','Water','Reconstituted cream','White vinegar','Glucose syrup','Glycerine'];
+function sub(name,grams,n){
+  var all=n>1?' in all':'';
+  if(name==='Eggs') return Math.round(grams/50)+' eggs at 50 g'+all;
+  if(LIQ.indexOf(name)>=0 && grams>=400) return (grams/1000).toFixed(2)+' litres'+all;
+  return '';
+}
+function perPanTable(list,scale,n,totG){
+  var h='<table class="t"><thead><tr><th>Ingredient</th><th>Into each pan</th><th>'
+    +(n>1?'× '+n+' pans':'1 pan')+'</th></tr></thead><tbody>';
+  list.forEach(function(x){
+    var per=x[1]*scale,tot=per*n,s=sub(x[0],tot,n);
+    h+='<tr><td>'+x[0]+(s?'<span class="mut">'+s+'</span>':'')+'</td><td>'+g(per)+' g</td><td>'+kg(tot)+'</td></tr>';
+  });
+  return h+'</tbody><tfoot><tr><td>Batter</td><td>'+g(totG)+' g</td><td>'+kg(totG*n)+'</td></tr></tfoot></table>';
+}
+function flatTable(list,scale,totLabel,totG){
+  var h='<table class="t"><thead><tr><th>Ingredient</th><th>Weight</th></tr></thead><tbody>';
+  list.forEach(function(x){var w=x[1]*scale,s=sub(x[0],w,1);
+    h+='<tr><td>'+x[0]+(s?'<span class="mut">'+s+'</span>':'')+'</td><td>'+kg(w)+'</td></tr>';});
+  return h+'</tbody><tfoot><tr><td>'+totLabel+'</td><td>'+kg(totG)+'</td></tr></tfoot></table>';
+}
+
+/* ---------- shopping list ---------- */
+document.getElementById('sub').innerHTML=ORDER.client+' &middot; for '+ORDER.date+' &middot; '
+  +ORDER.items.map(function(i){return i.label.toLowerCase();}).join(', ');
+document.querySelectorAll('.oc').forEach(function(e){e.textContent=ORDER.client;});
+
+function usesOf(k){
+  var u=[];
+  Object.keys(batNeed).forEach(function(r){if(REC[r].ing.some(function(x){return x[0]===k;}))u.push(REC[r].n);});
+  Object.keys(covNeed).forEach(function(r){if(COV[r].ing.some(function(x){return x[0]===k;}))u.push(COV[r].n);});
+  Object.keys(pasNeed).forEach(function(r){if(PAS[r].ing.some(function(x){return x[0]===k;}))u.push(PAS[r].n);});
+  return u;
+}
+var names=Object.keys(ing).sort(),shorts=[];
+document.getElementById('sIng').innerHTML=names.map(function(k){
+  var need=ing[k],have=STOCK[k]||0,sh=Math.max(0,need-have);
+  if(sh>0)shorts.push(k+' '+kg(sh));
+  var u=usesOf(k);
+  var extra=k==='Eggs'?Math.ceil(need/50)+' eggs at 50 g':(u.length>1?u.length+' recipes: '+u.join(', '):u[0]||'decoration');
+  return '<tr'+(sh>0?' class="short"':'')+'><td>'+k+'<span class="mut">'+extra+'</span></td>'
+    +'<td>'+kg(need)+'</td><td>'+kg(have)+'</td><td>'+(sh>0?kg(sh):'—')+'</td></tr>';
+}).join('');
+document.getElementById('sN').textContent=names.length+' ingredients';
+document.getElementById('sWhy').textContent=
+  'Butter alone is '+kg(ing['Unsalted butter'])+' across '+usesOf('Unsalted butter').length
+  +' recipes on this one order. Icing sugar runs through two, cocoa through two.';
+document.getElementById('alerts').innerHTML=shorts.length
+  ? '<div class="alert"><b>Not enough in store for '+shorts.length+' ingredient'+(shorts.length>1?'s':'')+'</b>'
+    +shorts.join(' &middot; ')+'. Buy before the bake day, or the sheet will not balance against inventory.</div>'
+  : '';
+
+var bb='';
+Object.keys(batNeed).forEach(function(k){
+  bb+='<tr><td>'+REC[k].n+'<span class="mut">cake layer</span></td><td>'+kg(batNeed[k])+'</td><td>'
+    +kg(REC[k].y)+'</td><td>'+(batNeed[k]/REC[k].y).toFixed(2)+'</td></tr>';});
+Object.keys(covNeed).forEach(function(k){
+  bb+='<tr><td>'+COV[k].n+'<span class="mut">'+covNeed[k].jobs.join(', ').toLowerCase()+'</span></td><td>'
+    +kg(covNeed[k].g)+'</td><td>'+kg(COV[k].y)+'</td><td>'+(covNeed[k].g/COV[k].y).toFixed(2)+'</td></tr>';});
+Object.keys(pasNeed).forEach(function(k){
+  bb+='<tr><td>'+PAS[k].n+'<span class="mut">counted</span></td><td>'+pasNeed[k]+' pcs</td><td>'
+    +PAS[k].per+' pcs</td><td>'+(pasNeed[k]/PAS[k].per).toFixed(2)+'</td></tr>';});
+document.getElementById('bbs').innerHTML=bb;
+document.getElementById('bbN').textContent=
+  (Object.keys(batNeed).length+Object.keys(covNeed).length+Object.keys(pasNeed).length)+' recipes';
+
+/* ---------- bake sheet ---------- */
+document.getElementById('tins').innerHTML=tins.map(function(t,i){
+  return '<div class="tin"><span class="no">'+(i+1)+'</span>'
+    +'<span><b>'+REC[t.r].n+'</b><em>'+t.w+' &middot; '+t.note+'</em></span>'
+    +'<span class="wt">'+g(t.g)+' g</span></div>';}).join('');
+document.getElementById('tN').textContent=tins.length+' pans';
+var tg=tins.reduce(function(s,t){return s+t.g;},0);
+document.getElementById('tWhy').textContent=
+  kg(tg)+' of batter in all, trim included. Three pan sizes on this order, and the same pan still takes a different weight '
+  +'for each flavour, because vanilla, chocolate and red velvet pour to their own calibration.';
+
+document.getElementById('groups').innerHTML=groups.map(function(G){
+  var R=REC[G.r],sc=G.g/R.y;
+  return '<div class="card"><div class="chead"><span class="ctitle">'+R.n+'</span>'
+    +'<span class="cnote">'+G.w+' &middot; '+G.note+'<br>'+G.n+' pan'+(G.n>1?'s':'')+' at '+g(G.g)+' g</span></div>'
+    +'<div class="cbody">'+perPanTable(R.ing,sc,G.n,G.g)
+    +'<p class="why">Base recipe scaled '+sc.toFixed(2)+'&times;. Trim of '+(R.trim*100)+'% is already inside the pan weight.</p>'
+    +'</div></div>';
+}).join('');
+
+var oth='';
+Object.keys(covNeed).forEach(function(k){
+  var R=COV[k],sc=covNeed[k].g/R.y;
+  oth+='<div class="card"><div class="chead"><span class="ctitle">'+R.n+'</span>'
+    +'<span class="cnote">'+covNeed[k].jobs.join(', ').toLowerCase()+'<br>make '+kg(covNeed[k].g)+'</span></div>'
+    +'<div class="cbody">'+flatTable(R.ing,sc,R.n,covNeed[k].g)
+    +'<p class="why">Base recipe scaled '+sc.toFixed(2)+'&times;. Waste of '+(R.was*100)+'% is already inside this weight.</p>'
+    +'</div></div>';
+});
+Object.keys(pasNeed).forEach(function(k){
+  var R=PAS[k],sc=pasNeed[k]/R.per;
+  oth+='<div class="card"><div class="chead"><span class="ctitle">'+R.n+'</span>'
+    +'<span class="cnote">'+pasNeed[k]+' pieces<br>'+sc.toFixed(2)+' batches</span></div>'
+    +'<div class="cbody">'+flatTable(R.ing,sc,'Dough',R.ing.reduce(function(s,x){return s+x[1]*sc;},0))+'</div></div>';
+});
+oth+='<div class="card"><div class="chead"><span class="ctitle">Decoration materials</span>'
+  +'<span class="cnote">weighed per gram</span></div><div class="cbody">'
+  +'<table class="t"><tbody>'+DEC.map(function(x){
+    return '<tr><td>'+x[0]+'</td><td>'+g(x[1])+' g</td></tr>';}).join('')
+  +'</tbody></table></div></div>';
+document.getElementById('others').innerHTML=oth;
+
+/* ---------- build order ---------- */
+var cake=ORDER.items[0],slab=ORDER.items[1];
+var steps=[
+ ['Two days before','Make the fondant',
+  (covNeed.fd.g/COV.fd.y).toFixed(2)+' batches, '+kg(covNeed.fd.g)+'. It needs to rest overnight before it will roll.'],
+ ['Day before','Bake every pan off the weigh-out list',
+  tins.length+' pans, '+kg(tg)+' of batter, three pan sizes. Weigh each one, do not fill by eye. Cool, wrap, chill.'],
+ ['Day before','Make the ganache',
+  kg(covNeed.gn.g)+' for the crumb coat. Leave it to firm up at room temperature.'],
+ ['Bake day','Make the buttercream',
+  kg(covNeed.bc.g)+' across '+covNeed.bc.jobs.join(' and ').toLowerCase()+'. Make it fresh.'],
+ ['Bake day','Fill and stack the three tiers',
+  cake.tiers.map(function(T){return T.a+'″ at '+T.nL+' × '+T.th.toFixed(2)+'″';}).join(', ')
+  +'. Buttercream between the layers, ganache crumb coat, chill until firm.'],
+ ['Bake day','Cover and stack',
+  kg(covNeed.fd.g)+' of fondant rolled to 8 mm, tier by tier. Dowel the lower two, then the gold leaf and pearls.'],
+ ['Bake day','Build the slabs',
+  slab.slabs+' slabs, each '+slab.nL+' layers at '+slab.th.toFixed(2)+'″. Fill, top, chill hard, then cut '
+  +slab.needQty+' slices at '+slab.w+'″ × '+slab.l+'″.'],
+ ['Delivery day','Fry the doughnuts',
+  pasNeed.dn+' pieces. Same day only, they do not keep.'],
+ ['Delivery day','Pack and check off',
+  'Box the tiers, tray the slices, bag the doughnuts. Marking the order delivered is what posts these ingredients out of inventory.']
+];
+document.getElementById('steps').innerHTML=steps.map(function(s){
+  return '<li><i>'+s[0]+'</i><b>'+s[1]+'</b><span>'+s[2]+'</span></li>';}).join('');
+document.getElementById('mN').textContent=steps.length+' steps';
+
+document.querySelectorAll('.tabs button').forEach(function(t){
+  t.addEventListener('click',function(){
+    document.querySelectorAll('.tabs button').forEach(function(x){x.setAttribute('aria-selected',x===t);});
+    ['s','b','m'].forEach(function(k){
+      document.getElementById('pane-'+k).classList.toggle('on',k===t.dataset.t);});
+    window.scrollTo(0,0);
+  });
+});
+</script>

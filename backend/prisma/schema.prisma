@@ -113,6 +113,24 @@ model Recipe {
   coverRate       Float?             @map("cover_rate")
   sheetOverhangIn Float?             @map("sheet_overhang_in")
   isCalibrated    Boolean            @default(false) @map("is_calibrated")
+  calShape        String?            @map("cal_shape")
+  calDimA         Float?             @map("cal_dim_a")
+  calDimB         Float?             @map("cal_dim_b")
+  calGrams        Float?             @map("cal_grams")
+  calHeightIn     Float?             @map("cal_height_in")
+  trimPct         Float?             @default(0.08) @map("trim_pct")
+  density         Float?
+  canFill         Boolean?           @default(true) @map("can_fill")
+  canCrumb        Boolean?           @default(true) @map("can_crumb")
+  canFinish       Boolean?           @default(true) @map("can_finish")
+  thickFillMm     Float?             @map("thick_fill_mm")
+  thickCrumbMm    Float?             @map("thick_crumb_mm")
+  thickFinishMm   Float?             @map("thick_finish_mm")
+  densityGPerCm3  Float?             @map("density_g_cm3")
+  wastePct        Float?             @map("waste_pct")
+  sellMode        String?            @map("sell_mode")
+  perBatch        Float?             @map("per_batch")
+  breakagePct     Float?             @map("breakage_pct")
   createdAt       DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   orderItems  OrderItem[]
@@ -314,6 +332,7 @@ model InventoryHistory {
   valueAfter      Float
   avgCostAfter    Float
   reason          String?
+  note            String?
   referenceId     String?
   createdAt       DateTime      @default(now())
   inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)

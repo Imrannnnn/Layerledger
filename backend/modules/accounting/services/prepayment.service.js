@@ -42,14 +42,14 @@ class PrepaymentService {
             const monthlyAmount = parseFloat((totalAmount / totalMonths).toFixed(2));
 
             // Asset Account: 1130 Other Receivable & Prepaid Expenses
-            const assetAccount = await chartOfAccountsService.getAccountByCode(tenantId, '1130');
+            const assetAccount = await chartOfAccountsService.getAccountByCode(tenantId, '1130', tx);
             if (!assetAccount) {
                 throw new Error('Account 1130 Other Receivable & Prepaid Expenses not found');
             }
 
             // Destination Expense Account (e.g. 6050 Internet, 5070 Production Rent, 6010 Rent, 6060 Insurance, 6000 Operating Rent)
             const expenseAccountCode = data.expenseAccountCode || data.targetAccountCode || '6050';
-            const expenseAccount = await chartOfAccountsService.getAccountByCode(tenantId, expenseAccountCode);
+            const expenseAccount = await chartOfAccountsService.getAccountByCode(tenantId, expenseAccountCode, tx);
             if (!expenseAccount) {
                 throw new Error(`Expense account code ${expenseAccountCode} not found in chart of accounts`);
             }

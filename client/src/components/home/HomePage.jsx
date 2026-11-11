@@ -1418,7 +1418,7 @@ export function HomePage({
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={onGoToDashboard}
+                  onClick={() => onGoToDashboard && onGoToDashboard("dashboard")}
                 >
                   Go to Workspace ↗
                 </button>
@@ -2449,7 +2449,7 @@ export function HomePage({
             <button
               type="button"
               className="btn btn-primary"
-              onClick={currentUser ? onGoToDashboard : onRegisterClick}
+              onClick={() => currentUser ? (onGoToDashboard && onGoToDashboard("dashboard")) : (onRegisterClick && onRegisterClick())}
             >
               {currentUser ? "Open BakeWealth Workspace ↗" : "Explore BakeWealth ↗"}
             </button>

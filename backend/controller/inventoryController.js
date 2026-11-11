@@ -3,6 +3,49 @@ const { asyncHandler } = require('../middleware/custommiddleware');
 const { getEffectivePlan, PLAN_LIMITS } = require('./planController');
 
 /**
+ * Computes committed stock for all confirmed, undelivered orders
+ */
+async function getCommittedStockMap(tenantId) {
+    try {
+        const confirmedOrders = await prisma.order.findMany({
+            where: {
+                tenantId,
+                status: { in: ['confirmed', 'baking', 'ready'] },
+                deliveredAt: null
+            },
+            select: {
+                metadata: true
+            }
+        });
+
+        const committedMap = new Map();
+        for (const order of confirmedOrders) {
+            const meta = order.metadata || {};
+            if (meta.productionSheet?.shoppingList && Array.isArray(meta.productionSheet.shoppingList)) {
+                for (const item of meta.productionSheet.shoppingList) {
+                    const itemId = item.itemId || item.id;
+                    const qty = Number(item.neededGrams || item.quantity || item.qty) || 0;
+                    if (itemId && qty > 0) {
+                        committedMap.set(itemId, (committedMap.get(itemId) || 0) + qty);
+                    }
+                }
+            } else if (meta.usages && Array.isArray(meta.usages)) {
+                for (const item of meta.usages) {
+                    const itemId = item.itemId || item.id;
+                    const qty = Number(item.qty || item.quantity) || 0;
+                    if (itemId && qty > 0) {
+                        committedMap.set(itemId, (committedMap.get(itemId) || 0) + qty);
+                    }
+                }
+            }
+        }
+        return committedMap;
+    } catch {
+        return new Map();
+    }
+}
+
+/**
  * @desc    Get all inventory items for a tenant (with optional pagination)
  * @route   GET /api/inventory
  * @access  Private
@@ -18,6 +61,17 @@ const getInventory = asyncHandler(async (req, res) => {
     if (category) {
         where.category = category;
     }
+
+    const committedMap = await getCommittedStockMap(tenantId);
+    const enrich = (item) => {
+        const committed = committedMap.get(item.id) || 0;
+        return {
+            ...item,
+            onHand: item.stock,
+            committed: Math.round(committed * 1000) / 1000,
+            free: Math.round((item.stock - committed) * 1000) / 1000
+        };
+    };
 
     if (page || limit) {
         const pageNum = Math.max(1, parseInt(page) || 1);
@@ -38,7 +92,7 @@ const getInventory = asyncHandler(async (req, res) => {
         ]);
 
         return res.json({
-            data: items,
+            data: items.map(enrich),
             total,
             page: pageNum,
             limit: limitNum,
@@ -53,7 +107,7 @@ const getInventory = asyncHandler(async (req, res) => {
             { name: 'asc' }
         ]
     });
-    res.json(items);
+    res.json(items.map(enrich));
 });
 
 /**
@@ -445,6 +499,113 @@ const batchDeleteItems = asyncHandler(async (req, res) => {
     res.json({ message: 'Selected inventory items deleted successfully', count: result.count });
 });
 
+/**
+ * @desc    Submit multi-item stock adjustment with reason codes
+ * @route   POST /api/inventory/adjustments
+ * @access  Private
+ */
+const batchStockAdjustment = asyncHandler(async (req, res) => {
+    const tenantId = req.user.tenantId;
+    const { reason, date, note, adjustments } = req.body;
+
+    const VALID_REASONS = [
+        'Spoilt or expired',
+        'Damaged',
+        'Used for testing or samples',
+        'Theft or loss',
+        'Counted wrong',
+        'Other'
+    ];
+
+    if (!reason || !VALID_REASONS.includes(reason)) {
+        res.status(400);
+        throw new Error(`Invalid adjustment reason. Must be one of: ${VALID_REASONS.join(', ')}`);
+    }
+
+    if (reason === 'Other' && (!note || !note.trim())) {
+        res.status(400);
+        throw new Error('A note is required when reason is "Other"');
+    }
+
+    if (!Array.isArray(adjustments) || adjustments.length === 0) {
+        res.status(400);
+        throw new Error('Adjustments array is required with at least one item');
+    }
+
+    const adjDate = date ? new Date(date) : new Date();
+
+    const results = await prisma.$transaction(async (tx) => {
+        const itemIds = adjustments.map(a => a.itemId).filter(Boolean);
+        const items = await tx.inventoryItem.findMany({
+            where: { id: { in: itemIds }, tenantId }
+        });
+        const itemMap = new Map(items.map(i => [i.id, i]));
+
+        const historyRows = [];
+        const updatedItems = [];
+
+        for (const adj of adjustments) {
+            const item = itemMap.get(adj.itemId);
+            if (!item) {
+                throw new Error(`Inventory item not found: ${adj.itemId}`);
+            }
+
+            let delta = Number(adj.qtyDelta);
+            if (adj.targetQty !== undefined && adj.targetQty !== null && !isNaN(Number(adj.targetQty))) {
+                delta = Number(adj.targetQty) - item.stock;
+            }
+
+            if (isNaN(delta) || delta === 0) {
+                continue;
+            }
+
+            // Direction enforcement:
+            // "Counted wrong is the only two-way reason, because a miscount is the only case
+            // where real stock can turn out to be higher than the record."
+            if (reason !== 'Counted wrong') {
+                if (delta > 0) {
+                    delta = -delta;
+                }
+            }
+
+            const newStock = parseFloat((item.stock + delta).toFixed(4));
+            const newTotalValue = Math.max(0, parseFloat((newStock * item.cost).toFixed(2)));
+
+            const updated = await tx.inventoryItem.update({
+                where: { id: item.id },
+                data: {
+                    stock: newStock,
+                    totalValueOnHand: newTotalValue
+                }
+            });
+            updatedItems.push(updated);
+
+            historyRows.push({
+                tenantId,
+                inventoryItemId: item.id,
+                type: 'ADJUSTMENT',
+                date: adjDate,
+                qtyDelta: delta,
+                valueDelta: parseFloat((delta * item.cost).toFixed(2)),
+                pricePerUnit: item.cost,
+                qtyAfter: newStock,
+                valueAfter: newTotalValue,
+                avgCostAfter: item.cost,
+                reason,
+                note: note || adj.note || null
+            });
+        }
+
+        if (historyRows.length > 0) {
+            await tx.inventoryHistory.createMany({ data: historyRows });
+        }
+
+        return updatedItems;
+    });
+
+    res.json({ success: true, count: results.length, items: results });
+});
+
 module.exports = {
     getInventory,
     createItem,
@@ -453,6 +614,7 @@ module.exports = {
     adjustItem,
     deleteAllInventory,
     deleteOpeningStock,
-    batchDeleteItems
+    batchDeleteItems,
+    batchStockAdjustment
 };
 

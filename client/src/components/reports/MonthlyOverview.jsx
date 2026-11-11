@@ -485,6 +485,31 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
     return parseFloat((qty || 0).toFixed(3))
   }, [monthUsages, monthUsagesByName, inventory])
 
+  const [adjustmentsList, setAdjustmentsList] = useState(() => loadLocal("ll_stock_adjustments", []))
+  useEffect(() => {
+    const loaded = loadLocal("ll_stock_adjustments", [])
+    setAdjustmentsList(loaded)
+  }, [sel])
+
+  const getAdjusted = useCallback((itemOrId) => {
+    if (!itemOrId) return 0
+    let id = typeof itemOrId === "string" ? itemOrId : (itemOrId.id || itemOrId.itemId)
+    let name = (typeof itemOrId === "object" ? itemOrId.name : "")?.trim().toLowerCase()
+    if (!name && typeof itemOrId === "string") {
+      const foundInInv = (inventory || []).find(inv => inv.id === itemOrId)
+      if (foundInInv) name = foundInInv.name?.trim().toLowerCase()
+    }
+    const matching = (adjustmentsList || []).filter(adj => {
+      const d = adj.date || adj.createdAt || ""
+      const matchMonth = isDateInMonth(d, sel)
+      const matchItem = (id && (adj.itemId === id || adj.id === id)) ||
+                        (name && adj.name && adj.name.trim().toLowerCase() === name)
+      return matchMonth && matchItem
+    })
+    const totalDelta = matching.reduce((s, a) => s + (Number(a.delta) || (Number(a.newStock) - Number(a.onHand)) || 0), 0)
+    return parseFloat(totalDelta.toFixed(3))
+  }, [adjustmentsList, sel, inventory])
+
   // Combined inventory list including items entered in Opening Stock and Purchases this month
   const allStockItems = useMemo(() => {
     const list = Array.isArray(inventory) ? [...inventory] : []
@@ -583,21 +608,24 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
     ${mRevenue.length === 0 ? `<tr><td colspan="5" style="color:#888;font-style:italic;padding:12px">No confirmed orders this month</td></tr>` : ""}
     <tr class="total"><td colspan="3" style="text-align:right">Total</td><td>₦${Math.round(prodCost).toLocaleString()}</td><td style="text-align:right">₦${Math.round(rev).toLocaleString()}</td></tr></table>
     <div class="sec">Stock Movement ${isRolledOver ? "(Rolled Over from Previous Month)" : ""}</div>
-    <table><tr><th>Item</th><th>Unit</th><th>Opening</th><th>+ Bought</th><th>− Used</th><th>Closing</th><th>Value</th></tr>
+    <table><tr><th>Item</th><th>Unit</th><th>Opening</th><th>+ Bought</th><th>− Used</th><th>± Adjusted</th><th>Closing</th><th>Value</th></tr>
     ${allStockItems.map(item => {
       const opening = getOSQty(item)
       const cost = item.cost || 0
       const unit = item.unit || ""
       const bought = getBought(item)
       const used = getUsed(item)
-      const closing = Math.max(0, parseFloat((opening + bought - used).toFixed(3)))
-      return `<tr><td>${item.name}</td><td>${unit}</td><td>${opening}</td><td style="color:#357A52">+${bought}</td><td style="color:#B03A2E">−${used}</td><td><strong>${closing}</strong></td><td>₦${Math.round(closing * cost).toLocaleString()}</td></tr>`
+      const adjusted = getAdjusted(item)
+      const closing = Math.max(0, parseFloat((opening + bought - used + adjusted).toFixed(3)))
+      const adjStr = adjusted > 0 ? `+${adjusted}` : `${adjusted}`
+      return `<tr><td>${item.name}</td><td>${unit}</td><td>${opening}</td><td style="color:#357A52">+${bought}</td><td style="color:#B03A2E">−${used}</td><td style="color:${adjusted < 0 ? '#B03A2E' : adjusted > 0 ? '#357A52' : '#888'}">${adjStr}</td><td><strong>${closing}</strong></td><td>₦${Math.round(closing * cost).toLocaleString()}</td></tr>`
     }).join("")}
-    <tr class="total"><td colspan="6" style="text-align:right">Total closing stock value</td><td>₦${Math.round(allStockItems.reduce((s, i) => {
+    <tr class="total"><td colspan="7" style="text-align:right">Total closing stock value</td><td>₦${Math.round(allStockItems.reduce((s, i) => {
       const opening = getOSQty(i)
       const bought = getBought(i)
       const used = getUsed(i)
-      const closing = Math.max(0, parseFloat((opening + bought - used).toFixed(3)))
+      const adjusted = getAdjusted(i)
+      const closing = Math.max(0, parseFloat((opening + bought - used + adjusted).toFixed(3)))
       return s + closing * (i.cost || 0)
     }, 0)).toLocaleString()}</td></tr></table>
     <div class="sec">Overhead Expenses</div>
@@ -732,16 +760,17 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
       <Card style={{ padding: 0, overflowX: "auto", marginBottom: 14 }}>
         <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 600 }}>Stock movement — {monthLabel}</div>
-          <div style={{ fontSize: 11.5, color: "var(--muted)" }}>Opening + Bought − Used = Closing</div>
+          <div style={{ fontSize: 11.5, color: "var(--muted)" }}>Opening + Bought − Used ± Adjusted = Closing</div>
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <TH cols={["Item", "Unit", "Opening", "+ Bought", "− Used", "Closing", "Cost/unit", "Value"]} />
+          <TH cols={["Item", "Unit", "Opening", "+ Bought", "− Used", "± Adjusted", "Closing", "Cost/unit", "Value"]} />
           <tbody>
             {allStockItems.map((item, i) => {
               const opening = getOSQty(item)
               const bought = getBought(item)
               const used = getUsed(item)
-              const closing = Math.max(0, parseFloat((opening + bought - used).toFixed(3)))
+              const adjusted = getAdjusted(item)
+              const closing = Math.max(0, parseFloat((opening + bought - used + adjusted).toFixed(3)))
               const isLow = closing <= (item.minStock || 5)
               return (
                 <TR2
@@ -753,6 +782,9 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
                     <span>{opening} {item.unit}</span>,
                     <span style={{ color: "#357A52", fontWeight: 500 }}>+{bought} {item.unit}</span>,
                     <span style={{ color: "#B03A2E" }}>−{used} {item.unit}</span>,
+                    <span style={{ color: adjusted < 0 ? "#B03A2E" : adjusted > 0 ? "#357A52" : "var(--muted)", fontWeight: adjusted !== 0 ? 500 : 400 }}>
+                      {adjusted > 0 ? `+${adjusted}` : adjusted} {item.unit}
+                    </span>,
                     <span style={{ fontWeight: 600, color: isLow ? "#B03A2E" : "#357A52", display: "inline-flex", alignItems: "center", gap: 3 }}>
                       {closing} {item.unit}{isLow && <AlertTriangle size={11} />}
                     </span>,
@@ -765,12 +797,13 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
           </tbody>
           <tfoot>
             <tr style={{ background: "#F5F0E4" }}>
-              <td colSpan={7} style={{ padding: "10px", textAlign: "right", fontWeight: 600, fontSize: 13 }}>Total closing stock value</td>
+              <td colSpan={8} style={{ padding: "10px", textAlign: "right", fontWeight: 600, fontSize: 13 }}>Total closing stock value</td>
               <td style={{ padding: "10px", textAlign: "left", fontWeight: 700, color: "var(--gold)", fontSize: 15 }}>{fmt(allStockItems.reduce((s, i) => {
                 const opening = getOSQty(i)
                 const bought = getBought(i)
                 const used = getUsed(i)
-                const closing = Math.max(0, parseFloat((opening + bought - used).toFixed(3)))
+                const adjusted = getAdjusted(i)
+                const closing = Math.max(0, parseFloat((opening + bought - used + adjusted).toFixed(3)))
                 return s + closing * (i.cost || 0)
               }, 0))}</td>
             </tr>

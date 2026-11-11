@@ -66,12 +66,9 @@ describe('Weighted Average Cost (WAVCO) Inventory Valuation Integration Tests', 
         if (tenantId) {
             await prisma.tenant.delete({
                 where: { id: tenantId }
-            });
+            }).catch(() => {});
         }
         await prisma.$disconnect();
-        if (prisma.$pool) {
-            await prisma.$pool.end();
-        }
     });
 
     test('Rule 3 — Opening Balance seeding & audit logging', async () => {
@@ -174,9 +171,9 @@ describe('Weighted Average Cost (WAVCO) Inventory Valuation Integration Tests', 
         expect(purHistory[1].valueDelta).toBe(14000);
     });
 
-    test('Rule 2 — Deducting from both totals using CURRENT average cost during USE', async () => {
-        // Worked Example step 4: Use 4 kg (Stock total = 21, value = 25,200, avg = 1,200)
-        const reqOrder = {
+    test('Rule 2 — Confirming an order moves NO stock; Marking DELIVERED deducts stock', async () => {
+        // Step A: Confirming order generates production sheet and moves NO stock
+        const reqConfirm = {
             user: { tenantId },
             body: {
                 status: 'confirmed',
@@ -187,12 +184,31 @@ describe('Weighted Average Cost (WAVCO) Inventory Valuation Integration Tests', 
                 ]
             }
         };
-        const resOrder = mockRes();
+        const resConfirm = mockRes();
+        await callController(createOrder, reqConfirm, resConfirm);
+        expect(resConfirm.status).toHaveBeenCalledWith(201);
 
-        await callController(createOrder, reqOrder, resOrder);
-        expect(resOrder.status).toHaveBeenCalledWith(201);
+        // Stock must still be 25 kg!
+        let item = await prisma.inventoryItem.findUnique({ where: { id: itemId } });
+        expect(item.stock).toBe(25);
 
-        const item = await prisma.inventoryItem.findUnique({ where: { id: itemId } });
+        // Step B: Marking order delivered deducts stock using current average cost
+        const reqDeliver = {
+            user: { tenantId },
+            body: {
+                status: 'delivered',
+                totalPrice: 15000,
+                totalCost: 4800,
+                usages: [
+                    { itemId, qty: 4 }
+                ]
+            }
+        };
+        const resDeliver = mockRes();
+        await callController(createOrder, reqDeliver, resDeliver);
+        expect(resDeliver.status).toHaveBeenCalledWith(201);
+
+        item = await prisma.inventoryItem.findUnique({ where: { id: itemId } });
         expect(item.stock).toBe(21);
         expect(item.totalValueOnHand).toBe(25200);
         expect(item.cost).toBe(1200);
@@ -209,12 +225,13 @@ describe('Weighted Average Cost (WAVCO) Inventory Valuation Integration Tests', 
         expect(usageHistory.valueAfter).toBe(25200);
     });
 
-    test('Rule 3 — Prevent negative stock', async () => {
-        // Try to confirm an order using 30 kg (we only have 21 kg)
+    test('Rule 3 — Prevent negative stock when blockNegativeStock is true', async () => {
+        // Try to deliver an order using 30 kg with blockNegativeStock
         const reqOrder = {
             user: { tenantId },
             body: {
-                status: 'confirmed',
+                status: 'delivered',
+                blockNegativeStock: true,
                 totalPrice: 20000,
                 totalCost: 36000,
                 usages: [
@@ -227,12 +244,12 @@ describe('Weighted Average Cost (WAVCO) Inventory Valuation Integration Tests', 
         await expect(callController(createOrder, reqOrder, resOrder)).rejects.toThrow(/Insufficient stock/);
     });
 
-    test('Rule 3 — Stock reaches 0 sets value to 0, preserves average cost', async () => {
-        // Use exactly the remaining 21 kg
+    test('Rule 3 — Stock reaches 0 sets value to 0, preserves average cost on delivery', async () => {
+        // Use exactly the remaining 21 kg on delivery
         const reqOrder = {
             user: { tenantId },
             body: {
-                status: 'confirmed',
+                status: 'delivered',
                 totalPrice: 30000,
                 totalCost: 25200,
                 usages: [

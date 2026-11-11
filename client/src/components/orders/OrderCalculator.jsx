@@ -10,9 +10,25 @@
 import React, { useState, useEffect, useMemo, useRef } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, SearchableSelect } from "../common/ui.jsx"
 import { fmt, uid, today, MONTHS, SPECIAL_DATE_TYPES, parseSpecialDate, formatSpecialDate, calculateCakeGeometry, calculateFillingGrams, calculateCoveringGrams, getRecipeCoverageValues } from "../../lib/helpers.js"
+import {
+  planArea,
+  perimeter,
+  gapArea,
+  surfaceArea,
+  calculateDensity,
+  gramsPerPan,
+  coveringMass,
+  reverseThicknessMm,
+  perPan,
+  calculatePortionsGeometry,
+  calculateCostStack,
+  deriveOverheadRates,
+  STANDARD_PANS,
+  CM2
+} from "../../lib/cakeGeometry.js"
 import { loadCompany, loadLocal, saveLocal, loadQuotes, saveQuotes, loadClients, upsertClient, clearTempCalculatorState, checkPlanLimit, notifyPlanLimitReached } from "../../lib/data.js"
 import { DEFAULT_MULTS, DECORATION_ITEMS, PRICING_SIZES } from "../../constants.js"
-import { Camera, Check, MessageCircle, ClipboardList, Calculator, Cake, Heart, CalendarHeart, Cookie, X, ChevronDown, ChevronUp, Plus, Trash2, Calendar, Clock, AlertTriangle, Crop, RotateCcw } from "lucide-react"
+import { Camera, Check, MessageCircle, ClipboardList, Calculator, Cake, Heart, CalendarHeart, Cookie, X, ChevronDown, ChevronUp, Plus, Trash2, Calendar, Clock, AlertTriangle, Crop, RotateCcw, FileText } from "lucide-react"
 import ImageCropperModal from "./ImageCropperModal.jsx"
 
 const compressImage = (file, maxWidth = 640, quality = 0.70) => {
@@ -735,10 +751,63 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     return (cpk / 1000) * numGrams
   }
 
-  const layerRecipes = recipes.filter(r => !r.type || r.type === "layer")
+  const getRecipeCostPerGram = (r) => {
+    if (!r) return 0
+    const totalCost = (r.ing || []).reduce((s, ing) => {
+      const it = inventory.find(x => x.id === ing.iid)
+      return s + (it ? (Number(it.cost) || 0) * (Number(ing.qty) || 0) : 0)
+    }, 0)
+    const batchGrams = Number(r.cal_grams) || Number(r.batchWeight) || Number(r.batch_yield_g) ||
+      (r.ing || []).reduce((s, ing) => {
+        const it = inventory.find(x => x.id === ing.iid)
+        return s + (it?.unit === "kg" ? (Number(ing.qty) || 0) * 1000 : it?.unit === "g" ? (Number(ing.qty) || 0) : it?.unit === "L" || it?.unit === "l" ? (Number(ing.qty) || 0) * 1000 : 0)
+      }, 0)
+    return batchGrams > 0 ? totalCost / batchGrams : 0
+  }
+
+  const layerRecipes = recipes.filter(r => !r.type || r.type === "layer" || r.type === "cake_layer")
   const coveringRecipes = recipes.filter(r => r.type === "covering")
   const pastryRecipes = recipes.filter(r => r.type === "pastry")
   const allRecipes = recipes
+
+  const fillingRecipes = useMemo(() => {
+    return recipes.filter(r => {
+      if (r.type === "cake_layer" || r.type === "pastry") return false
+      if (r.job_filling !== undefined || r.can_fill !== undefined) {
+        return Boolean(r.job_filling || r.can_fill)
+      }
+      if (Number(r.thickness_fill) > 0 || Number(r.thickFillMm) > 0) return true
+      const name = (r.name || "").toLowerCase()
+      if (name.includes("fondant")) return false
+      return true
+    })
+  }, [recipes])
+
+  const crumbRecipes = useMemo(() => {
+    return recipes.filter(r => {
+      if (r.type === "cake_layer" || r.type === "pastry") return false
+      if (r.job_crumb !== undefined || r.can_crumb !== undefined) {
+        return Boolean(r.job_crumb || r.can_crumb)
+      }
+      if (Number(r.thickness_crumb) > 0 || Number(r.thickCrumbMm) > 0) return true
+      const name = (r.name || "").toLowerCase()
+      if (name.includes("fondant") || name.includes("whipped cream") || name.includes("caramel")) return false
+      return true
+    })
+  }, [recipes])
+
+  const finishRecipes = useMemo(() => {
+    return recipes.filter(r => {
+      if (r.type === "cake_layer" || r.type === "pastry") return false
+      if (r.job_finish !== undefined || r.can_finish !== undefined) {
+        return Boolean(r.job_finish || r.can_finish)
+      }
+      if (Number(r.thickness_finish) > 0 || Number(r.thickFinishMm) > 0) return true
+      const name = (r.name || "").toLowerCase()
+      if (name.includes("caramel")) return false
+      return true
+    })
+  }, [recipes])
 
   const getRecipeByName = (name) => {
     if (!name || typeof name !== "string") return null
@@ -895,6 +964,33 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     isCollapsed: false
   })
 
+  const createDefaultPortionsItem = (idx = 1) => ({
+    id: "item-" + uid2(),
+    type: "portions",
+    name: `Item ${idx} — Portions`,
+    route: "slab", // "slab" or "count"
+    servings: 100,
+    sliceWidth: 2,
+    sliceLength: 2,
+    sliceHeight: 4,
+    allowancePct: 5,
+    layers: [{ id: uid2(), flavour: "", qty: 1 }],
+    panIndex: 1, // 12x18 half sheet
+    fillingRecipe: "",
+    topFinishRecipe: "",
+    countedServings: 40,
+    countedRecipeId: "",
+    decQty: {},
+    photos: [],
+    photo: null,
+    accRows: [],
+    sameDeliveryAsFirst: idx > 1,
+    deliveryDate: "",
+    collectionTime: "",
+    itemNote: "",
+    isCollapsed: false
+  })
+
   // Auto-restore saved calculator state (with seamless multi-item migration)
   const restoreCalc = () => {
     try {
@@ -985,6 +1081,11 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   const [generalNote, setGeneralNote] = useState(() => saved?.generalNote || saved?.clientNotes || saved?.notes || "")
   const [orderPurpose, setOrderPurpose] = useState(() => saved?.orderPurpose || "sale")
   const [margin, setMargin] = useState(() => saved?.margin || settings.profitPct || 40)
+  const [orderHours, setOrderHours] = useState(() => saved?.orderHours !== undefined ? Number(saved.orderHours) : 6)
+  const [overheadMethod, setOverheadMethod] = useState(() => saved?.overheadMethod || "pct")
+  const [accessoriesPct, setAccessoriesPct] = useState(() => saved?.accessoriesPct !== undefined ? Number(saved.accessoriesPct) : 15)
+  const [rushPct, setRushPct] = useState(() => saved?.rushPct !== undefined ? Number(saved.rushPct) : 0)
+  const [seasonPct, setSeasonPct] = useState(() => saved?.seasonPct !== undefined ? Number(saved.seasonPct) : 0)
   const [salePrice, setSalePrice] = useState(() => saved?.salePrice || "")
   const [deliveryCharge, setDeliveryCharge] = useState(() => saved?.deliveryCharge || "")
   const [vatEnabled, setVatEnabled] = useState(() => saved?.vatEnabled || false)
@@ -1014,6 +1115,11 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     setGeneralNote("")
     setOrderPurpose("sale")
     setMargin(settings?.profitPct || 40)
+    setOrderHours(6)
+    setOverheadMethod("pct")
+    setAccessoriesPct(15)
+    setRushPct(0)
+    setSeasonPct(0)
     setSalePrice("")
     setDeliveryCharge("")
     setVatEnabled(false)
@@ -1088,6 +1194,11 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       generalNote,
       orderPurpose,
       margin,
+      orderHours,
+      overheadMethod,
+      accessoriesPct,
+      rushPct,
+      seasonPct,
       salePrice,
       deliveryCharge,
       vatEnabled,
@@ -1099,7 +1210,11 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   // Item management functions
   const addItem = (type) => {
     const nextIdx = items.length + 1
-    const newItem = type === "pastry" ? createDefaultPastryItem(nextIdx) : createDefaultCakeItem(nextIdx)
+    const newItem = type === "portions"
+      ? createDefaultPortionsItem(nextIdx)
+      : type === "pastry"
+        ? createDefaultPastryItem(nextIdx)
+        : createDefaultCakeItem(nextIdx)
     const updated = [...items, newItem]
     setItems(updated)
     setShowItemPicker(false)
@@ -1121,10 +1236,31 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   }
 
   // Calculation helpers per item
-  const tierCost = (tier) =>
-    (tier.layers || []).reduce((s, l) => s + (l.flavour ? layerCost(l.flavour, tier.size, tier.shape) * (Number(l.qty) || 1) : 0), 0) +
-    (tier.coverings || []).reduce((s, c) => s + coverFillCost(c.type, Number(c.grams) || 0), 0) +
-    (tier.fillings || []).reduce((s, f) => s + coverFillCost(f.type, Number(f.grams) || 0), 0)
+  const tierCost = (tier) => {
+    const totalLayers = (tier.layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || 1
+    const tierHeight = Number(tier.height) > 0 ? Number(tier.height) : (Number(tier.layerHeight) > 0 ? Number(tier.layerHeight) * totalLayers : totalLayers * 2)
+    const layerThickness = tierHeight / totalLayers
+    const pArea = planArea(tier.shape || "Round", Number(tier.size) || 10, Number(tier.sizeB) || 0)
+
+    const batterCost = (tier.layers || []).reduce((s, l) => {
+      if (!l.flavour) return s
+      const r = recipes.find(x => x.name.toLowerCase() === l.flavour.toLowerCase())
+      if (r && r.cal_grams) {
+        const dens = calculateDensity(r.cal_grams, r.cal_shape, r.cal_dim_a, r.cal_dim_b, r.cal_height_in)
+        const trim = r.trim_pct !== undefined ? Number(r.trim_pct) : 0.08
+        const gpp = gramsPerPan(dens, pArea, layerThickness, trim)
+        const cpg = getRecipeCostPerGram(r)
+        return s + (gpp * (Number(l.qty) || 1) * cpg)
+      } else {
+        return s + (layerCost(l.flavour, tier.size, tier.shape) * (Number(l.qty) || 1))
+      }
+    }, 0)
+
+    const covCost = (tier.coverings || []).reduce((s, c) => s + coverFillCost(c.type, Number(c.grams) || 0), 0)
+    const filCost = (tier.fillings || []).reduce((s, f) => s + coverFillCost(f.type, Number(f.grams) || 0), 0)
+
+    return batterCost + covCost + filCost
+  }
 
   const calcItemCost = (item) => {
     if (item.type === "cake") {
@@ -1142,6 +1278,60 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         return s + (unitPrice * qty)
       }, 0)
       return tCost + dCost + topCost + pkgCost
+    } else if (item.type === "portions") {
+      let baseCost = 0
+      if (item.route === "count") {
+        const r = recipes.find(x => x.id === item.countedRecipeId || x.name === item.countedRecipeId)
+        const costEach = r
+          ? (costPerPiece(r.name) || (getRecipeCostPerGram(r) * (Number(r.per_batch) || 50)))
+          : 0
+        baseCost = (Number(item.countedServings) || 40) * costEach
+      } else {
+        const pan = STANDARD_PANS[item.panIndex !== undefined ? item.panIndex : 1] || STANDARD_PANS[1]
+        const pGeom = calculatePortionsGeometry({
+          servings: Number(item.servings) || 100,
+          sliceWidth: Number(item.sliceWidth) || 2,
+          sliceLength: Number(item.sliceLength) || 2,
+          sliceHeight: Number(item.sliceHeight) || 4,
+          allowancePct: Number(item.allowancePct) || 5,
+          pan,
+          layers: (item.layers || [{ flavour: "", qty: 1 }]).map(l => {
+            const r = recipes.find(x => x.id === l.flavour || x.name === l.flavour)
+            const dens = r && r.cal_grams ? calculateDensity(r.cal_grams, r.cal_shape, r.cal_dim_a, r.cal_dim_b, r.cal_height_in) : 0.8
+            const trim = r && r.trim_pct !== undefined ? Number(r.trim_pct) : 0.08
+            const cpg = getRecipeCostPerGram(r)
+            return { ...l, density: dens, trimPct: trim, costPerGram: cpg, recipe: r }
+          }),
+          fillRecipe: (() => {
+            const r = recipes.find(x => x.id === item.fillingRecipe || x.name === item.fillingRecipe)
+            if (!r) return null
+            return {
+              thickMm: Number(r.thick_fill_mm || r.thickFillMm) || 4.5,
+              density: Number(r.density_g_cm3 || r.density) || 0.90,
+              wastePct: Number(r.waste_pct || r.wastePct) || 0.15,
+              costPerGram: getRecipeCostPerGram(r)
+            }
+          })(),
+          topRecipe: (() => {
+            const r = recipes.find(x => x.id === item.topFinishRecipe || x.name === item.topFinishRecipe)
+            if (!r) return null
+            return {
+              thickMm: Number(r.thick_finish_mm || r.thickFinishMm) || 4.0,
+              density: Number(r.density_g_cm3 || r.density) || 1.10,
+              wastePct: Number(r.waste_pct || r.wastePct) || 0.10,
+              costPerGram: getRecipeCostPerGram(r)
+            }
+          })()
+        })
+        baseCost = pGeom.totalCost
+      }
+      const pkgCost = (item.accRows || []).reduce((s, r) => {
+        const pkg = packagingItems.find(p => p.id === r.itemId)
+        const unitPrice = pkg ? pkg.price : (r.price || 0)
+        const qty = Number(r.qty) > 0 ? Number(r.qty) : 1
+        return s + (unitPrice * qty)
+      }, 0)
+      return baseCost + pkgCost
     } else {
       const pCost = (item.pastryItems || []).reduce((s, p) => {
         const pieceCost = p.flavour ? costPerPiece(p.flavour) : 0
@@ -1160,19 +1350,165 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   // Direct costs across all items
   const subtotal = useMemo(() => items.reduce((sum, it) => sum + calcItemCost(it), 0), [items, inventory, recipes, mults])
 
-  const accessoryPct = settings.accessoryPct || 10
-  const profitPct = margin
-  const overheadPct = settings.overheadPct || 27
-  const miscPct = settings.miscPct !== undefined ? settings.miscPct : 5
+  const costStack = useMemo(() => {
+    return calculateCostStack({
+      directCost: subtotal,
+      accessoriesPct: accessoriesPct !== undefined ? accessoriesPct : (settings?.accessoryPct || 15),
+      overheadMethod: overheadMethod || "pct",
+      orderHours: orderHours !== undefined ? orderHours : 6,
+      hourlyRate: settings?.hourlyRate || deriveOverheadRates(settings).hourlyRate,
+      perOrderRate: settings?.perOrderRate || deriveOverheadRates(settings).perOrderRate,
+      overheadPct: settings?.overheadPct || 27,
+      marginPct: margin !== undefined ? margin : (settings?.profitPct || 40),
+      rushPct: rushPct || 0,
+      seasonPct: seasonPct || 0
+    })
+  }, [subtotal, accessoriesPct, overheadMethod, orderHours, settings, margin, rushPct, seasonPct])
 
-  const overheadAmount = Math.round(subtotal * (overheadPct / 100))
-  const accessoryAmount = Math.round(subtotal * (accessoryPct / 100))
-  const miscAmount = Math.round(subtotal * (miscPct / 100))
-  const totalCost = Math.round(subtotal + overheadAmount + accessoryAmount + miscAmount)
-  const suggestedPrice = Math.round(totalCost / Math.max(0.05, 1 - profitPct / 100))
+  const accessoryAmount = Math.round(costStack.accessories)
+  const overheadAmount = Math.round(costStack.overhead)
+  const totalCost = Math.round(costStack.totalCost)
+  const suggestedPrice = Math.round(costStack.price)
+  const chargeAmount = costStack.charge
   const profit = suggestedPrice - totalCost
 
-  const cakePrice = (orderPurpose === "gift" || orderPurpose === "sample") ? 0 : (+salePrice || suggestedPrice)
+  // Detailed itemized cost breakdown matching Claude Artifact 1 & 2
+  const directBreakdown = useMemo(() => {
+    let batterCost = 0, batterGrams = 0;
+    const batterFlavours = [];
+    let fillingCost = 0;
+    const fillingFlavours = [];
+    let crumbCost = 0, crumbGrams = 0;
+    const crumbTypes = [];
+    let finishCost = 0, finishGrams = 0;
+    const finishTypes = [];
+    let decorCost = 0;
+    const decorItems = [];
+    let pkgToppCost = 0;
+    let portionsCost = 0;
+    const portionsDesc = [];
+    let pastryCost = 0;
+    const pastryDesc = [];
+
+    items.forEach(it => {
+      if (it.type === "cake") {
+        (it.tiers || []).forEach(tier => {
+          const totalLayers = (tier.layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || 1;
+          const tierHeight = Number(tier.height) > 0 ? Number(tier.height) : (Number(tier.layerHeight) > 0 ? Number(tier.layerHeight) * totalLayers : totalLayers * 2);
+          const layerThickness = tierHeight / totalLayers;
+          const pArea = planArea(tier.shape || "Round", Number(tier.size) || 10, Number(tier.sizeB) || 0);
+
+          // Batter
+          (tier.layers || []).forEach(l => {
+            if (!l.flavour) return;
+            const r = recipes.find(x => x.name.toLowerCase() === l.flavour.toLowerCase());
+            let cost = 0;
+            let g = 0;
+            if (r && r.cal_grams) {
+              const dens = calculateDensity(r.cal_grams, r.cal_shape, r.cal_dim_a, r.cal_dim_b, r.cal_height_in);
+              const trim = r.trim_pct !== undefined ? Number(r.trim_pct) : 0.08;
+              g = gramsPerPan(dens, pArea, layerThickness, trim) * (Number(l.qty) || 1);
+              cost = g * getRecipeCostPerGram(r);
+            } else {
+              cost = layerCost(l.flavour, tier.size, tier.shape) * (Number(l.qty) || 1);
+            }
+            batterCost += cost;
+            batterGrams += g;
+            if (!batterFlavours.includes(l.flavour)) batterFlavours.push(l.flavour);
+          });
+
+          // Fillings
+          (tier.fillings || []).forEach(f => {
+            if (!f.type) return;
+            const c = coverFillCost(f.type, Number(f.grams) || 0);
+            fillingCost += c;
+            if (!fillingFlavours.includes(f.type)) fillingFlavours.push(f.type);
+          });
+
+          // Coverings
+          (tier.coverings || []).forEach(c => {
+            if (!c.type) return;
+            const g = Number(c.grams) || 0;
+            const cost = coverFillCost(c.type, g);
+            const r = recipes.find(x => x.name.toLowerCase() === c.type.toLowerCase());
+            const isCrumb = r?.job_crumb || r?.can_crumb || c.role === "crumb" || c.type.toLowerCase().includes("crumb");
+            if (isCrumb) {
+              crumbCost += cost;
+              crumbGrams += g;
+              if (!crumbTypes.includes(c.type)) crumbTypes.push(c.type);
+            } else {
+              finishCost += cost;
+              finishGrams += g;
+              if (!finishTypes.includes(c.type)) finishTypes.push(c.type);
+            }
+          });
+        });
+
+        // Decorations
+        decorations.forEach(d => {
+          const qty = it.decQty?.[d.id] || 0;
+          const inv = inventory.find(x => x.id === d.iid);
+          if (inv && qty) {
+            const c = (Number(inv.cost) || 0) * (Number(d.qty) || 0) * qty;
+            decorCost += c;
+            decorItems.push(d.name || inv.name);
+          }
+        });
+
+        // Topper
+        pkgToppCost += (+it.topper?.make || 0) + (+it.topper?.deliver || 0);
+        // Packaging
+        pkgToppCost += (it.accRows || []).reduce((s, r) => {
+          const pkg = packagingItems.find(p => p.id === r.itemId);
+          const unitPrice = pkg ? pkg.price : (r.price || 0);
+          return s + (unitPrice * (Number(r.qty) > 0 ? Number(r.qty) : 1));
+        }, 0);
+
+      } else if (it.type === "portions") {
+        const itemCost = calcItemCost(it);
+        portionsCost += itemCost;
+        const desc = it.route === "count"
+          ? `${it.countedServings || 40} servings (counted)`
+          : `${it.servings || 100} slices (${STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1]?.label || "tray"})`;
+        portionsDesc.push(desc);
+      } else {
+        const itemCost = calcItemCost(it);
+        pastryCost += itemCost;
+        const desc = it.pastryItems?.[0]?.flavour
+          ? `${it.pastryItems[0].qty || 12} pcs ${it.pastryItems[0].flavour}`
+          : "Pastry & desserts";
+        pastryDesc.push(desc);
+      }
+    });
+
+    const batterNotes = batterGrams > 0 ? `${Math.round(batterGrams).toLocaleString()} g · ${batterFlavours.join(" + ")}` : batterFlavours.join(" + ");
+    const fillingNotes = fillingFlavours.length > 0 ? fillingFlavours.join(" + ") : "none";
+    const crumbNotes = crumbTypes.length > 0 ? `${crumbTypes.join(" + ")}${crumbGrams > 0 ? ` · ${Math.round(crumbGrams).toLocaleString()} g` : ""}` : "none";
+    const finishNotes = finishTypes.length > 0 ? `${finishTypes.join(" + ")}${finishGrams > 0 ? ` · ${Math.round(finishGrams).toLocaleString()} g` : ""}` : "none";
+    const decorNotes = decorItems.length > 0 ? decorItems.join(" + ") : "";
+    const portionsNotes = portionsDesc.join(", ");
+    const pastryNotes = pastryDesc.join(", ");
+
+    return {
+      batterCost: Math.round(batterCost),
+      batterNotes,
+      fillingCost: Math.round(fillingCost),
+      fillingNotes,
+      crumbCost: Math.round(crumbCost),
+      crumbNotes,
+      finishCost: Math.round(finishCost),
+      finishNotes,
+      decorCost: Math.round(decorCost),
+      decorNotes,
+      pkgToppCost: Math.round(pkgToppCost),
+      portionsCost: Math.round(portionsCost),
+      portionsNotes,
+      pastryCost: Math.round(pastryCost),
+      pastryNotes
+    };
+  }, [items, inventory, recipes, mults, decorations, packagingItems]);
+
+  const cakePrice = (orderPurpose === "gift" || orderPurpose === "sample") ? 0 : (+salePrice || chargeAmount || suggestedPrice)
   const delivCharge = +deliveryCharge || 0
   const vatAmount = vatEnabled ? Math.round(cakePrice * (vatRate / 100)) : 0
   const grandTotal = cakePrice + delivCharge + vatAmount
@@ -1200,6 +1536,39 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
             totals[p.filling] = (totals[p.filling] || 0) + Number(p.fillingGrams)
           }
         })
+      } else if (it.type === "portions" && it.route !== "count") {
+        if (it.fillingRecipe) {
+          const pan = STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1] || STANDARD_PANS[1]
+          const pGeom = calculatePortionsGeometry({
+            servings: Number(it.servings) || 100,
+            sliceWidth: Number(it.sliceWidth) || 2,
+            sliceLength: Number(it.sliceLength) || 2,
+            sliceHeight: Number(it.sliceHeight) || 4,
+            allowancePct: Number(it.allowancePct) || 5,
+            pan,
+            layers: it.layers || [],
+            fillRecipe: { thickMm: 4.5, density: 0.90, wastePct: 0.15 }
+          })
+          if (pGeom.fillGrams > 0) {
+            totals[it.fillingRecipe] = (totals[it.fillingRecipe] || 0) + pGeom.fillGrams
+          }
+        }
+        if (it.topFinishRecipe) {
+          const pan = STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1] || STANDARD_PANS[1]
+          const pGeom = calculatePortionsGeometry({
+            servings: Number(it.servings) || 100,
+            sliceWidth: Number(it.sliceWidth) || 2,
+            sliceLength: Number(it.sliceLength) || 2,
+            sliceHeight: Number(it.sliceHeight) || 4,
+            allowancePct: Number(it.allowancePct) || 5,
+            pan,
+            layers: it.layers || [],
+            topRecipe: { thickMm: 4.0, density: 1.10, wastePct: 0.10 }
+          })
+          if (pGeom.topGrams > 0) {
+            totals[it.topFinishRecipe] = (totals[it.topFinishRecipe] || 0) + pGeom.topGrams
+          }
+        }
       }
     })
 
@@ -1369,6 +1738,12 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         </div>
 
         {item.tiers.map((tier, ti) => {
+          const totalLayers = (tier.layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || 1
+          const cakeH = Number(tier.height) > 0 ? Number(tier.height) : (Number(tier.layerHeight) > 0 ? Number(tier.layerHeight) * totalLayers : totalLayers * 2)
+          const eachH = cakeH / totalLayers
+          const pArea = planArea(tier.shape || "Round", Number(tier.size) || 10, Number(tier.sizeB) || 0)
+          const peri = perimeter(tier.shape || "Round", Number(tier.size) || 10, Number(tier.sizeB) || 0)
+          const surf = surfaceArea(pArea, peri, cakeH)
           const tc = tierCost(tier)
           return (
             <div
@@ -1384,8 +1759,11 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 borderLeftColor: "var(--gold)"
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
                 <div style={{ fontWeight: 700, fontSize: 13 }}>Cake {ti + 1}</div>
+                <div style={{ fontSize: 11.5, color: "var(--muted)", fontVariantNumeric: "tabular-nums" }}>
+                  {Math.round(surf)} in² outside • {Number(cakeH.toFixed(1))}″ tall
+                </div>
                 {item.tiers.length > 1 && (
                   <button
                     onClick={() => {
@@ -1446,11 +1824,11 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
               {/* Layers */}
               <div style={{ marginBottom: 10 }}>
                 <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-                  Layers — Cake Recipe per Layer *
+                  Flavours — Cake Recipe per Layer *
                 </label>
                 {tier.layers.map((l, li) => (
                   <div key={l.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto auto auto", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, color: "var(--muted)", minWidth: 46 }}>L{li + 1}</span>
+                    <span style={{ fontSize: 11, color: "var(--muted)", minWidth: 46 }}>F{li + 1} (L{li + 1})</span>
                     <select
                       value={l.flavour}
                       onChange={e => {
@@ -1468,7 +1846,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                       <option value="">— Select cake recipe —</option>
                       {(layerRecipes.length > 0 ? layerRecipes : allRecipes).map(r => (
                         <option key={r.id} value={r.name}>
-                          {r.name} {tier.size && tier.shape && layerCost(r.name, tier.size, tier.shape) > 0 ? "— " + fmt(layerCost(r.name, tier.size, tier.shape)) + "/layer" : ""}
+                          {r.name} {!r.cal_grams && !r.calGrams ? "(Uncalibrated)" : ""} {tier.size && tier.shape && layerCost(r.name, tier.size, tier.shape) > 0 ? "— " + fmt(layerCost(r.name, tier.size, tier.shape)) + "/layer" : ""}
                         </option>
                       ))}
                     </select>
@@ -1534,6 +1912,48 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 >
                   + Add layer
                 </button>
+
+                {/* Linked Height Controls */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                      Cake height (in)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0.5"
+                      value={tier.height !== undefined ? tier.height : Number(cakeH.toFixed(2))}
+                      onChange={e => {
+                        const v = parseFloat(e.target.value) || 0
+                        updateItem(item.id, it => ({
+                          ...it,
+                          tiers: it.tiers.map(t => t.id === tier.id ? { ...t, height: v, layerHeight: totalLayers > 0 ? +(v / totalLayers).toFixed(2) : 2 } : t)
+                        }))
+                      }}
+                      style={{ ...iSt }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                      Each layer (in)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0.25"
+                      value={tier.layerHeight !== undefined ? tier.layerHeight : Number(eachH.toFixed(2))}
+                      onChange={e => {
+                        const v = parseFloat(e.target.value) || 0
+                        updateItem(item.id, it => ({
+                          ...it,
+                          tiers: it.tiers.map(t => t.id === tier.id ? { ...t, layerHeight: v, height: totalLayers > 0 ? +(v * totalLayers).toFixed(2) : 4 } : t)
+                        }))
+                      }}
+                      style={{ ...iSt }}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Fillings */}
@@ -1778,6 +2198,30 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 >
                   + Add covering
                 </button>
+
+                {/* Crumb coat warning flag */}
+                {(() => {
+                  const hasFondantOrWhipped = (tier.coverings || []).some(c => {
+                    const n = (c.type || "").toLowerCase()
+                    return n.includes("fondant") || n.includes("whipped cream")
+                  })
+                  const hasCrumb = (tier.coverings || []).some(c => {
+                    const n = (c.type || "").toLowerCase()
+                    return n.includes("ganache") || n.includes("buttercream")
+                  })
+                  if (hasFondantOrWhipped && !hasCrumb) {
+                    const finName = (tier.coverings || []).find(c => {
+                      const n = (c.type || "").toLowerCase()
+                      return n.includes("fondant") || n.includes("whipped cream")
+                    })?.type || "Outside finish"
+                    return (
+                      <div style={{ marginTop: 8, background: "#FFF3CD", border: "1.2px solid #856404", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#856404" }}>
+                        <strong>🚩 No crumb coat.</strong> {finName} needs something underneath to seal the crumbs. This cake will not hold.
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
               </div>
 
               {/* Inspiration Photo for this specific Cake */}
@@ -2142,6 +2586,633 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
             updateItem(item.id, cur => ({ ...cur, itemNote: v }))
           }}
           placeholder="Colour theme, flavour preferences, message on cake…"
+          style={{ ...iSt, height: 60, resize: "vertical", fontFamily: "inherit", fontSize: 12 }}
+        />
+      </div>
+    )
+  }
+
+  // RENDER PORTIONS ITEM INTERFACE
+  const renderPortionsItem = (item, itemIndex) => {
+    const itemCost = calcItemCost(item)
+    const deliv = getDeliveryDetails(item, itemIndex)
+    const isSlab = (item.route || "slab") === "slab"
+
+    // Pan & geometry calculations
+    const selectedPan = STANDARD_PANS[item.panIndex !== undefined ? item.panIndex : 1] || STANDARD_PANS[1]
+    const pGeom = calculatePortionsGeometry({
+      servings: Number(item.servings) || 100,
+      sliceWidth: Number(item.sliceWidth) || 2,
+      sliceLength: Number(item.sliceLength) || 2,
+      sliceHeight: Number(item.sliceHeight) || 4,
+      allowancePct: Number(item.allowancePct) || 5,
+      pan: selectedPan,
+      layers: (item.layers || [{ flavour: "", qty: 1 }]).map(l => {
+        const r = recipes.find(x => x.id === l.flavour || x.name === l.flavour)
+        const dens = r && r.cal_grams ? calculateDensity(r.cal_grams, r.cal_shape, r.cal_dim_a, r.cal_dim_b, r.cal_height_in) : 0.8
+        const trim = r && r.trim_pct !== undefined ? Number(r.trim_pct) : 0.08
+        const cpg = getRecipeCostPerGram(r)
+        return { ...l, density: dens, trimPct: trim, costPerGram: cpg, recipe: r }
+      }),
+      fillRecipe: (() => {
+        const r = recipes.find(x => x.id === item.fillingRecipe || x.name === item.fillingRecipe)
+        if (!r) return null
+        return {
+          thickMm: Number(r.thick_fill_mm || r.thickFillMm) || 4.5,
+          density: Number(r.density_g_cm3 || r.density) || 0.90,
+          wastePct: Number(r.waste_pct || r.wastePct) || 0.15,
+          costPerGram: getRecipeCostPerGram(r),
+          recipe: r
+        }
+      })(),
+      topRecipe: (() => {
+        const r = recipes.find(x => x.id === item.topFinishRecipe || x.name === item.topFinishRecipe)
+        if (!r) return null
+        return {
+          thickMm: Number(r.thick_finish_mm || r.thickFinishMm) || 4.0,
+          density: Number(r.density_g_cm3 || r.density) || 1.10,
+          wastePct: Number(r.waste_pct || r.wastePct) || 0.10,
+          costPerGram: getRecipeCostPerGram(r),
+          recipe: r
+        }
+      })()
+    })
+
+    // Counted mode calculation
+    const countedRecipe = recipes.find(r => r.id === item.countedRecipeId || r.name === item.countedRecipeId)
+    const countedCostEach = countedRecipe
+      ? (costPerPiece(countedRecipe.name) || (getRecipeCostPerGram(countedRecipe) * (Number(countedRecipe.per_batch) || 50)))
+      : 0
+    const countedServings = Number(item.countedServings) || 40
+    const countedTotalCost = countedServings * countedCostEach
+    const countedBatchSize = Number(countedRecipe?.per_batch) || Number(countedRecipe?.batchSize) || 30
+    const countedBatches = countedBatchSize > 0 ? (countedServings / countedBatchSize).toFixed(2) : "0"
+
+    return (
+      <div
+        key={item.id}
+        style={{
+          border: "1.8px solid var(--gold)",
+          borderRadius: 16,
+          padding: 16,
+          marginBottom: 16,
+          background: "var(--white, #FFFEFA)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.03)"
+        }}
+      >
+        {/* Item Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 16 }}>
+              🍰 {item.name || `Item ${itemIndex + 1} — Portions`}
+            </span>
+            <span style={{ fontSize: 12, color: "var(--gold)", fontWeight: 600 }}>
+              • {fmt(itemCost)} cost
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                background: deliv.isSameAsAbove ? "#F5F0E4" : (deliv.date ? "#EBF7F0" : "#FAF6EC"),
+                color: deliv.isSameAsAbove ? "var(--charcoal-soft, #6B6151)" : (deliv.date ? "#1E6B37" : "var(--muted)"),
+                border: "1px solid " + (deliv.date ? "#C2E0CF" : "var(--cream-line, #E3D6B3)"),
+                borderRadius: 14,
+                padding: "3px 9px",
+                fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4
+              }}
+            >
+              <Calendar size={11} /> {deliv.text}
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button
+              onClick={() => removeItem(item.id)}
+              style={{
+                background: "none",
+                border: "1px solid var(--border)",
+                borderRadius: 7,
+                padding: "4px 8px",
+                color: "#B03A2E",
+                fontSize: 11.5,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3
+              }}
+            >
+              <Trash2 size={12} /> Remove
+            </button>
+          </div>
+        </div>
+
+        {/* Note from spec */}
+        <div style={{ background: "var(--cream, #FAF6EC)", border: "1px solid var(--cream-line, #E3D6B3)", borderRadius: 10, padding: "9px 12px", fontSize: 12, color: "var(--text)", marginBottom: 12 }}>
+          <strong>This is the order, not a recipe.</strong> The client asked for a number of servings. There are two ways to make them, and the card asks which.
+        </div>
+
+        {/* Route Segmented Toggle */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 6 }}>
+            How are these made?
+          </label>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => updateItem(item.id, cur => ({ ...cur, route: "slab" }))}
+              style={{
+                flex: 1,
+                padding: "9px 8px",
+                borderRadius: 9,
+                border: isSlab ? "2px solid var(--gold)" : "1px solid var(--cream-line, #E3D6B3)",
+                background: isSlab ? "#FEF9EE" : "var(--panel)",
+                color: isSlab ? "var(--gold)" : "var(--muted)",
+                fontWeight: isSlab ? 700 : 500,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: 13
+              }}
+            >
+              Cut from a cake
+            </button>
+            <button
+              type="button"
+              onClick={() => updateItem(item.id, cur => ({ ...cur, route: "count" }))}
+              style={{
+                flex: 1,
+                padding: "9px 8px",
+                borderRadius: 9,
+                border: !isSlab ? "2px solid var(--gold)" : "1px solid var(--cream-line, #E3D6B3)",
+                background: !isSlab ? "#FEF9EE" : "var(--panel)",
+                color: !isSlab ? "var(--gold)" : "var(--muted)",
+                fontWeight: !isSlab ? 700 : 500,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: 13
+              }}
+            >
+              Counted items
+            </button>
+          </div>
+        </div>
+
+        {/* SLAB MODE */}
+        {isSlab ? (
+          <div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                  Servings
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="10"
+                  value={item.servings || 100}
+                  onChange={e => updateItem(item.id, cur => ({ ...cur, servings: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  style={{ ...iSt }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                  Slice width (in)
+                </label>
+                <input
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  value={item.sliceWidth || 2}
+                  onChange={e => updateItem(item.id, cur => ({ ...cur, sliceWidth: parseFloat(e.target.value) || 2 }))}
+                  style={{ ...iSt }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                  Slice length (in)
+                </label>
+                <input
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  value={item.sliceLength || 2}
+                  onChange={e => updateItem(item.id, cur => ({ ...cur, sliceLength: parseFloat(e.target.value) || 2 }))}
+                  style={{ ...iSt }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                  Slice height (in)
+                </label>
+                <input
+                  type="number"
+                  min="0.5"
+                  step="0.25"
+                  value={item.sliceHeight || 4}
+                  onChange={e => updateItem(item.id, cur => ({ ...cur, sliceHeight: parseFloat(e.target.value) || 4 }))}
+                  style={{ ...iSt }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                  Cutting allowance %
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={item.allowancePct !== undefined ? item.allowancePct : 5}
+                  onChange={e => updateItem(item.id, cur => ({ ...cur, allowancePct: parseFloat(e.target.value) || 0 }))}
+                  style={{ ...iSt }}
+                />
+              </div>
+            </div>
+
+            {/* Flavours & Layers */}
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--cream-line, #E3D6B3)" }}>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>
+                What it is made of
+              </div>
+              <label style={{ display: "block", fontSize: 10, color: "var(--muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600 }}>
+                Flavours • how many layers of each
+              </label>
+
+              {(item.layers || [{ id: uid2(), flavour: "", qty: 1 }]).map((l, li) => (
+                <div key={l.id || li} style={{ display: "grid", gridTemplateColumns: "30px 1fr 64px 32px", gap: 7, alignItems: "center", marginBottom: 7 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>F{li + 1}</span>
+                  <select
+                    value={l.flavour || ""}
+                    onChange={e => {
+                      const val = e.target.value
+                      updateItem(item.id, cur => ({
+                        ...cur,
+                        layers: (cur.layers || []).map((layer, idx) => idx === li ? { ...layer, flavour: val } : layer)
+                      }))
+                    }}
+                    style={{ ...iSt }}
+                  >
+                    <option value="">— Select cake flavour —</option>
+                    {(layerRecipes.length > 0 ? layerRecipes : allRecipes).map(r => (
+                      <option key={r.id} value={r.name}>{r.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={l.qty || 1}
+                    onChange={e => {
+                      const val = Math.max(1, parseInt(e.target.value) || 1)
+                      updateItem(item.id, cur => ({
+                        ...cur,
+                        layers: (cur.layers || []).map((layer, idx) => idx === li ? { ...layer, qty: val } : layer)
+                      }))
+                    }}
+                    style={{ ...iSt, textAlign: "center" }}
+                  />
+                  {(item.layers || []).length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => updateItem(item.id, cur => ({
+                        ...cur,
+                        layers: cur.layers.filter((_, idx) => idx !== li)
+                      }))}
+                      style={{ background: "transparent", border: "1px solid var(--cream-line, #E3D6B3)", borderRadius: 7, color: "#B03A2E", fontSize: 16, cursor: "pointer", height: 38, lineHeight: 1 }}
+                    >
+                      ×
+                    </button>
+                  ) : <span />}
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={() => updateItem(item.id, cur => ({
+                  ...cur,
+                  layers: [...(cur.layers || []), { id: uid2(), flavour: "", qty: 1 }]
+                }))}
+                style={{ background: "none", border: 0, color: "var(--gold)", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "4px 0", fontFamily: "inherit" }}
+              >
+                + Add another flavour
+              </button>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                    Filling
+                  </label>
+                  <select
+                    value={item.fillingRecipe || ""}
+                    onChange={e => updateItem(item.id, cur => ({ ...cur, fillingRecipe: e.target.value }))}
+                    style={{ ...iSt }}
+                  >
+                    <option value="">None</option>
+                    {(fillingRecipes.length > 0 ? fillingRecipes : allFillingTypes.map(name => ({ id: name, name }))).map(r => (
+                      <option key={r.id || r.name} value={r.name}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                    Top finish
+                  </label>
+                  <select
+                    value={item.topFinishRecipe || ""}
+                    onChange={e => updateItem(item.id, cur => ({ ...cur, topFinishRecipe: e.target.value }))}
+                    style={{ ...iSt }}
+                  >
+                    <option value="">None</option>
+                    {(finishRecipes.length > 0 ? finishRecipes : allCoveringTypes.map(name => ({ id: name, name }))).map(r => (
+                      <option key={r.id || r.name} value={r.name}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <p style={{ fontSize: 11.5, color: "var(--muted)", margin: "8px 0 0", lineHeight: 1.45 }}>
+                {`A slice is ${item.sliceHeight || 4}″ tall with ${pGeom.totalLayers} layer${pGeom.totalLayers > 1 ? "s" : ""} inside, so every layer is cut to ${pGeom.layerThickness.toFixed(2)}″. The height decides the batter and each flavour is weighed by its own calibration. ${pGeom.totalLayers} layers also means ${Math.max(pGeom.totalLayers - 1, 0)} gap${pGeom.totalLayers - 1 === 1 ? "" : "s"} of filling, so the buttercream moves whenever you change the layers.`}
+              </p>
+            </div>
+
+            {/* Which pan, and how many */}
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--cream-line, #E3D6B3)" }}>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>
+                Which pan, and how many
+              </div>
+              <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                Pan
+              </label>
+              <select
+                value={item.panIndex !== undefined ? item.panIndex : 1}
+                onChange={e => updateItem(item.id, cur => ({ ...cur, panIndex: Number(e.target.value) }))}
+                style={{ ...iSt }}
+              >
+                {STANDARD_PANS.map((p, idx) => (
+                  <option key={idx} value={idx}>{p.label}</option>
+                ))}
+              </select>
+
+              {/* 4 live pan summary chips */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, margin: "10px 0" }}>
+                <div style={{ background: "var(--cream, #FAF6EC)", border: "1px solid var(--cream-line, #E3D6B3)", borderRadius: 9, padding: "8px 10px", textAlign: "center" }}>
+                  <div style={{ fontSize: 9.5, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, letterSpacing: ".04em" }}>Slices a slab gives</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--gold)", fontFamily: "'Playfair Display',serif" }}>{pGeom.slicesPerSlab}</div>
+                </div>
+                <div style={{ background: "var(--cream, #FAF6EC)", border: "1px solid var(--cream-line, #E3D6B3)", borderRadius: 9, padding: "8px 10px", textAlign: "center" }}>
+                  <div style={{ fontSize: 9.5, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, letterSpacing: ".04em" }}>Slabs to build</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--gold)", fontFamily: "'Playfair Display',serif" }}>{pGeom.slabs}</div>
+                </div>
+                <div style={{ background: "var(--cream, #FAF6EC)", border: "1px solid var(--cream-line, #E3D6B3)", borderRadius: 9, padding: "8px 10px", textAlign: "center" }}>
+                  <div style={{ fontSize: 9.5, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, letterSpacing: ".04em" }}>Pans to bake</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--gold)", fontFamily: "'Playfair Display',serif" }}>{pGeom.totalPans}</div>
+                </div>
+                <div style={{ background: "var(--cream, #FAF6EC)", border: "1px solid var(--cream-line, #E3D6B3)", borderRadius: 9, padding: "8px 10px", textAlign: "center" }}>
+                  <div style={{ fontSize: 9.5, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, letterSpacing: ".04em" }}>Batter</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--gold)", fontFamily: "'Playfair Display',serif" }}>
+                    {pGeom.totalBatterGrams >= 1000 ? (pGeom.totalBatterGrams / 1000).toFixed(2) + " kg" : Math.round(pGeom.totalBatterGrams) + " g"}
+                  </div>
+                </div>
+              </div>
+
+              <p style={{ fontSize: 11.5, color: "var(--muted)", margin: "4px 0 10px", lineHeight: 1.45 }}>
+                {`A ${selectedPan.label} cuts ${pGeom.slicesPerSlab} slices at ${item.sliceWidth || 2}″ × ${item.sliceLength || 2}″. ${pGeom.neededServings} needed with the allowance, so ${pGeom.slabs} slab${pGeom.slabs > 1 ? "s" : ""} of ${pGeom.totalLayers} layer${pGeom.totalLayers > 1 ? "s" : ""}, which is ${pGeom.totalPans} pans. The full scaled recipe for each pan prints on the production sheet.`}
+              </p>
+
+              {/* What it costs you breakdown table */}
+              <div style={{ marginTop: 12, borderTop: "1px solid var(--cream-line, #E3D6B3)", paddingTop: 10 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)", marginBottom: 8 }}>
+                  What it costs you
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                  <tbody>
+                    {pGeom.flavourRows.map((fr, idx) => (
+                      <tr key={idx} style={{ borderBottom: "1px solid var(--cream-line, #E3D6B3)" }}>
+                        <td style={{ padding: "6px 0" }}>
+                          <strong>{fr.recipe?.name || `Flavour ${idx + 1}`}</strong>
+                          <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>
+                            {fr.pansForRow} pan{fr.pansForRow > 1 ? "s" : ""} at {Math.round(fr.gramsPerPan)} g • {fr.layerCount} layer{fr.layerCount > 1 ? "s" : ""} of {pGeom.layerThickness.toFixed(2)}″ • {fr.totalGrams >= 1000 ? (fr.totalGrams / 1000).toFixed(2) + " kg" : Math.round(fr.totalGrams) + " g"}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 600, padding: "6px 0", whiteSpace: "nowrap" }}>
+                          {fmt(fr.cost)}
+                        </td>
+                      </tr>
+                    ))}
+                    {pGeom.fillCost > 0 && (
+                      <tr style={{ borderBottom: "1px solid var(--cream-line, #E3D6B3)" }}>
+                        <td style={{ padding: "6px 0" }}>
+                          <strong>{pGeom.fillRecipe?.recipe?.name || "Filling"}</strong>
+                          <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>
+                            Filling • {pGeom.fillGrams >= 1000 ? (pGeom.fillGrams / 1000).toFixed(2) + " kg" : Math.round(pGeom.fillGrams) + " g"}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 600, padding: "6px 0", whiteSpace: "nowrap" }}>
+                          {fmt(pGeom.fillCost)}
+                        </td>
+                      </tr>
+                    )}
+                    {pGeom.topCost > 0 && (
+                      <tr style={{ borderBottom: "1px solid var(--cream-line, #E3D6B3)" }}>
+                        <td style={{ padding: "6px 0" }}>
+                          <strong>{pGeom.topRecipe?.recipe?.name || "Top finish"}</strong>
+                          <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>
+                            Top finish • {pGeom.topGrams >= 1000 ? (pGeom.topGrams / 1000).toFixed(2) + " kg" : Math.round(pGeom.topGrams) + " g"}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 600, padding: "6px 0", whiteSpace: "nowrap" }}>
+                          {fmt(pGeom.topCost)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr style={{ fontWeight: 700, borderTop: "2px solid var(--gold)" }}>
+                      <td style={{ padding: "8px 0", color: "var(--gold)" }}>
+                        {item.servings || 100} servings • {fmt(pGeom.totalCost / (item.servings || 100))} each
+                      </td>
+                      <td style={{ textAlign: "right", padding: "8px 0", color: "var(--gold)", fontSize: 14 }}>
+                        {fmt(pGeom.totalCost)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* COUNTED MODE */
+          <div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                  Servings
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="5"
+                  value={item.countedServings || 40}
+                  onChange={e => updateItem(item.id, cur => ({ ...cur, countedServings: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  style={{ ...iSt }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                  Item
+                </label>
+                <select
+                  value={item.countedRecipeId || ""}
+                  onChange={e => updateItem(item.id, cur => ({ ...cur, countedRecipeId: e.target.value }))}
+                  style={{ ...iSt }}
+                >
+                  <option value="">— Select item —</option>
+                  {(pastryRecipes.length > 0 ? pastryRecipes : allRecipes).map(r => (
+                    <option key={r.id} value={r.id || r.name}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 12, borderTop: "1px solid var(--cream-line, #E3D6B3)", paddingTop: 10 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)", marginBottom: 8 }}>
+                What it costs you
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                <tbody>
+                  <tr style={{ borderBottom: "1px solid var(--cream-line, #E3D6B3)" }}>
+                    <td style={{ padding: "6px 0" }}>Cost each</td>
+                    <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(countedCostEach)}</td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid var(--cream-line, #E3D6B3)" }}>
+                    <td style={{ padding: "6px 0" }}>Batches to make</td>
+                    <td style={{ textAlign: "right", fontWeight: 600 }}>{countedBatches}</td>
+                  </tr>
+                  <tr style={{ fontWeight: 700, borderTop: "2px solid var(--gold)" }}>
+                    <td style={{ padding: "8px 0", color: "var(--gold)" }}>
+                      {countedServings} servings
+                    </td>
+                    <td style={{ textAlign: "right", padding: "8px 0", color: "var(--gold)", fontSize: 14 }}>
+                      {fmt(countedTotalCost)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p style={{ fontSize: 11.5, color: "var(--muted)", margin: "8px 0 0", lineHeight: 1.45 }}>
+                Nothing geometric here. The recipe already says how many a batch makes, so the app multiplies.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Section: Packaging */}
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "16px 0 8px", borderTop: "1px solid var(--cream-line, #E3D6B3)", paddingTop: 12 }}>
+          Packaging
+        </div>
+        {(item.accRows || []).map(r => {
+          const pkg = packagingItems.find(p => p.id === r.itemId)
+          const unitPrice = pkg ? pkg.price : (r.price || 0)
+          const qty = Number(r.qty) > 0 ? Number(r.qty) : 1
+          const rowCost = unitPrice * qty
+
+          return (
+            <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1fr 50px 70px 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+              <select
+                value={r.itemId}
+                onChange={e => {
+                  const itm = packagingItems.find(p => p.id === e.target.value)
+                  updateItem(item.id, cur => ({
+                    ...cur,
+                    accRows: cur.accRows.map(x => x.id === r.id ? { ...x, itemId: e.target.value, name: itm?.name || "", price: itm?.price || 0 } : x)
+                  }))
+                }}
+                style={{ ...iSt }}
+              >
+                <option value="">— Select packaging —</option>
+                {packagingItems.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} ({fmt(p.price)})</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="1"
+                value={r.qty}
+                onChange={e => {
+                  const val = Math.max(1, parseInt(e.target.value) || 1)
+                  updateItem(item.id, cur => ({
+                    ...cur,
+                    accRows: cur.accRows.map(x => x.id === r.id ? { ...x, qty: val } : x)
+                  }))
+                }}
+                style={{ ...iSt, textAlign: "center" }}
+              />
+              <span style={{ fontSize: 12, color: "var(--gold)", fontWeight: 600, textAlign: "right" }}>
+                {fmt(rowCost)}
+              </span>
+              <button
+                type="button"
+                onClick={() => updateItem(item.id, cur => ({
+                  ...cur,
+                  accRows: cur.accRows.filter(x => x.id !== r.id)
+                }))}
+                style={{ background: "none", border: "1px solid var(--cream-line, #E3D6B3)", borderRadius: 4, color: "var(--muted)", cursor: "pointer", height: 28 }}
+              >
+                ×
+              </button>
+            </div>
+          )
+        })}
+        <button
+          type="button"
+          onClick={() => updateItem(item.id, cur => ({
+            ...cur,
+            accRows: [...(cur.accRows || []), { id: uid2(), itemId: "", qty: 1 }]
+          }))}
+          style={{ fontSize: 10.5, color: "var(--gold)", border: "1.2px dashed var(--cream-line, #E3D6B3)", borderRadius: 7, padding: "5px 9px", background: "transparent", cursor: "pointer", marginTop: 2 }}
+        >
+          + Add packaging item
+        </button>
+
+        {/* Section: Delivery Details */}
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px", borderTop: "1px solid var(--cream-line, #E3D6B3)", paddingTop: 12 }}>
+          Delivery Details
+        </div>
+        {itemIndex > 0 && (
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, marginBottom: 8, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={item.sameDeliveryAsFirst}
+              onChange={e => updateItem(item.id, cur => ({ ...cur, sameDeliveryAsFirst: e.target.checked }))}
+            />
+            <span>Same as above (delivery date &amp; time)</span>
+          </label>
+        )}
+        {(!itemIndex || !item.sameDeliveryAsFirst) && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <Inp
+              label="Date"
+              type="date"
+              value={item.deliveryDate}
+              onChange={v => updateItem(item.id, cur => ({ ...cur, deliveryDate: v }))}
+            />
+            <Inp
+              label="Time"
+              type="time"
+              value={item.collectionTime}
+              onChange={v => updateItem(item.id, cur => ({ ...cur, collectionTime: v }))}
+            />
+          </div>
+        )}
+
+        {/* Section: Item Note */}
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px" }}>
+          Item Note
+        </div>
+        <textarea
+          rows={2}
+          value={item.itemNote}
+          onChange={e => {
+            const v = e.target.value
+            updateItem(item.id, cur => ({ ...cur, itemNote: v }))
+          }}
+          placeholder="Cutting instructions, packaging preferences, allergy notes…"
           style={{ ...iSt, height: 60, resize: "vertical", fontFamily: "inherit", fontSize: 12 }}
         />
       </div>
@@ -2560,7 +3631,13 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       const activeTopper = items.find(it => it.topper?.enabled)?.topper || { enabled: false, make: "", deliver: "", description: "" }
 
       const itemSummaries = items.map((it, idx) => {
-        if (it.type === "cake") {
+        if (it.type === "portions") {
+          if (it.route === "count") {
+            return `${it.name || `Item ${idx + 1}`}: ${it.countedServings || 40} counted servings`
+          }
+          const pan = STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1] || STANDARD_PANS[1]
+          return `${it.name || `Item ${idx + 1}`}: ${it.servings || 100} slices (${pan.label})`
+        } else if (it.type === "cake") {
           const tSum = (it.tiers || []).map(t => `${t.size}" ${t.shape} (${t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + (l.flavour || "?")).join("/")})`).join(" + ")
           return `${it.name || `Item ${idx + 1}`}: ${tSum || "Cake"}`
         } else {
@@ -2608,7 +3685,15 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         hasMultiDeliveryDates,
         deliveryDates: formattedItems.map(it => it.deliveryDate).filter(Boolean),
         // Backward compatibility fields for QuotesPage, Invoices, ProductionList, and sync:
-        productType: items.some(i => i.type === "cake") && items.some(i => i.type === "pastry") ? "Cake & Pastry" : (items.some(i => i.type === "cake") ? "Cake" : "Pastry"),
+        productType: items.some(i => i.type === "portions")
+          ? "Portions"
+          : (items.some(i => i.type === "cake") && items.some(i => i.type === "pastry") ? "Cake & Pastry" : (items.some(i => i.type === "cake") ? "Cake" : "Pastry")),
+        orderHours,
+        overheadMethod,
+        accessoriesPct,
+        rushPct,
+        seasonPct,
+        chargeAmount,
         tiers: cakeTiers,
         pastryItems: allPastryItems,
         donutGroups: allPastryItems.map(p => ({ flavour: p.flavour, qty: p.qty, filling: p.filling, fillingGrams: p.fillingGrams })),
@@ -3289,7 +4374,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, textAlign: "center" }}>
               What item are you adding?
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <button
                 onClick={() => addItem("cake")}
                 style={{
@@ -3307,6 +4392,24 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 <Cake size={26} color="var(--gold)" style={{ marginBottom: 6 }} />
                 <div style={{ fontSize: 14, fontWeight: 700, color: "var(--gold)" }}>Cake</div>
                 <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Sizes, layers, tiers, fillings</div>
+              </button>
+              <button
+                onClick={() => addItem("portions")}
+                style={{
+                  padding: "16px 12px",
+                  borderRadius: 10,
+                  border: "1.5px solid var(--gold)",
+                  background: "var(--panel)",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center"
+                }}
+              >
+                <Cake size={26} color="var(--gold)" style={{ marginBottom: 6 }} />
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--gold)" }}>Portions</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Slices, slabs, counted servings</div>
               </button>
               <button
                 onClick={() => addItem("pastry")}
@@ -3344,7 +4447,11 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         <div>
           {/* RENDER ALL ITEMS */}
           {items.map((item, idx) => (
-            item.type === "cake" ? renderCakeItem(item, idx) : renderPastryItem(item, idx)
+            item.type === "portions"
+              ? renderPortionsItem(item, idx)
+              : item.type === "cake"
+                ? renderCakeItem(item, idx)
+                : renderPastryItem(item, idx)
           ))}
 
           {/* BOTTOM ADD ITEM BUTTON (only shows when items exist) */}
@@ -3422,9 +4529,11 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
               >
                 {items.map((it, idx) => {
                   const iPrice = getItemPrice(it)
-                  const desc = it.type === "cake"
-                    ? (it.tiers?.[0]?.size ? `${it.tiers[0].size}" ${it.tiers[0].shape || "Round"} Cake` : "Cake")
-                    : (it.pastryItems?.[0]?.flavour ? `${it.pastryItems[0].qty || 12} pcs ${it.pastryItems[0].flavour}` : "Pastry")
+                  const desc = it.type === "portions"
+                    ? (it.route === "count" ? `${it.countedServings || 40} servings (counted)` : `${it.servings || 100} slices (${STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1]?.label || "tray"})`)
+                    : it.type === "cake"
+                      ? (it.tiers?.[0]?.size ? `${it.tiers[0].size}" ${it.tiers[0].shape || "Round"} Cake` : "Cake")
+                      : (it.pastryItems?.[0]?.flavour ? `${it.pastryItems[0].qty || 12} pcs ${it.pastryItems[0].flavour}` : "Pastry")
                   const deliv = getDeliveryDetails(it, idx)
                   const thumb = getItemThumb(it)
 
@@ -3463,7 +4572,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                             flexShrink: 0
                           }}
                         >
-                          {it.type === "cake" ? "🎂" : "🍩"}
+                          {it.type === "portions" ? "🍰" : it.type === "cake" ? "🎂" : "🍩"}
                         </div>
                       )}
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -3512,30 +4621,245 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
               </div>
             )}
 
-            {/* DETAILED COST BREAKDOWN */}
+            {/* ORDER-LEVEL SETTINGS & OVERHEAD */}
             <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 3 }}>
-                <span>Direct Items Cost</span>
-                <span>{fmt(subtotal)}</span>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)", marginBottom: 8 }}>
+                Order Settings &amp; Overhead
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 3 }}>
-                <span>Accessory {accessoryPct}%</span>
-                <span>{fmt(accessoryAmount)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 3 }}>
-                <span>Overhead {overheadPct}%</span>
-                <span>{fmt(overheadAmount)}</span>
-              </div>
-              {miscAmount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 3 }}>
-                  <span>Miscellaneous {miscPct}%</span>
-                  <span>{fmt(miscAmount)}</span>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 3 }}>
+                    Hours
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={orderHours}
+                    onChange={e => {
+                      const v = parseFloat(e.target.value) || 0
+                      setOrderHours(v)
+                      autoSave({ orderHours: v })
+                    }}
+                    style={{ ...iSt }}
+                  />
                 </div>
-              )}
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, fontSize: 13, paddingTop: 6, borderTop: "1px solid var(--border)", marginTop: 4 }}>
-                <span>Total Order Cost</span>
-                <span>{fmt(totalCost)}</span>
+                <div>
+                  <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 3 }}>
+                    Accessories %
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={accessoriesPct}
+                    onChange={e => {
+                      const v = parseFloat(e.target.value) || 0
+                      setAccessoriesPct(v)
+                      autoSave({ accessoriesPct: v })
+                    }}
+                    style={{ ...iSt }}
+                  />
+                </div>
               </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 3 }}>
+                    Rush %
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="5"
+                    value={rushPct}
+                    onChange={e => {
+                      const v = parseFloat(e.target.value) || 0
+                      setRushPct(v)
+                      autoSave({ rushPct: v })
+                    }}
+                    style={{ ...iSt }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 3 }}>
+                    Season %
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="5"
+                    value={seasonPct}
+                    onChange={e => {
+                      const v = parseFloat(e.target.value) || 0
+                      setSeasonPct(v)
+                      autoSave({ seasonPct: v })
+                    }}
+                    style={{ ...iSt }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 6 }}>
+                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
+                  Overhead Method
+                </label>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[["pct", "Percentage"], ["hr", "Per hour"], ["ord", "Per order"]].map(([k, label]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => {
+                        setOverheadMethod(k)
+                        autoSave({ overheadMethod: k })
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: "6px 2px",
+                        borderRadius: 6,
+                        border: (overheadMethod || "pct") === k ? "2px solid var(--gold)" : "1px solid var(--border)",
+                        background: (overheadMethod || "pct") === k ? "#FEF9EE" : "var(--panel)",
+                        color: (overheadMethod || "pct") === k ? "var(--gold)" : "var(--muted)",
+                        fontWeight: (overheadMethod || "pct") === k ? 700 : 500,
+                        cursor: "pointer",
+                        fontSize: 11,
+                        fontFamily: "inherit"
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p style={{ fontSize: 11, color: "var(--muted)", margin: "4px 0 0", lineHeight: 1.4 }}>
+                  {overheadMethod === "pct"
+                    ? "27% of cost. What the app does today. Overcharges ingredient-heavy jobs, undercharges time-heavy ones."
+                    : overheadMethod === "hr"
+                      ? `${orderHours} hours × ₦${Math.round(costStack.hourlyRate).toLocaleString()}, from your shop costs ÷ 1,800 production hours a year`
+                      : `₦${Math.round(costStack.perOrderRate).toLocaleString()} per order, from your monthly overhead ÷ orders per month.`}
+                </p>
+              </div>
+            </div>
+
+            {/* DETAILED COST BREAKDOWN (Itemized Table matching Artifact 1 & 2) */}
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginBottom: 12 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontVariantNumeric: "tabular-nums", fontSize: 12.5 }}>
+                <tbody>
+                  {directBreakdown.batterCost > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                        <div style={{ fontWeight: 500, color: "var(--text)" }}>Batter</div>
+                        {directBreakdown.batterNotes && <div style={{ fontSize: 11, color: "var(--muted)" }}>{directBreakdown.batterNotes}</div>}
+                      </td>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {fmt(directBreakdown.batterCost)}
+                      </td>
+                    </tr>
+                  )}
+                  {directBreakdown.fillingCost > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                        <div style={{ fontWeight: 500, color: "var(--text)" }}>Filling</div>
+                        {directBreakdown.fillingNotes && <div style={{ fontSize: 11, color: "var(--muted)" }}>{directBreakdown.fillingNotes}</div>}
+                      </td>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {fmt(directBreakdown.fillingCost)}
+                      </td>
+                    </tr>
+                  )}
+                  {directBreakdown.crumbCost > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                        <div style={{ fontWeight: 500, color: "var(--text)" }}>Crumb coat</div>
+                        {directBreakdown.crumbNotes && <div style={{ fontSize: 11, color: "var(--muted)" }}>{directBreakdown.crumbNotes}</div>}
+                      </td>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {fmt(directBreakdown.crumbCost)}
+                      </td>
+                    </tr>
+                  )}
+                  {directBreakdown.finishCost > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                        <div style={{ fontWeight: 500, color: "var(--text)" }}>Finish</div>
+                        {directBreakdown.finishNotes && <div style={{ fontSize: 11, color: "var(--muted)" }}>{directBreakdown.finishNotes}</div>}
+                      </td>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {fmt(directBreakdown.finishCost)}
+                      </td>
+                    </tr>
+                  )}
+                  {directBreakdown.portionsCost > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                        <div style={{ fontWeight: 500, color: "var(--text)" }}>Portions</div>
+                        {directBreakdown.portionsNotes && <div style={{ fontSize: 11, color: "var(--muted)" }}>{directBreakdown.portionsNotes}</div>}
+                      </td>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {fmt(directBreakdown.portionsCost)}
+                      </td>
+                    </tr>
+                  )}
+                  {directBreakdown.pastryCost > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                        <div style={{ fontWeight: 500, color: "var(--text)" }}>Pastry &amp; Desserts</div>
+                        {directBreakdown.pastryNotes && <div style={{ fontSize: 11, color: "var(--muted)" }}>{directBreakdown.pastryNotes}</div>}
+                      </td>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {fmt(directBreakdown.pastryCost)}
+                      </td>
+                    </tr>
+                  )}
+                  {directBreakdown.decorCost > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                        <div style={{ fontWeight: 500, color: "var(--text)" }}>Decoration extras</div>
+                        {directBreakdown.decorNotes && <div style={{ fontSize: 11, color: "var(--muted)" }}>{directBreakdown.decorNotes}</div>}
+                      </td>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {fmt(directBreakdown.decorCost)}
+                      </td>
+                    </tr>
+                  )}
+                  {directBreakdown.pkgToppCost > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", color: "var(--text)", fontWeight: 500 }}>
+                        Toppers and packaging
+                      </td>
+                      <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {fmt(directBreakdown.pkgToppCost)}
+                      </td>
+                    </tr>
+                  )}
+                  <tr style={{ fontWeight: 600, borderBottom: "2px solid var(--border)" }}>
+                    <td style={{ padding: "6px 0" }}>Direct cost</td>
+                    <td style={{ padding: "6px 0", textAlign: "right", whiteSpace: "nowrap" }}>{fmt(subtotal)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", color: "var(--muted)" }}>
+                      Accessories {accessoriesPct}%
+                    </td>
+                    <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", whiteSpace: "nowrap", color: "var(--muted)" }}>
+                      {fmt(accessoryAmount)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", color: "var(--muted)" }}>
+                      <div>Overhead</div>
+                      <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                        {overheadMethod === "hr" ? `${orderHours} hours` : overheadMethod === "ord" ? "per order" : `${settings?.overheadPct || 27}% of cost`}
+                      </div>
+                    </td>
+                    <td style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", textAlign: "right", whiteSpace: "nowrap", color: "var(--muted)" }}>
+                      {fmt(overheadAmount)}
+                    </td>
+                  </tr>
+                  <tr style={{ fontWeight: 600, borderBottom: "2px solid var(--border)" }}>
+                    <td style={{ padding: "6px 0" }}>Total cost</td>
+                    <td style={{ padding: "6px 0", textAlign: "right", whiteSpace: "nowrap" }}>{fmt(totalCost)}</td>
+                  </tr>
+                </tbody>
+              </table>
 
               {/* BATCH SUMMARY FOR BAKER'S PREP */}
               {prepBatchSummary.length > 0 && (
@@ -3584,13 +4908,14 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
             {/* SUGGESTED PRICE CARD */}
             <div style={{ background: suggestedPrice > 0 ? "#E8F5EE" : "#F5F0E4", border: `1px solid ${suggestedPrice > 0 ? "#C2E0CF" : "var(--border)"}`, borderRadius: 10, padding: "10px 12px", textAlign: "center", marginBottom: 10 }}>
               <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .8, marginBottom: 2 }}>
-                Suggested price
+                Suggested price (Charge client rounded to 500)
               </div>
               <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 24, fontWeight: 700, color: "var(--gold)" }}>
-                {fmt(suggestedPrice)}
+                {fmt(chargeAmount || suggestedPrice)}
               </div>
               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                Profit: {fmt(profit)} ({margin}% margin)
+                Base Price: {fmt(suggestedPrice)} • Profit: {fmt(profit)} ({margin}% margin)
+                {(rushPct > 0 || seasonPct > 0) && ` • Rush/Season: +${fmt(Math.round(costStack.surcharges))}`}
               </div>
             </div>
 

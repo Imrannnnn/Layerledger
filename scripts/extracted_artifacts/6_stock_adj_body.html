@@ -1,0 +1,179 @@
+<title>Stock Adjustment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#EFE9DC;--card:#FDFBF6;--sunk:#F6F1E6;--sel:#FFF6E2;
+  --ink:#3D2B1A;--ink-2:#7A6A58;--ink-3:#A3927C;
+  --line:#E2D7C4;--accent:#B8860F;--go:#1E7A4D;--bad:#9A2B1C;
+  --display:"Fraunces",Georgia,serif;--body:"IBM Plex Sans",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;--bad:#E8705C;color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#1A1510;--card:#241D15;--sunk:#2D241A;--sel:#392D1A;
+  --ink:#F0E8DA;--ink-2:#B7A892;--ink-3:#8A7B67;
+  --line:#3C3024;--accent:#E0AE3A;--go:#54C089;--bad:#E8705C;color-scheme:dark;}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;margin:0;-webkit-font-smoothing:antialiased}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:24px 64px}
+.narrow{max-width:620px;margin:0 auto}
+
+.tabs{display:flex;gap:4px;background:var(--sunk);border:1px solid var(--line);border-radius:12px;padding:5px;margin:0 auto 20px;max-width:620px}
+.tabs button{flex:1;font-family:var(--body);font-size:13.5px;font-weight:600;cursor:pointer;background:transparent;color:var(--ink-2);border:0;border-radius:8px;padding:9px 4px}
+.tabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.pane{display:none}.pane.on{display:block}
+
+.crumb{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:14px;overflow:hidden}
+.chead{display:flex;align-items:baseline;gap:10px;padding:15px 18px;border-bottom:1px solid var(--line)}
+.ctitle{font-family:var(--display);font-weight:700;font-size:17px;letter-spacing:-.01em;flex:1}
+.cnote{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;text-align:right}
+.cbody{padding:16px 18px}
+
+label{display:block;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);margin-bottom:5px;font-weight:600}
+select,input[type=text],input[type=number],input[type=date],textarea{width:100%;font-family:var(--body);font-size:15px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px 11px;appearance:none;font-variant-numeric:tabular-nums}
+textarea{resize:vertical;min-height:62px;font-size:14px}
+.row2{display:grid;grid-template-columns:1fr 150px;gap:12px}
+@media(max-width:480px){.row2{grid-template-columns:1fr}}
+.fld{margin-bottom:14px}
+:focus-visible{outline:2.5px solid var(--accent);outline-offset:2px}
+.note{display:none;margin-bottom:14px}.note.on{display:block}
+
+.lines{border-top:1px solid var(--line);margin-top:4px;padding-top:14px}
+.line{display:grid;grid-template-columns:1fr 92px 34px;gap:8px;align-items:start;margin-bottom:9px;position:relative}
+.line .pick{position:relative}
+.menu{display:none;position:absolute;z-index:9;left:0;right:0;top:44px;background:var(--card);border:1px solid var(--accent);border-radius:9px;max-height:188px;overflow:auto;box-shadow:0 8px 20px rgba(0,0,0,.12)}
+.menu.on{display:block}
+.menu div{padding:9px 11px;font-size:14px;cursor:pointer;border-bottom:1px solid var(--line)}
+.menu div:last-child{border-bottom:0}
+.menu div:hover{background:var(--sel)}
+.menu div span{float:right;color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums}
+.del{background:transparent;border:1px solid var(--line);border-radius:9px;color:var(--ink-3);font-size:17px;cursor:pointer;height:42px;line-height:1}
+.val{grid-column:1/-1;font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;margin:-4px 0 4px}
+.val b{color:var(--ink)}
+.val.warn b{color:var(--bad)}
+.dir{display:flex;gap:4px;margin-top:6px}
+.dir button{flex:1;font-family:var(--body);font-size:12px;font-weight:600;cursor:pointer;background:var(--card);color:var(--ink-2);border:1px solid var(--line);border-radius:7px;padding:5px 2px}
+.dir button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.addline{margin-top:4px;font-size:13.5px;color:var(--accent);font-weight:600;cursor:pointer;background:none;border:0;padding:4px 0;font-family:var(--body)}
+.tot{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid var(--ink);margin-top:14px;padding-top:13px;font-weight:600}
+.tot .v{font-family:var(--display);font-weight:700;font-size:23px;font-variant-numeric:tabular-nums;color:var(--bad)}
+.cta{display:block;width:100%;margin-top:16px;font-family:var(--body);font-size:15px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;border:0;border-radius:10px;padding:13px}
+
+/* ---- movement report ---- */
+.strip{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.strip div{flex:1 1 160px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:11px 14px}
+.strip div.hot{border-color:var(--bad)}
+.strip small{display:block;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);font-weight:600;margin-bottom:2px}
+.strip span{font-family:var(--display);font-weight:700;font-size:20px;font-variant-numeric:tabular-nums}
+.strip span.red{color:var(--bad)}
+.strip em{font-style:normal;display:block;font-size:11.5px;color:var(--ink-2);margin-top:1px}
+
+.scroll{overflow-x:auto}
+table.mv{width:100%;min-width:860px;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13.5px}
+table.mv th{text-align:right;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:600;padding:11px 10px;background:var(--sunk);border-bottom:1px solid var(--line);white-space:nowrap}
+table.mv th:first-child,table.mv th:nth-child(2){text-align:left}
+table.mv td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+table.mv td:first-child{text-align:left;font-weight:500}
+table.mv td:nth-child(2){text-align:left;color:var(--ink-3);font-size:12.5px}
+table.mv tr.grp td{background:var(--sunk);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);font-weight:600;padding:7px 10px}
+.bought{color:var(--go)}
+.used{color:var(--ink-2)}
+.close{font-weight:700;color:var(--go)}
+.close.low{color:var(--bad)}
+.adj{cursor:pointer;border-bottom:1.5px dotted currentColor}
+.adj.neg{color:var(--bad);font-weight:600}
+.adj.pos{color:var(--go);font-weight:600}
+.adj.zero{color:var(--ink-3);cursor:default;border:0}
+tr.detail td{background:var(--sel);padding:0;border-bottom:1px solid var(--line)}
+.dwrap{padding:11px 14px;font-size:12.5px}
+.dwrap b{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);display:block;margin-bottom:6px}
+.dwrap div{display:flex;justify-content:space-between;gap:14px;padding:3px 0}
+.dwrap div span:first-child{color:var(--ink-2)}
+.foot{display:flex;justify-content:space-between;align-items:baseline;padding:13px 18px;border-top:2px solid var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.hint{font-size:12.5px;color:var(--ink-2);margin:10px 2px 0}
+</style>
+
+<div class="wrap">
+
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-t="f">Stock adjustment</button>
+  <button role="tab" aria-selected="false" data-t="m">Stock movement</button>
+</div>
+
+<!-- ============ FORM ============ -->
+<div class="pane on" id="pane-f"><div class="narrow">
+<div class="crumb">Inventory &rsaquo; Stock adjustment</div>
+
+<div class="card">
+  <div class="chead"><span class="ctitle">What happened?</span></div>
+  <div class="cbody">
+    <div class="row2">
+      <div class="fld">
+        <label for="reason">Reason</label>
+        <select id="reason">
+          <option value="spoil">Spoiled or expired</option>
+          <option value="dmg">Damaged or spilled</option>
+          <option value="recipe" selected>Wrong recipe or failed batch</option>
+          <option value="test">Used for testing or samples</option>
+          <option value="count">Counted wrong</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label for="dt">Date</label>
+        <input type="date" id="dt" value="2026-10-16">
+      </div>
+    </div>
+
+    <div class="note" id="noteWrap">
+      <label for="note">What happened</label>
+      <textarea id="note" placeholder="One line is enough"></textarea>
+    </div>
+
+    <div class="lines" id="lines"></div>
+    <button class="addline" id="add">+ Add another ingredient</button>
+
+    <div class="tot"><span id="totLbl">Value leaving the store</span><span class="v" id="tot">&#8358;0</span></div>
+    <button class="cta" id="submit">Submit adjustment</button>
+  </div>
+</div>
+</div></div>
+
+<!-- ============ MOVEMENT REPORT ============ -->
+<div class="pane" id="pane-m">
+<div class="crumb">Inventory &rsaquo; Reports</div>
+
+<div class="strip">
+  <div><small>Bought</small><span>&#8358;262,145</span></div>
+  <div><small>Used on orders</small><span>&#8358;194,320</span></div>
+  <div class="hot"><small>Lost</small><span class="red">&#8358;8,426</span><em>12% of what overhead collected</em></div>
+  <div><small>Closing value</small><span>&#8358;143,562</span></div>
+</div>
+
+<div class="card">
+  <div class="chead">
+    <span class="ctitle">Stock movement &mdash; October 2026</span>
+    <span class="cnote">Opening + Bought &minus; Used &plusmn; Adjusted = Closing</span>
+  </div>
+  <div class="scroll">
+    <table class="mv">
+      <thead><tr>
+        <th>Item</th><th>Unit</th><th>Opening</th><th>+ Bought</th><th>&minus; Used</th>
+        <th>&plusmn; Adjusted</th><th>Closing</th><th>Cost/unit</th><th>Value</th>
+      </tr></thead>
+      <tbody id="mvbody"></tbody>
+    </table>
+  </div>
+  <div class="foot"><span>Lost in October</span><span style="color:var(--bad)">&minus;&#8358;8,426</span></div>
+</div>
+<p class="hint">Tap any figure in the Adjusted column to see what it was.</p>
+</div>
+
+</div>
+
+

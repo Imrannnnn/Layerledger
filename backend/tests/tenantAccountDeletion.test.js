@@ -341,4 +341,8 @@ describe('Tenant Account Deletion & Complete Database Wipe Integration Tests', (
         const payments = await prisma.payment.findMany({ where: { tenantId } });
         expect(payments).toHaveLength(0);
     });
+
+    afterAll(async () => {
+        await prisma.$disconnect();
+    });
 });

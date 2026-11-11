@@ -12,7 +12,8 @@ import { fmt, uid, parseSpecialDate } from "../../lib/helpers.js"
 import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal, calculateOrderUsages, updateInventoryItemOnServer, deleteOrderOnServer } from "../../lib/data.js"
 import { DEFAULT_MULTS } from "../../constants.js"
 import { Invoices } from "./Invoices.jsx"
-import { ChevronUp, ChevronDown, Clock, Check, CreditCard, Pencil, Receipt, AlertTriangle, MessageSquare, Cake, Heart, Calendar, Search, X } from "lucide-react"
+import { ProductionSheet } from "./ProductionSheet.jsx"
+import { ChevronUp, ChevronDown, Clock, Check, CreditCard, Pencil, Receipt, AlertTriangle, MessageSquare, Cake, Heart, Calendar, Search, X, ClipboardList } from "lucide-react"
 
 const QUOTE_STATUSES = [
   { v: "pending", l: "Pending", c: "#BA7517", bg: "#FAEEDA" },
@@ -23,6 +24,7 @@ const QUOTE_STATUSES = [
 
 export function QuotesPage({ inventory, setInventory, recipes, setView, productions, setProductions }) {
   const [quotes, setQuotes] = useState(loadQuotes)
+  const [selectedProductionSheetQuote, setSelectedProductionSheetQuote] = useState(null)
   const [filter, setFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
@@ -131,54 +133,9 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
     setConfirming(true)
 
     try {
+      // Per spec: Confirming an order generates a production sheet and moves NO stock.
+      // Ingredients are committed to production; actual stock is deducted strictly when marked delivered.
       const usages = calculateOrderUsages(q, inventory, recipes)
-      const outOfStock = []
-      const lowStock = []
-
-      usages.forEach(u => {
-        const item = inventory.find(i => i.id === u.itemId)
-        if (!item) return
-        if (item.stock <= 0) {
-          if (!outOfStock.find(x => x.name === item.name)) {
-            outOfStock.push({ name: item.name, stock: item.stock, unit: item.unit })
-          }
-        } else if (item.stock < u.qty) {
-          if (!lowStock.find(x => x.name === item.name)) {
-            lowStock.push({ name: item.name, stock: item.stock, needed: u.qty.toFixed(2), unit: item.unit })
-          }
-        }
-      })
-
-      // Block if anything is completely out of stock
-      if (outOfStock.length > 0) {
-        alert("Cannot confirm order — the following ingredients are completely out of stock:\n\n" + outOfStock.map(i => "• " + i.name + " (0 " + i.unit + " remaining)").join("\n") + "\n\nPlease restock before confirming.")
-        return
-      }
-
-      // Warn if anything is below minimum or needed quantity but allow proceeding
-      if (lowStock.length > 0) {
-        const proceed = window.confirm("Warning — the following ingredients are insufficient for this order:\n\n" + lowStock.map(i => "• " + i.name + " (needed: " + i.needed + " " + i.unit + ", in stock: " + i.stock + " " + i.unit + ")").join("\n") + "\n\nYou can still confirm but please restock soon.\n\nClick OK to confirm anyway, or Cancel to go back.")
-        if (!proceed) return
-      }
-
-      // Deduct ingredients from inventory
-      try {
-        if (usages.length > 0) {
-          let updInv = [...inventory]
-          usages.forEach(u => {
-            const idx = updInv.findIndex(i => i.id === u.itemId)
-            if (idx >= 0) {
-              const newStock = Math.max(0, parseFloat((updInv[idx].stock - u.qty).toFixed(3)))
-              updInv[idx] = { ...updInv[idx], stock: newStock }
-            }
-          })
-          setInventory(updInv)
-          await saveInventory(updInv)
-        }
-      } catch (e) {
-        console.error("Ingredient deduction error", e)
-      }
-
       const confirmedTime = new Date().toISOString()
 
       // Create production record with full details
@@ -276,8 +233,8 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
       window.dispatchEvent(new CustomEvent("layerledger:productions-updated", { detail: { source: "QuotesPage" } }))
 
       const msg = (q.orderPurpose === "gift" || q.orderPurpose === "sample")
-        ? (q.orderPurpose === "gift" ? "Gift" : "Sample") + " logged! Ingredients deducted from inventory and cost recorded as a " + q.orderPurpose + " expense (no revenue)."
-        : "Order confirmed for " + q.clientName + "! Ingredients deducted and order added to Production List."
+        ? (q.orderPurpose === "gift" ? "Gift" : "Sample") + " logged! Added to Production List as a " + q.orderPurpose + " (ingredients committed, deducted on delivery)."
+        : "Order confirmed for " + q.clientName + "! Added to Production List. Ingredients are committed to production."
       alert(msg)
     } catch (e) {
       console.error(e)
@@ -1003,6 +960,13 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
                         >
                           <Receipt size={13} /> Convert to invoice
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedProductionSheetQuote(q)}
+                          style={{ padding: "5px 14px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--panel)", color: "var(--text)", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 5 }}
+                        >
+                          <ClipboardList size={13} /> Production Sheet
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1025,6 +989,15 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
         pageSizeOptions={[10, 25, 50, 100]}
         itemLabel="quotes"
       />
+
+      {selectedProductionSheetQuote && (
+        <ProductionSheet
+          quote={selectedProductionSheetQuote}
+          inventory={inventory}
+          recipes={recipes}
+          onClose={() => setSelectedProductionSheetQuote(null)}
+        />
+      )}
     </div>
   )
 }
