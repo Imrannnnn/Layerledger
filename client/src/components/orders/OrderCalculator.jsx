@@ -28,7 +28,7 @@ import {
 } from "../../lib/cakeGeometry.js"
 import { loadCompany, loadLocal, saveLocal, loadQuotes, saveQuotes, loadClients, upsertClient, clearTempCalculatorState, checkPlanLimit, notifyPlanLimitReached } from "../../lib/data.js"
 import { DEFAULT_MULTS, DECORATION_ITEMS, PRICING_SIZES } from "../../constants.js"
-import { Camera, Check, MessageCircle, ClipboardList, Calculator, Cake, Heart, CalendarHeart, Cookie, X, ChevronDown, ChevronUp, Plus, Trash2, Calendar, Clock, AlertTriangle, Crop, RotateCcw, FileText } from "lucide-react"
+import { Camera, Check, MessageCircle, ClipboardList, Calculator, Cake, Heart, CalendarHeart, Cookie, X, ChevronDown, ChevronUp, Plus, Trash2, Calendar, Clock, AlertTriangle, Crop, RotateCcw, FileText, Sparkles } from "lucide-react"
 import ImageCropperModal from "./ImageCropperModal.jsx"
 
 const compressImage = (file, maxWidth = 640, quality = 0.70) => {
@@ -757,7 +757,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       const it = inventory.find(x => x.id === ing.iid)
       return s + (it ? (Number(it.cost) || 0) * (Number(ing.qty) || 0) : 0)
     }, 0)
-    const batchGrams = Number(r.cal_grams) || Number(r.batchWeight) || Number(r.batch_yield_g) ||
+    const batchGrams = Number(r.cal_grams || r.calGrams) || Number(r.batchWeight) || Number(r.batch_yield_g) ||
       (r.ing || []).reduce((s, ing) => {
         const it = inventory.find(x => x.id === ing.iid)
         return s + (it?.unit === "kg" ? (Number(ing.qty) || 0) * 1000 : it?.unit === "g" ? (Number(ing.qty) || 0) : it?.unit === "L" || it?.unit === "l" ? (Number(ing.qty) || 0) * 1000 : 0)
@@ -1245,9 +1245,14 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     const batterCost = (tier.layers || []).reduce((s, l) => {
       if (!l.flavour) return s
       const r = recipes.find(x => x.name.toLowerCase() === l.flavour.toLowerCase())
-      if (r && r.cal_grams) {
-        const dens = calculateDensity(r.cal_grams, r.cal_shape, r.cal_dim_a, r.cal_dim_b, r.cal_height_in)
-        const trim = r.trim_pct !== undefined ? Number(r.trim_pct) : 0.08
+      const calG = r ? Number(r.cal_grams ?? r.calGrams) : 0
+      if (r && (calG > 0 || r.density)) {
+        const calSh = r.cal_shape || r.calShape || "round"
+        const calA = Number(r.cal_dim_a ?? r.calDimA) || 6
+        const calB = Number(r.cal_dim_b ?? r.calDimB) || 8
+        const calH = Number(r.cal_height_in ?? r.calHeightIn) || 2
+        const dens = Number(r.density) || calculateDensity(calG, calSh, calA, calB, calH)
+        const trim = ((r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8))) / 100
         const gpp = gramsPerPan(dens, pArea, layerThickness, trim)
         const cpg = getRecipeCostPerGram(r)
         return s + (gpp * (Number(l.qty) || 1) * cpg)
@@ -1297,8 +1302,13 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           pan,
           layers: (item.layers || [{ flavour: "", qty: 1 }]).map(l => {
             const r = recipes.find(x => x.id === l.flavour || x.name === l.flavour)
-            const dens = r && r.cal_grams ? calculateDensity(r.cal_grams, r.cal_shape, r.cal_dim_a, r.cal_dim_b, r.cal_height_in) : 0.8
-            const trim = r && r.trim_pct !== undefined ? Number(r.trim_pct) : 0.08
+            const calG = r ? Number(r.cal_grams ?? r.calGrams) : 0
+            const calSh = r ? (r.cal_shape || r.calShape || "round") : "round"
+            const calA = r ? (Number(r.cal_dim_a ?? r.calDimA) || 6) : 6
+            const calB = r ? (Number(r.cal_dim_b ?? r.calDimB) || 8) : 8
+            const calH = r ? (Number(r.cal_height_in ?? r.calHeightIn) || 2) : 2
+            const dens = Number(r?.density) || (calG > 0 ? calculateDensity(calG, calSh, calA, calB, calH) : 0.8)
+            const trim = r && (r.trim_pct !== undefined || r.trimPct !== undefined) ? ((Number(r.trim_pct ?? r.trimPct) || 8) / 100) : 0.08
             const cpg = getRecipeCostPerGram(r)
             return { ...l, density: dens, trimPct: trim, costPerGram: cpg, recipe: r }
           }),
@@ -1404,9 +1414,14 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
             const r = recipes.find(x => x.name.toLowerCase() === l.flavour.toLowerCase());
             let cost = 0;
             let g = 0;
-            if (r && r.cal_grams) {
-              const dens = calculateDensity(r.cal_grams, r.cal_shape, r.cal_dim_a, r.cal_dim_b, r.cal_height_in);
-              const trim = r.trim_pct !== undefined ? Number(r.trim_pct) : 0.08;
+            const calG = r ? Number(r.cal_grams ?? r.calGrams) : 0;
+            if (r && (calG > 0 || r.density)) {
+              const calSh = r.cal_shape || r.calShape || "round";
+              const calA = Number(r.cal_dim_a ?? r.calDimA) || 6;
+              const calB = Number(r.cal_dim_b ?? r.calDimB) || 8;
+              const calH = Number(r.cal_height_in ?? r.calHeightIn) || 2;
+              const dens = Number(r.density) || calculateDensity(calG, calSh, calA, calB, calH);
+              const trim = ((r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8))) / 100;
               g = gramsPerPan(dens, pArea, layerThickness, trim) * (Number(l.qty) || 1);
               cost = g * getRecipeCostPerGram(r);
             } else {
@@ -1844,11 +1859,14 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                       style={{ ...iSt }}
                     >
                       <option value="">— Select cake recipe —</option>
-                      {(layerRecipes.length > 0 ? layerRecipes : allRecipes).map(r => (
-                        <option key={r.id} value={r.name}>
-                          {r.name} {!r.cal_grams && !r.calGrams ? "(Uncalibrated)" : ""} {tier.size && tier.shape && layerCost(r.name, tier.size, tier.shape) > 0 ? "— " + fmt(layerCost(r.name, tier.size, tier.shape)) + "/layer" : ""}
-                        </option>
-                      ))}
+                      {(layerRecipes.length > 0 ? layerRecipes : allRecipes).map(r => {
+                        const isCal = !!(r.cal_grams || r.calGrams || r.isCalibrated || r.is_calibrated || r.density)
+                        return (
+                          <option key={r.id} value={r.name}>
+                            {r.name} {!isCal ? "(Uncalibrated)" : ""} {tier.size && tier.shape && layerCost(r.name, tier.size, tier.shape) > 0 ? "— " + fmt(layerCost(r.name, tier.size, tier.shape)) + "/layer" : ""}
+                          </option>
+                        )
+                      })}
                     </select>
                     <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
                       <span style={{ fontSize: 12, color: "var(--muted)" }}>×</span>
@@ -2609,8 +2627,13 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       pan: selectedPan,
       layers: (item.layers || [{ flavour: "", qty: 1 }]).map(l => {
         const r = recipes.find(x => x.id === l.flavour || x.name === l.flavour)
-        const dens = r && r.cal_grams ? calculateDensity(r.cal_grams, r.cal_shape, r.cal_dim_a, r.cal_dim_b, r.cal_height_in) : 0.8
-        const trim = r && r.trim_pct !== undefined ? Number(r.trim_pct) : 0.08
+        const calG = r ? Number(r.cal_grams ?? r.calGrams) : 0
+        const calSh = r ? (r.cal_shape || r.calShape || "round") : "round"
+        const calA = r ? (Number(r.cal_dim_a ?? r.calDimA) || 6) : 6
+        const calB = r ? (Number(r.cal_dim_b ?? r.calDimB) || 8) : 8
+        const calH = r ? (Number(r.cal_height_in ?? r.calHeightIn) || 2) : 2
+        const dens = Number(r?.density) || (calG > 0 ? calculateDensity(calG, calSh, calA, calB, calH) : 0.8)
+        const trim = r && (r.trim_pct !== undefined || r.trimPct !== undefined) ? ((Number(r.trim_pct ?? r.trimPct) || 8) / 100) : 0.08
         const cpg = getRecipeCostPerGram(r)
         return { ...l, density: dens, trimPct: trim, costPerGram: cpg, recipe: r }
       }),
@@ -3818,27 +3841,50 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           title="Order Calculator"
           sub="Build a multi-cake & pastry quote for your client — all items consolidated into one unified quote and invoice."
         />
-        <button
-          type="button"
-          onClick={() => resetCalculator(true)}
-          title="Clear all calculator fields and start a fresh quote"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            background: "#FAF6EC",
-            border: "1.2px solid var(--cream-line, #E3D6B3)",
-            color: "var(--gold)",
-            padding: "8px 14px",
-            borderRadius: 8,
-            fontSize: 12.5,
-            fontWeight: 600,
-            cursor: "pointer",
-            transition: "all 0.15s"
-          }}
-        >
-          <RotateCcw size={14} /> Clear / New Quote
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('layerledger:open-help', { detail: { topic: 'calculator' } }))}
+            title="Learn how the Order Calculator geometry, portioning, coverings & pricing work"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "rgba(200, 145, 42, 0.12)",
+              border: "1.2px solid rgba(200, 145, 42, 0.45)",
+              color: "var(--gold)",
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.15s"
+            }}
+          >
+            <Sparkles size={14} /> How Order Calculator Works
+          </button>
+          <button
+            type="button"
+            onClick={() => resetCalculator(true)}
+            title="Clear all calculator fields and start a fresh quote"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "#FAF6EC",
+              border: "1.2px solid var(--cream-line, #E3D6B3)",
+              color: "var(--gold)",
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.15s"
+            }}
+          >
+            <RotateCcw size={14} /> Clear / New Quote
+          </button>
+        </div>
       </div>
 
       {/* TOP NOTIFICATION BANNER IF QUOTA EXCEEDED */}

@@ -155,6 +155,20 @@ export function surfaceArea(plan, peri, height) {
  * @returns {number} Density in g / (in² * in)
  */
 export function calculateDensity(calGrams, calShape, calDimA, calDimB, calHeightIn) {
+  // Support both standard (calGrams, calShape, calDimA, calDimB, calHeightIn)
+  // and inverted (calShape, calDimA, calDimB, calHeightIn, calGrams)
+  if (typeof calGrams === 'string' && (['round', 'square', 'rect', 'heart', 'hexagon', 'oval'].includes(calGrams.toLowerCase()) || isNaN(Number(calGrams)))) {
+    const shape = calGrams;
+    const a = calShape;
+    const b = calDimA;
+    const h = calDimB;
+    const g = calHeightIn;
+    calGrams = g;
+    calShape = shape;
+    calDimA = a;
+    calDimB = b;
+    calHeightIn = h;
+  }
   if (Array.isArray(calDimA)) {
     calHeightIn = calDimB;
     calDimB = calDimA[1];

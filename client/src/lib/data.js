@@ -5,6 +5,7 @@
 const cache = {}
 const lastSyncedValues = {}
 import { formatApiError } from "./errorHandler.js"
+import { calculateDensity } from "./cakeGeometry.js"
 
 const fetchWithTimeout = async (url, options = {}, timeoutMs = 8000) => {
   const controller = new AbortController()
@@ -86,24 +87,130 @@ const mapServerInventoryToLocal = (item) => ({
   minStock: item.minStock
 })
 
-const mapServerRecipeToLocal = (rec) => ({
-  id: rec.id,
-  name: rec.name,
-  notes: rec.notes || "",
-  type: rec.type || "layer",
-  batchWeight: rec.batchWeight || null,
-  batchSize: rec.batchSize || null,
-  application: rec.application || "spread",
-  fill_rate: rec.fillRate !== undefined ? rec.fillRate : (rec.fill_rate !== undefined ? rec.fill_rate : null),
-  crumb_rate: rec.crumbRate !== undefined ? rec.crumbRate : (rec.crumb_rate !== undefined ? rec.crumb_rate : 0),
-  cover_rate: rec.coverRate !== undefined ? rec.coverRate : (rec.cover_rate !== undefined ? rec.cover_rate : null),
-  sheet_overhang_in: rec.sheetOverhangIn !== undefined ? rec.sheetOverhangIn : (rec.sheet_overhang_in !== undefined ? rec.sheet_overhang_in : null),
-  is_calibrated: rec.isCalibrated !== undefined ? !!rec.isCalibrated : (rec.is_calibrated !== undefined ? !!rec.is_calibrated : false),
-  ing: (rec.ingredients || []).map(ri => ({
-    iid: ri.inventoryItemId,
-    qty: ri.quantity
-  }))
-})
+const mapServerRecipeToLocal = (rec) => {
+  const calG = rec.calGrams !== undefined && rec.calGrams !== null ? Number(rec.calGrams) : (rec.cal_grams !== undefined && rec.cal_grams !== null ? Number(rec.cal_grams) : null)
+  const calSh = rec.calShape || rec.cal_shape || "round"
+  const calA = rec.calDimA !== undefined && rec.calDimA !== null ? Number(rec.calDimA) : (rec.cal_dim_a !== undefined && rec.cal_dim_a !== null ? Number(rec.cal_dim_a) : 6)
+  const calB = rec.calDimB !== undefined && rec.calDimB !== null ? Number(rec.calDimB) : (rec.cal_dim_b !== undefined && rec.cal_dim_b !== null ? Number(rec.cal_dim_b) : 8)
+  const calH = rec.calHeightIn !== undefined && rec.calHeightIn !== null ? Number(rec.calHeightIn) : (rec.cal_height_in !== undefined && rec.cal_height_in !== null ? Number(rec.cal_height_in) : 2)
+  const trim = rec.trimPct !== undefined && rec.trimPct !== null ? Number(rec.trimPct) : (rec.trim_pct !== undefined && rec.trim_pct !== null ? Number(rec.trim_pct) : 8)
+
+  let dens = rec.density !== undefined && rec.density !== null ? Number(rec.density) : null
+  if (!dens && calG && calG > 0) {
+    dens = calculateDensity(calG, calSh, calA, calB, calH)
+  }
+  const isCal = rec.isCalibrated !== undefined ? !!rec.isCalibrated : (rec.is_calibrated !== undefined ? !!rec.is_calibrated : (dens > 0 || (calG && calG > 0)))
+
+  return {
+    id: rec.id,
+    name: rec.name,
+    notes: rec.notes || "",
+    type: rec.type || "layer",
+    batchWeight: rec.batchWeight || null,
+    batchSize: rec.batchSize || null,
+    application: rec.application || "spread",
+    fill_rate: rec.fillRate !== undefined ? rec.fillRate : (rec.fill_rate !== undefined ? rec.fill_rate : null),
+    fillRate: rec.fillRate !== undefined ? rec.fillRate : (rec.fill_rate !== undefined ? rec.fill_rate : null),
+    crumb_rate: rec.crumbRate !== undefined ? rec.crumbRate : (rec.crumb_rate !== undefined ? rec.crumb_rate : 0),
+    crumbRate: rec.crumbRate !== undefined ? rec.crumbRate : (rec.crumb_rate !== undefined ? rec.crumb_rate : 0),
+    cover_rate: rec.coverRate !== undefined ? rec.coverRate : (rec.cover_rate !== undefined ? rec.cover_rate : null),
+    coverRate: rec.coverRate !== undefined ? rec.coverRate : (rec.cover_rate !== undefined ? rec.cover_rate : null),
+    sheet_overhang_in: rec.sheetOverhangIn !== undefined ? rec.sheetOverhangIn : (rec.sheet_overhang_in !== undefined ? rec.sheet_overhang_in : null),
+    sheetOverhangIn: rec.sheetOverhangIn !== undefined ? rec.sheetOverhangIn : (rec.sheet_overhang_in !== undefined ? rec.sheet_overhang_in : null),
+    is_calibrated: isCal,
+    isCalibrated: isCal,
+    calShape: calSh,
+    cal_shape: calSh,
+    calDimA: calA,
+    cal_dim_a: calA,
+    calDimB: calB,
+    cal_dim_b: calB,
+    calGrams: calG,
+    cal_grams: calG,
+    calHeightIn: calH,
+    cal_height_in: calH,
+    trimPct: trim,
+    trim_pct: trim,
+    density: dens,
+    canFill: rec.canFill !== undefined ? !!rec.canFill : (rec.can_fill !== undefined ? !!rec.can_fill : true),
+    can_fill: rec.canFill !== undefined ? !!rec.canFill : (rec.can_fill !== undefined ? !!rec.can_fill : true),
+    canCrumb: rec.canCrumb !== undefined ? !!rec.canCrumb : (rec.can_crumb !== undefined ? !!rec.can_crumb : true),
+    can_crumb: rec.canCrumb !== undefined ? !!rec.canCrumb : (rec.can_crumb !== undefined ? !!rec.can_crumb : true),
+    canFinish: rec.canFinish !== undefined ? !!rec.canFinish : (rec.can_finish !== undefined ? !!rec.can_finish : true),
+    can_finish: rec.canFinish !== undefined ? !!rec.canFinish : (rec.can_finish !== undefined ? !!rec.can_finish : true),
+    thickFillMm: rec.thickFillMm !== undefined && rec.thickFillMm !== null ? Number(rec.thickFillMm) : (rec.thick_fill_mm !== undefined && rec.thick_fill_mm !== null ? Number(rec.thick_fill_mm) : null),
+    thick_fill_mm: rec.thickFillMm !== undefined && rec.thickFillMm !== null ? Number(rec.thickFillMm) : (rec.thick_fill_mm !== undefined && rec.thick_fill_mm !== null ? Number(rec.thick_fill_mm) : null),
+    thickCrumbMm: rec.thickCrumbMm !== undefined && rec.thickCrumbMm !== null ? Number(rec.thickCrumbMm) : (rec.thick_crumb_mm !== undefined && rec.thick_crumb_mm !== null ? Number(rec.thick_crumb_mm) : null),
+    thick_crumb_mm: rec.thickCrumbMm !== undefined && rec.thickCrumbMm !== null ? Number(rec.thickCrumbMm) : (rec.thick_crumb_mm !== undefined && rec.thick_crumb_mm !== null ? Number(rec.thick_crumb_mm) : null),
+    thickFinishMm: rec.thickFinishMm !== undefined && rec.thickFinishMm !== null ? Number(rec.thickFinishMm) : (rec.thick_finish_mm !== undefined && rec.thick_finish_mm !== null ? Number(rec.thick_finish_mm) : null),
+    thick_finish_mm: rec.thickFinishMm !== undefined && rec.thickFinishMm !== null ? Number(rec.thickFinishMm) : (rec.thick_finish_mm !== undefined && rec.thick_finish_mm !== null ? Number(rec.thick_finish_mm) : null),
+    densityGPerCm3: rec.densityGPerCm3 !== undefined && rec.densityGPerCm3 !== null ? Number(rec.densityGPerCm3) : (rec.density_g_cm3 !== undefined && rec.density_g_cm3 !== null ? Number(rec.density_g_cm3) : null),
+    density_g_cm3: rec.densityGPerCm3 !== undefined && rec.densityGPerCm3 !== null ? Number(rec.densityGPerCm3) : (rec.density_g_cm3 !== undefined && rec.density_g_cm3 !== null ? Number(rec.density_g_cm3) : null),
+    wastePct: rec.wastePct !== undefined && rec.wastePct !== null ? Number(rec.wastePct) : (rec.waste_pct !== undefined && rec.waste_pct !== null ? Number(rec.waste_pct) : null),
+    waste_pct: rec.wastePct !== undefined && rec.wastePct !== null ? Number(rec.wastePct) : (rec.waste_pct !== undefined && rec.waste_pct !== null ? Number(rec.waste_pct) : null),
+    sellMode: rec.sellMode || rec.sell_mode || null,
+    sell_mode: rec.sellMode || rec.sell_mode || null,
+    perBatch: rec.perBatch !== undefined && rec.perBatch !== null ? Number(rec.perBatch) : (rec.per_batch !== undefined && rec.per_batch !== null ? Number(rec.per_batch) : null),
+    per_batch: rec.perBatch !== undefined && rec.perBatch !== null ? Number(rec.perBatch) : (rec.per_batch !== undefined && rec.per_batch !== null ? Number(rec.per_batch) : null),
+    breakagePct: rec.breakagePct !== undefined && rec.breakagePct !== null ? Number(rec.breakagePct) : (rec.breakage_pct !== undefined && rec.breakage_pct !== null ? Number(rec.breakage_pct) : null),
+    breakage_pct: rec.breakagePct !== undefined && rec.breakagePct !== null ? Number(rec.breakagePct) : (rec.breakage_pct !== undefined && rec.breakage_pct !== null ? Number(rec.breakage_pct) : null),
+    ing: (rec.ingredients || []).map(ri => ({
+      iid: ri.inventoryItemId || ri.iid || ri.item,
+      qty: ri.quantity !== undefined ? ri.quantity : ri.qty
+    }))
+  }
+}
+
+const buildRecipePayloadBody = (rec) => {
+  const calG = rec.calGrams !== undefined && rec.calGrams !== null && rec.calGrams !== "" ? Number(rec.calGrams) : (rec.cal_grams !== undefined && rec.cal_grams !== null && rec.cal_grams !== "" ? Number(rec.cal_grams) : null)
+  const calSh = rec.calShape || rec.cal_shape || null
+  const calA = rec.calDimA !== undefined && rec.calDimA !== null && rec.calDimA !== "" ? Number(rec.calDimA) : (rec.cal_dim_a !== undefined && rec.cal_dim_a !== null && rec.cal_dim_a !== "" ? Number(rec.cal_dim_a) : null)
+  const calB = rec.calDimB !== undefined && rec.calDimB !== null && rec.calDimB !== "" ? Number(rec.calDimB) : (rec.cal_dim_b !== undefined && rec.cal_dim_b !== null && rec.cal_dim_b !== "" ? Number(rec.cal_dim_b) : null)
+  const calH = rec.calHeightIn !== undefined && rec.calHeightIn !== null && rec.calHeightIn !== "" ? Number(rec.calHeightIn) : (rec.cal_height_in !== undefined && rec.cal_height_in !== null && rec.cal_height_in !== "" ? Number(rec.cal_height_in) : null)
+  const trim = rec.trimPct !== undefined && rec.trimPct !== null && rec.trimPct !== "" ? Number(rec.trimPct) : (rec.trim_pct !== undefined && rec.trim_pct !== null && rec.trim_pct !== "" ? Number(rec.trim_pct) : 0.08)
+  let density = rec.density !== undefined && rec.density !== null && rec.density !== "" ? Number(rec.density) : null
+  if (!density && calG && calSh && calA && calH) {
+    density = calculateDensity(calG, calSh, calA, calB, calH)
+  }
+  const isCal = rec.isCalibrated !== undefined ? !!rec.isCalibrated : (rec.is_calibrated !== undefined ? !!rec.is_calibrated : (density > 0 || (calG && calG > 0)))
+
+  return {
+    id: rec.id || undefined,
+    name: (rec.name && rec.name.trim()) ? rec.name.trim() : "Recipe",
+    notes: rec.notes || "",
+    type: rec.type || "layer",
+    batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null && rec.batchWeight !== "" ? Number(rec.batchWeight) : null,
+    batchSize: rec.batchSize !== undefined && rec.batchSize !== null && rec.batchSize !== "" ? Number(rec.batchSize) : null,
+    application: rec.application !== undefined ? rec.application : "spread",
+    fillRate: rec.fillRate !== undefined ? rec.fillRate : (rec.fill_rate !== undefined ? rec.fill_rate : null),
+    crumbRate: rec.crumbRate !== undefined ? rec.crumbRate : (rec.crumb_rate !== undefined ? rec.crumb_rate : 0),
+    coverRate: rec.coverRate !== undefined ? rec.coverRate : (rec.cover_rate !== undefined ? rec.cover_rate : null),
+    sheetOverhangIn: rec.sheetOverhangIn !== undefined ? rec.sheetOverhangIn : (rec.sheet_overhang_in !== undefined ? rec.sheet_overhang_in : null),
+    isCalibrated: isCal,
+    calShape: calSh,
+    calDimA: calA,
+    calDimB: calB,
+    calGrams: calG,
+    calHeightIn: calH,
+    trimPct: trim,
+    density: density,
+    canFill: rec.canFill !== undefined ? !!rec.canFill : (rec.can_fill !== undefined ? !!rec.can_fill : true),
+    canCrumb: rec.canCrumb !== undefined ? !!rec.canCrumb : (rec.can_crumb !== undefined ? !!rec.can_crumb : true),
+    canFinish: rec.canFinish !== undefined ? !!rec.canFinish : (rec.can_finish !== undefined ? !!rec.can_finish : true),
+    thickFillMm: rec.thickFillMm !== undefined && rec.thickFillMm !== null && rec.thickFillMm !== "" ? Number(rec.thickFillMm) : (rec.thick_fill_mm !== undefined && rec.thick_fill_mm !== null && rec.thick_fill_mm !== "" ? Number(rec.thick_fill_mm) : null),
+    thickCrumbMm: rec.thickCrumbMm !== undefined && rec.thickCrumbMm !== null && rec.thickCrumbMm !== "" ? Number(rec.thickCrumbMm) : (rec.thick_crumb_mm !== undefined && rec.thick_crumb_mm !== null && rec.thick_crumb_mm !== "" ? Number(rec.thick_crumb_mm) : null),
+    thickFinishMm: rec.thickFinishMm !== undefined && rec.thickFinishMm !== null && rec.thickFinishMm !== "" ? Number(rec.thickFinishMm) : (rec.thick_finish_mm !== undefined && rec.thick_finish_mm !== null && rec.thick_finish_mm !== "" ? Number(rec.thick_finish_mm) : null),
+    densityGPerCm3: rec.densityGPerCm3 !== undefined && rec.densityGPerCm3 !== null && rec.densityGPerCm3 !== "" ? Number(rec.densityGPerCm3) : (rec.density_g_cm3 !== undefined && rec.density_g_cm3 !== null && rec.density_g_cm3 !== "" ? Number(rec.density_g_cm3) : null),
+    wastePct: rec.wastePct !== undefined && rec.wastePct !== null && rec.wastePct !== "" ? Number(rec.wastePct) : (rec.waste_pct !== undefined && rec.waste_pct !== null && rec.waste_pct !== "" ? Number(rec.waste_pct) : null),
+    sellMode: rec.sellMode || rec.sell_mode || null,
+    perBatch: rec.perBatch !== undefined && rec.perBatch !== null && rec.perBatch !== "" ? Number(rec.perBatch) : (rec.per_batch !== undefined && rec.per_batch !== null && rec.per_batch !== "" ? Number(rec.per_batch) : null),
+    breakagePct: rec.breakagePct !== undefined && rec.breakagePct !== null && rec.breakagePct !== "" ? Number(rec.breakagePct) : (rec.breakage_pct !== undefined && rec.breakage_pct !== null && rec.breakage_pct !== "" ? Number(rec.breakage_pct) : null),
+    ingredients: (rec.ing || []).filter(i => i && (i.iid || i.item) && typeof (i.iid || i.item) === "string" && (i.iid || i.item).trim() !== "" && (i.iid || i.item) !== "item" && Number(i.qty) > 0).map(i => ({
+      item: (i.iid || i.item).trim(),
+      quantity: Number(i.qty)
+    }))
+  }
+}
 
 const mapServerExpenseToLocal = (exp) => {
   const desc = String(exp.description || "").trim().toLowerCase()
@@ -733,22 +840,7 @@ const syncRecipesList = async (headers, localRecipes) => {
     // Create/Update in parallel
     const recTasks = (localRecipes || []).map(async (rec) => {
       const sRec = serverRecs.find(r => r.id === rec.id)
-      const validIngredients = (rec.ing || [])
-        .filter(i => i && i.iid && typeof i.iid === "string" && i.iid.trim() !== "" && i.iid !== "item" && Number(i.qty) > 0)
-        .map(i => ({
-          item: i.iid.trim(),
-          quantity: Number(i.qty)
-        }))
-
-      const body = {
-        id: rec.id,
-        name: (rec.name && rec.name.trim()) ? rec.name.trim() : "Recipe",
-        notes: rec.notes || "",
-        type: rec.type || "layer",
-        batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null && rec.batchWeight !== "" ? Number(rec.batchWeight) : null,
-        batchSize: rec.batchSize !== undefined && rec.batchSize !== null && rec.batchSize !== "" ? Number(rec.batchSize) : null,
-        ingredients: validIngredients
-      }
+      const body = buildRecipePayloadBody(rec)
 
       const resPromise = sRec
         ? fetchWithTimeout(`${apiUrl}/api/recipes/${rec.id}`, {
@@ -3026,24 +3118,8 @@ export const createRecipeOnServer = async (rec) => {
   const apiUrl = import.meta.env.VITE_API_URL
   if (!apiUrl) throw new Error("API URL is not configured.")
 
-  const body = {
-    id: rec.id || undefined,
-    name: (rec.name && rec.name.trim()) ? rec.name.trim() : "Recipe",
-    notes: rec.notes || "",
-    type: rec.type || "layer",
-    batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null && rec.batchWeight !== "" ? Number(rec.batchWeight) : null,
-    batchSize: rec.batchSize !== undefined && rec.batchSize !== null && rec.batchSize !== "" ? Number(rec.batchSize) : null,
-    application: rec.application !== undefined ? rec.application : "spread",
-    fill_rate: rec.fill_rate !== undefined ? rec.fill_rate : (rec.fillRate !== undefined ? rec.fillRate : null),
-    crumb_rate: rec.crumb_rate !== undefined ? rec.crumb_rate : (rec.crumbRate !== undefined ? rec.crumbRate : 0),
-    cover_rate: rec.cover_rate !== undefined ? rec.cover_rate : (rec.coverRate !== undefined ? rec.coverRate : null),
-    sheet_overhang_in: rec.sheet_overhang_in !== undefined ? rec.sheet_overhang_in : (rec.sheetOverhangIn !== undefined ? rec.sheetOverhangIn : null),
-    is_calibrated: rec.is_calibrated !== undefined ? !!rec.is_calibrated : (rec.isCalibrated !== undefined ? !!rec.isCalibrated : false),
-    ingredients: (rec.ing || []).filter(i => i && i.iid && typeof i.iid === "string" && i.iid.trim() !== "" && i.iid !== "item" && Number(i.qty) > 0).map(i => ({
-      item: i.iid.trim(),
-      quantity: Number(i.qty)
-    }))
-  }
+  const body = buildRecipePayloadBody(rec)
+  if (rec.id) body.id = rec.id
 
   const res = await fetch(`${apiUrl}/api/recipes`, {
     method: "POST",
@@ -3078,23 +3154,8 @@ export const updateRecipeOnServer = async (id, rec) => {
   const apiUrl = import.meta.env.VITE_API_URL
   if (!apiUrl) throw new Error("API URL is not configured.")
 
-  const body = {
-    name: (rec.name && rec.name.trim()) ? rec.name.trim() : "Recipe",
-    notes: rec.notes || "",
-    type: rec.type || "layer",
-    batchWeight: rec.batchWeight !== undefined && rec.batchWeight !== null && rec.batchWeight !== "" ? Number(rec.batchWeight) : null,
-    batchSize: rec.batchSize !== undefined && rec.batchSize !== null && rec.batchSize !== "" ? Number(rec.batchSize) : null,
-    application: rec.application !== undefined ? rec.application : "spread",
-    fill_rate: rec.fill_rate !== undefined ? rec.fill_rate : (rec.fillRate !== undefined ? rec.fillRate : null),
-    crumb_rate: rec.crumb_rate !== undefined ? rec.crumb_rate : (rec.crumbRate !== undefined ? rec.crumbRate : 0),
-    cover_rate: rec.cover_rate !== undefined ? rec.cover_rate : (rec.coverRate !== undefined ? rec.coverRate : null),
-    sheet_overhang_in: rec.sheet_overhang_in !== undefined ? rec.sheet_overhang_in : (rec.sheetOverhangIn !== undefined ? rec.sheetOverhangIn : null),
-    is_calibrated: rec.is_calibrated !== undefined ? !!rec.is_calibrated : (rec.isCalibrated !== undefined ? !!rec.isCalibrated : false),
-    ingredients: (rec.ing || []).filter(i => i && i.iid && typeof i.iid === "string" && i.iid.trim() !== "" && i.iid !== "item" && Number(i.qty) > 0).map(i => ({
-      item: i.iid.trim(),
-      quantity: Number(i.qty)
-    }))
-  }
+  const body = buildRecipePayloadBody(rec)
+  delete body.id
 
   const res = await fetch(`${apiUrl}/api/recipes/${id}`, {
     method: "PUT",

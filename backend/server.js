@@ -42,6 +42,39 @@ if (require('fs').existsSync(clientPublicPath)) {
     app.use(express.static(clientPublicPath))
 }
 
+// Dedicated route to serve the Free Baker's Pack landing page
+app.get(['/free-pack', '/free-pack/', '/bakers-free-pack', '/the-bakers-free-pack'], (_req, res) => {
+    const clientHtml = path.join(__dirname, '../client/public/free-pack.html');
+    if (require('fs').existsSync(clientHtml)) {
+        return res.sendFile(clientHtml);
+    }
+    const backendHtml = path.join(__dirname, 'public/free-pack.html');
+    if (require('fs').existsSync(backendHtml)) {
+        return res.sendFile(backendHtml);
+    }
+    res.status(404).send("Page not found");
+});
+
+// Dedicated route to download the Free Baker's Pack PDF
+app.get([
+    '/the-bakers-free-pack.pdf',
+    '/The_Psychology_of_a_Baker_Complete_Free_Pack.pdf',
+    '/api/free-pack-pdf',
+    '/download/free-pack'
+], (_req, res) => {
+    const pdfPath = path.join(__dirname, 'pdfFiles/The_Psychology_of_a_Baker_Complete_Free_Pack.pdf');
+    if (require('fs').existsSync(pdfPath)) {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename="The_Psychology_of_a_Baker_Complete_Free_Pack.pdf"');
+        return res.download(pdfPath, 'The_Psychology_of_a_Baker_Complete_Free_Pack.pdf');
+    }
+    const publicPdf = path.join(__dirname, 'public/the-bakers-free-pack.pdf');
+    if (require('fs').existsSync(publicPdf)) {
+        return res.download(publicPdf, 'The_Psychology_of_a_Baker_Complete_Free_Pack.pdf');
+    }
+    res.status(404).send("PDF file not found");
+});
+
 // Apply rate limiting
 app.use('/api/', apiLimiter)
 app.use('/api/auth/', authLimiter)

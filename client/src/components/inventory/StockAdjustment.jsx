@@ -18,7 +18,7 @@
 import React, { useState } from 'react';
 import { Card, SHead, Btn, Inp, Sel } from '../common/ui.jsx';
 import { fmt } from '../../lib/helpers.js';
-import { AlertTriangle, CheckCircle, Plus, Trash2, Sliders, History } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Plus, Trash2, Sliders, History, Sparkles } from 'lucide-react';
 
 const REASON_OPTIONS = [
   { value: 'Spoilt or expired', label: 'Spoilt or expired (Out only)' },
@@ -197,10 +197,33 @@ export function StockAdjustment({ inventory = [], setInventory, onAdjustmentSucc
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', paddingBottom: 60 }}>
-      <SHead
-        title="Stock Adjustment"
-        sub="Record physical counts, kitchen spoilage, damages, testing samples, or inventory discrepancies"
-      />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <SHead
+          title="Stock Adjustment"
+          sub="Record physical counts, kitchen spoilage, damages, testing samples, or inventory discrepancies"
+        />
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('layerledger:open-help', { detail: { topic: 'stockadjust' } }))}
+          title="Learn how stock reason codes, two-way counts, and value loss work"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            background: "rgba(200, 145, 42, 0.12)",
+            border: "1.2px solid rgba(200, 145, 42, 0.45)",
+            color: "var(--gold)",
+            padding: "8px 14px",
+            borderRadius: 8,
+            fontSize: 12.5,
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.15s"
+          }}
+        >
+          <Sparkles size={14} /> How Stock Adjustments Work
+        </button>
+      </div>
 
       {error && (
         <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 8, background: '#FDF2E9', border: '1px solid #E0AE3A', color: '#9A5B14', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5 }}>

@@ -30,7 +30,7 @@ import {
   calculatePortionsGeometry,
   STANDARD_PANS
 } from '../../lib/cakeGeometry.js';
-import { Printer, AlertTriangle, CheckCircle, Clock, ShoppingCart, Flame, ListOrdered, ChevronRight, Edit3 } from 'lucide-react';
+import { Printer, AlertTriangle, CheckCircle, Clock, ShoppingCart, Flame, ListOrdered, ChevronRight, Edit3, Sparkles } from 'lucide-react';
 
 export function ProductionSheet({ order, quote, inventory = [], recipes = [], onSaveOrder, onClose }) {
   const targetOrder = order || quote || {};
@@ -79,7 +79,7 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
             const recipe = recipes.find(r => r.id === row.recipeId) ||
                            recipes.find(r => r.name.toLowerCase() === (row.flavour || '').trim().toLowerCase());
             const rName = recipe?.name || row.flavour || 'Cake Layer';
-            const density = Number(recipe?.cal_density) || (recipe?.cal_grams ? calculateDensity(recipe.cal_grams, recipe.cal_shape || shape, recipe.cal_dim_a || a, recipe.cal_dim_b || b, recipe.cal_height_in || 2) : 10.911);
+            const density = Number(recipe?.density || recipe?.cal_density) || ((recipe?.cal_grams || recipe?.calGrams) ? calculateDensity(recipe?.cal_grams || recipe?.calGrams, recipe?.cal_shape || recipe?.calShape || shape, recipe?.cal_dim_a || recipe?.calDimA || a, recipe?.cal_dim_b || recipe?.calDimB || b, recipe?.cal_height_in || recipe?.calHeightIn || 2) : 10.911);
             const trimPct = recipe?.trimPct !== undefined ? Number(recipe?.trimPct) : (recipe?.trim_pct !== undefined ? Number(recipe?.trim_pct) : 0.08);
             const gPerPan = gramsPerPan(density, pa, layerThickness, trimPct);
             const count = Number(row.layers) || 1;
@@ -245,7 +245,7 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
             const recipe = recipes.find(r => r.id === row.recipeId) ||
                            recipes.find(r => r.name.toLowerCase() === (row.flavour || '').trim().toLowerCase());
             const rName = recipe?.name || row.flavour || 'Slab Layer';
-            const density = Number(recipe?.cal_density) || (recipe?.cal_grams ? calculateDensity(recipe.cal_grams, recipe.cal_shape || 'rect', recipe.cal_dim_a || trayW, recipe.cal_dim_b || trayL, recipe.cal_height_in || 2) : 10.911);
+            const density = Number(recipe?.density || recipe?.cal_density) || ((recipe?.cal_grams || recipe?.calGrams) ? calculateDensity(recipe?.cal_grams || recipe?.calGrams, recipe?.cal_shape || recipe?.calShape || 'rect', recipe?.cal_dim_a || recipe?.calDimA || trayW, recipe?.cal_dim_b || recipe?.calDimB || trayL, recipe?.cal_height_in || recipe?.calHeightIn || 2) : 10.911);
             const trimPct = recipe?.trimPct !== undefined ? Number(recipe?.trimPct) : (recipe?.trim_pct !== undefined ? Number(recipe?.trim_pct) : 0.08);
             const gPerPan = gramsPerPan(density, pa, layerTh, trimPct);
             const count = (Number(row.layers) || 1) * slabs;
@@ -492,7 +492,28 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
             {targetOrder?.clientName || 'Order'} · {targetOrder?.deliveryDate || (targetOrder?.dueDate ? new Date(targetOrder.dueDate).toLocaleDateString('en-NG', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Confirmed Order')}
           </h1>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('layerledger:open-help', { detail: { topic: 'prodsheet' } }))}
+            title="Learn how production sheets, numbered weigh-outs, and stock deduction work"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "rgba(200, 145, 42, 0.12)",
+              border: "1.2px solid rgba(200, 145, 42, 0.45)",
+              color: "var(--gold)",
+              padding: "6px 12px",
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.15s"
+            }}
+          >
+            <Sparkles size={14} /> How Production Sheets Work
+          </button>
           <Btn small variant="outline" onClick={printSheet} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Printer size={14} /> Print Sheet
           </Btn>

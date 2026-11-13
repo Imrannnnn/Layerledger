@@ -67,6 +67,7 @@ import {
 } from "lucide-react"
 import { TokenPurchaseModal } from "./components/common/TokenPurchaseModal.jsx"
 import { PlanLimitModal } from "./components/common/PlanLimitModal.jsx"
+import { HelpAssistantModal } from "./components/common/HelpAssistantModal.jsx"
 
 // Helper to automatically retry dynamic imports on network/chunk load failures (common during new deployments)
 const lazyRetry = (importFn) => {
@@ -112,6 +113,7 @@ const SuperAdminDashboard = lazyRetry(() => import("./components/superadmin/Supe
 const PrivacyPolicy = lazyRetry(() => import("./components/legal/PrivacyPolicy.jsx").then(m => ({ default: m.PrivacyPolicy })))
 const TermsOfService = lazyRetry(() => import("./components/legal/TermsOfService.jsx").then(m => ({ default: m.TermsOfService })))
 const FinancialAssistant = lazyRetry(() => import("./components/assistant/FinancialAssistant.jsx").then(m => ({ default: m.FinancialAssistant })))
+const FreePackPage = lazyRetry(() => import("./components/landing/FreePackPage.jsx").then(m => ({ default: m.FreePackPage })))
 
 // ═══════════════════════════════════════════════════════════
 export class ErrorBoundary extends React.Component {
@@ -129,6 +131,15 @@ export class ErrorBoundary extends React.Component {
 
 export default function App() {
   const isSuperAdminRoute = window.location.pathname.startsWith("/superadmin") || window.location.search.includes("superadmin")
+  const isFreePackRoute = window.location.pathname === "/free-pack" ||
+    window.location.pathname === "/free-pack/" ||
+    window.location.pathname === "/bakers-free-pack" ||
+    window.location.pathname === "/bakers-free-pack/" ||
+    window.location.pathname === "/the-bakers-free-pack" ||
+    window.location.pathname === "/the-bakers-free-pack/" ||
+    window.location.search.includes("free-pack") ||
+    window.location.search.includes("freepack") ||
+    view === "free-pack"
   const [hasOnboardingParam, setHasOnboardingParam] = useState(() => {
     try {
       return new URLSearchParams(window.location.search).get("onboarding") === "1";
@@ -230,7 +241,21 @@ export default function App() {
   const [planLimitModalOpen, setPlanLimitModalOpen] = useState(false)
   const [planLimitData, setPlanLimitData] = useState({})
   const [settingsTab, setSettingsTab] = useState("company")
+  const [helpModalOpen, setHelpModalOpen] = useState(false)
+  const [helpTopic, setHelpTopic] = useState("calculator")
   const lastSyncedUserIdRef = useRef(null)
+
+  const resolveHelpTopicForView = useCallback((currentView) => {
+    if (!currentView || typeof currentView !== "string") return "calculator"
+    if (currentView === "calculator" || currentView === "quotes") return "calculator"
+    if (currentView === "masterlist") return "calibration"
+    if (currentView === "stockadjust") return "stockadjust"
+    if (currentView === "prodlist" || currentView === "prodentry" || currentView === "records") return "prodsheet"
+    if (["reports", "banking", "chartofaccounts", "reconciliation", "purchases", "payables", "expenses"].includes(currentView)) return "accounting"
+    if (currentView === "onboarding") return "setup"
+    if (currentView === "glossary") return "glossary"
+    return "calculator"
+  }, [])
 
   useEffect(() => {
     const onInsufficient = (e) => {
@@ -279,6 +304,25 @@ export default function App() {
       window.removeEventListener("bakewealth:plan-limit-reached", onPlanLimit)
     }
   }, [tenantInfo])
+
+  useEffect(() => {
+    const onOpenHelp = (e) => {
+      const requestedTopic = e?.detail?.topic
+      if (requestedTopic) {
+        setHelpTopic(requestedTopic)
+      } else {
+        setHelpTopic(resolveHelpTopicForView(view))
+      }
+      setHelpModalOpen(true)
+    }
+
+    window.addEventListener("layerledger:open-help", onOpenHelp)
+    window.addEventListener("bakewealth:open-help", onOpenHelp)
+    return () => {
+      window.removeEventListener("layerledger:open-help", onOpenHelp)
+      window.removeEventListener("bakewealth:open-help", onOpenHelp)
+    }
+  }, [view, resolveHelpTopicForView])
 
   useEffect(() => {
     const handler = () => setIsMobile(window.innerWidth < 768)
@@ -603,6 +647,14 @@ export default function App() {
 
   const goTo2 = (id) => { goTo(id); setSidebarOpen(false) }
 
+  if (isFreePackRoute) {
+    return (
+      <Suspense fallback={<FullPageLoader message="Loading your free baker's pack..." />}>
+        <FreePackPage />
+      </Suspense>
+    )
+  }
+
   if (isSuperAdminRoute) {
     return (
       <>
@@ -872,6 +924,33 @@ export default function App() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setHelpTopic(resolveHelpTopicForView(view))
+                setHelpModalOpen(true)
+              }}
+              title="Need Help? Ask AI Assistant"
+              style={{
+                background: "rgba(200,145,42,0.14)",
+                border: "1px solid rgba(200,145,42,0.4)",
+                borderRadius: 6,
+                padding: "6px 12px",
+                color: gold,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "rgba(200,145,42,0.22)"}
+              onMouseLeave={e => e.currentTarget.style.background = "rgba(200,145,42,0.14)"}
+            >
+              <Sparkles size={13} color={gold} />
+              {!isMobile && <span>Need Help? Ask AI</span>}
+            </button>
             {trialExpiryText && (
               <div style={{
                 background: "#FFF1F1",
@@ -988,6 +1067,7 @@ export default function App() {
               {view === "settings" && <Settings company={company} setCompany={setCompany} settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} inventory={inventory} setInventory={setInventory} user={currentUser} setView={setViewWithSync} initialTab={settingsTab} />}
               {view === "privacy" && <PrivacyPolicy onBack={() => goBack()} />}
               {view === "terms" && <TermsOfService onBack={() => goBack()} />}
+              {view === "free-pack" && <FreePackPage />}
             </Suspense>
           }
         </div>
@@ -1054,6 +1134,14 @@ export default function App() {
         setSettingsTab("tokens")
         setViewWithSync("settings")
       }}
+    />
+
+    <HelpAssistantModal
+      isOpen={helpModalOpen}
+      onClose={() => setHelpModalOpen(false)}
+      initialTopic={helpTopic}
+      user={currentUser}
+      company={company}
     />
   </>
 }

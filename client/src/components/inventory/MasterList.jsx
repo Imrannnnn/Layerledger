@@ -77,16 +77,25 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
           <div style={{fontWeight:600,fontSize:15}}>{r.name}</div>
           {isCovering&&<span style={{fontSize:10,background:"#E8EFFC",color:"#2355A0",padding:"2px 7px",borderRadius:20,fontWeight:500}}>Covering · {[r.canFill !== false && r.canFill !== null ? "Fill" : null, r.canCrumb !== false && r.canCrumb !== null ? "Crumb" : null, r.canFinish !== false && r.canFinish !== null ? "Finish" : null].filter(Boolean).join(" | ") || "General"}</span>}
           {isPastry&&<span style={{fontSize:10,background:"#FAEEDA",color:"#8C5E00",padding:"2px 7px",borderRadius:20,fontWeight:500}}>Pastry · {r.perBatch || r.batchSize || "?"} {r.sellMode === "weight" ? "g" : "pcs"}/batch</span>}
-          {!isCovering&&!isPastry&&(
-            <>
-              <span style={{fontSize:10,background:"#FFF9EE",color:"var(--gold)",border:"1px solid var(--border)",padding:"2px 7px",borderRadius:20,fontWeight:600}}>
-                Total Batch: {fmt(batchCostTotal)} · {fmt(batchCostTotal / (parseFloat(r.yieldLayers) || 1))}/layer
-              </span>
-              <span style={{fontSize:10,background:(r.isCalibrated || r.density) ? "#E8F5EE" : "#FFF9EE",color:(r.isCalibrated || r.density) ? "#1E6B37" : "var(--gold)",border:"1px solid var(--border)",padding:"2px 7px",borderRadius:20,fontWeight:600}}>
-                {(r.isCalibrated || r.density) ? `Calibrated · ${Number(r.density || 0).toFixed(2)} g/in³` : "Cake Layer · Uncalibrated"}
-              </span>
-            </>
-          )}
+          {!isCovering&&!isPastry&&(() => {
+            const calG = Number(r.calGrams ?? r.cal_grams) || 0
+            const calSh = r.calShape || r.cal_shape || "round"
+            const calA = Number(r.calDimA ?? r.cal_dim_a) || 6
+            const calB = Number(r.calDimB ?? r.cal_dim_b) || 8
+            const calH = Number(r.calHeightIn ?? r.cal_height_in) || 2
+            const dVal = Number(r.density) || (calG > 0 ? calculateDensity(calG, calSh, calA, calB, calH) : 0)
+            const isCal = !!(r.isCalibrated || r.is_calibrated || dVal > 0)
+            return (
+              <>
+                <span style={{fontSize:10,background:"#FFF9EE",color:"var(--gold)",border:"1px solid var(--border)",padding:"2px 7px",borderRadius:20,fontWeight:600}}>
+                  Total Batch: {fmt(batchCostTotal)} · {fmt(batchCostTotal / (parseFloat(r.yieldLayers) || 1))}/layer
+                </span>
+                <span style={{fontSize:10,background:isCal ? "#E8F5EE" : "#FFF9EE",color:isCal ? "#1E6B37" : "var(--gold)",border:"1px solid var(--border)",padding:"2px 7px",borderRadius:20,fontWeight:600}}>
+                  {isCal ? `Calibrated · ${dVal > 0 ? dVal.toFixed(2) : "0.00"} g/in³` : "Cake Layer · Uncalibrated"}
+                </span>
+              </>
+            )
+          })()}
         </div>
         {cleanNote&&<div style={{fontSize:11.5,color:"var(--muted)",marginTop:2}}>{cleanNote}</div>}
       </div>
@@ -2277,13 +2286,27 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
 
     // Auto-calculate density for cake layers if calibration values entered
     const payload = { ...recipeModal }
-    if (payload.type === "cake_layer" || payload.type === "layer" || (!payload.type && payload.calGrams)) {
-      const pa = planArea(payload.calShape || "round", Number(payload.calDimA) || 6, Number(payload.calDimB) || 8)
-      const h = Number(payload.calHeightIn) || 2
-      const w = Number(payload.calGrams) || 0
-      if (pa > 0 && h > 0 && w > 0) {
-        payload.density = w / (pa * h)
+    if (payload.type === "cake_layer" || payload.type === "layer" || (!payload.type && (payload.calGrams || payload.cal_grams))) {
+      const g = Number(payload.calGrams ?? payload.cal_grams) || 0
+      const sh = payload.calShape || payload.cal_shape || "round"
+      const da = Number(payload.calDimA ?? payload.cal_dim_a) || 6
+      const db = Number(payload.calDimB ?? payload.cal_dim_b) || 8
+      const h = Number(payload.calHeightIn ?? payload.cal_height_in) || 2
+      if (g > 0 && da > 0 && h > 0) {
+        const dens = calculateDensity(g, sh, da, db, h)
+        payload.density = dens
         payload.isCalibrated = true
+        payload.is_calibrated = true
+        payload.calGrams = g
+        payload.cal_grams = g
+        payload.calShape = sh
+        payload.cal_shape = sh
+        payload.calDimA = da
+        payload.cal_dim_a = da
+        payload.calDimB = db
+        payload.cal_dim_b = db
+        payload.calHeightIn = h
+        payload.cal_height_in = h
       }
     }
 
@@ -2973,7 +2996,7 @@ export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
 
   // plan area in sq in
   const pArea = planArea(shape, dimA, dimB)
-  const density = calculateDensity(shape, dimA, dimB, heightIn, grams)
+  const density = calculateDensity(grams, shape, dimA, dimB, heightIn)
 
   // Worked example for 10" round, 3 layers at 2"
   const exPArea = planArea("round", 10)
@@ -2982,11 +3005,33 @@ export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
 
   return (
     <div style={{ marginTop: 12, marginBottom: 14, background: "#FDFAF4", border: "1.5px solid var(--gold)", borderRadius: 10, padding: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>
-          Calibration Bake · How this batter bakes
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>
+            Calibration Bake · How this batter bakes
+          </div>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('layerledger:open-help', { detail: { topic: 'calibration' } }))}
+            title="Step-by-step instructions: How to do a Calibration Bake"
+            style={{
+              background: "rgba(200, 145, 42, 0.12)",
+              border: "1px solid rgba(200, 145, 42, 0.4)",
+              borderRadius: 6,
+              padding: "2px 8px",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--gold)",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4
+            }}
+          >
+            ❓ How Calibration Works
+          </button>
         </div>
-        <span style={{ fontSize: 11, color: "#1E6B37", background: "#E8F5EE", padding: "2px 8px", borderRadius: 12, fontWeight: 600 }}>
+        <span style={{ fontSize: 11, color: density > 0 ? "#1E6B37" : "var(--gold)", background: density > 0 ? "#E8F5EE" : "#FFF9EE", padding: "2px 8px", borderRadius: 12, fontWeight: 600 }}>
           {density > 0 ? `Density: ${density.toFixed(2)} g/in³` : "Not calibrated"}
         </span>
       </div>
@@ -3138,8 +3183,30 @@ export function CoveringCalibrationCard({ recipeModal, setRecipeModal }) {
 
   return (
     <div style={{ marginTop: 12, marginBottom: 14, background: "#FDFAF4", border: "1.5px solid var(--gold)", borderRadius: 10, padding: 14 }}>
-      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-        Job Declaration · Where do you use this?
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>
+          Job Declaration · Where do you use this?
+        </div>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('layerledger:open-help', { detail: { topic: 'coverings' } }))}
+          title="Step-by-step instructions: How Coverings & Fillings thickness and reverse calibration work"
+          style={{
+            background: "rgba(200, 145, 42, 0.12)",
+            border: "1px solid rgba(200, 145, 42, 0.4)",
+            borderRadius: 6,
+            padding: "2px 8px",
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--gold)",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4
+          }}
+        >
+          ❓ How Thickness & Coverings Work
+        </button>
       </div>
       <p style={{ fontSize: 11.5, color: "var(--muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
         Tick the roles this recipe can perform. When quoting a cake, the dropdowns will only show recipes that can do that job.
