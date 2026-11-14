@@ -120,10 +120,120 @@ export class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null, stack: null } }
   static getDerivedStateFromError(error) { return { error: error?.toString(), stack: error?.stack || "" } }
   render() {
-    if (this.state.error) return React.createElement("div", { style: { padding: 40, fontFamily: "monospace", background: "#fff", color: "#333" } },
-      React.createElement("h2", { style: { color: "red" } }, "App crashed — share this error with Claude:"),
-      React.createElement("pre", { style: { background: "#f5f5f5", padding: 16, borderRadius: 8, overflow: "auto", fontSize: 12, whiteSpace: "pre-wrap" } }, this.state.error + " " + this.state.stack)
-    )
+    if (this.state.error) {
+      return (
+        <div style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#F4EEE4",
+          padding: 24,
+          fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+        }}>
+          <div style={{
+            maxWidth: 580,
+            width: "100%",
+            background: "#FDFAF4",
+            border: "1px solid #E0D3BB",
+            borderRadius: 16,
+            padding: "32px 28px",
+            boxShadow: "0 10px 30px rgba(41, 22, 8, 0.08)",
+            textAlign: "center"
+          }}>
+            <div style={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              background: "#FBEAE5",
+              color: "#C0392B",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 26,
+              margin: "0 auto 16px"
+            }}>
+              ⚠️
+            </div>
+            <h2 style={{
+              fontFamily: "'Playfair Display', Georgia, serif",
+              fontSize: 22,
+              fontWeight: 700,
+              color: "#291608",
+              margin: "0 0 10px"
+            }}>
+              Something Went Wrong
+            </h2>
+            <p style={{
+              fontSize: 14.5,
+              color: "#6B5B4C",
+              lineHeight: 1.6,
+              margin: "0 0 24px"
+            }}>
+              An unexpected issue occurred. The programmer will investigate and fix this bug. You can try refreshing the page or restarting your session.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 20 }}>
+              <button
+                onClick={() => window.location.reload()}
+                style={{
+                  background: "#C8912A",
+                  color: "#FFF",
+                  border: "none",
+                  borderRadius: 10,
+                  padding: "11px 22px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px rgba(200, 145, 42, 0.25)"
+                }}
+              >
+                Reload Page
+              </button>
+              <button
+                onClick={() => {
+                  try {
+                    sessionStorage.removeItem("ll_active_view");
+                  } catch {}
+                  window.location.href = "/";
+                }}
+                style={{
+                  background: "#EFE8DA",
+                  color: "#291608",
+                  border: "1px solid #E0D3BB",
+                  borderRadius: 10,
+                  padding: "11px 22px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer"
+                }}
+              >
+                Go to Home
+              </button>
+            </div>
+            <details style={{ textAlign: "left", marginTop: 18, borderTop: "1px solid #E0D3BB", paddingTop: 14 }}>
+              <summary style={{ cursor: "pointer", fontSize: 12, color: "#8C6E52", fontWeight: 600 }}>
+                Technical Details
+              </summary>
+              <pre style={{
+                background: "#F4EEE4",
+                padding: 12,
+                borderRadius: 8,
+                overflow: "auto",
+                fontSize: 11.5,
+                color: "#78281F",
+                marginTop: 8,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all"
+              }}>
+                {this.state.error}
+                {"\n"}
+                {this.state.stack}
+              </pre>
+            </details>
+          </div>
+        </div>
+      );
+    }
     return this.props.children
   }
 }
@@ -131,15 +241,14 @@ export class ErrorBoundary extends React.Component {
 
 export default function App() {
   const isSuperAdminRoute = window.location.pathname.startsWith("/superadmin") || window.location.search.includes("superadmin")
-  const isFreePackRoute = window.location.pathname === "/free-pack" ||
+  const isFreePackPath = window.location.pathname === "/free-pack" ||
     window.location.pathname === "/free-pack/" ||
     window.location.pathname === "/bakers-free-pack" ||
     window.location.pathname === "/bakers-free-pack/" ||
     window.location.pathname === "/the-bakers-free-pack" ||
     window.location.pathname === "/the-bakers-free-pack/" ||
     window.location.search.includes("free-pack") ||
-    window.location.search.includes("freepack") ||
-    view === "free-pack"
+    window.location.search.includes("freepack")
   const [hasOnboardingParam, setHasOnboardingParam] = useState(() => {
     try {
       return new URLSearchParams(window.location.search).get("onboarding") === "1";
@@ -647,7 +756,7 @@ export default function App() {
 
   const goTo2 = (id) => { goTo(id); setSidebarOpen(false) }
 
-  if (isFreePackRoute) {
+  if (isFreePackPath || view === "free-pack") {
     return (
       <Suspense fallback={<FullPageLoader message="Loading your free baker's pack..." />}>
         <FreePackPage />
