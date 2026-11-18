@@ -5,7 +5,7 @@ if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=requi
 jest.setTimeout(30000);
 const prisma = require('../prisma');
 const { createRecipe, updateRecipe } = require('../controller/recipeController');
-const { createRecipeSchema } = require('../validators/recipeValidator');
+const { createRecipeSchema, updateRecipeSchema } = require('../validators/recipeValidator');
 
 const callController = (controllerFn, req, res) => {
     return new Promise((resolve, reject) => {
@@ -150,5 +150,52 @@ describe('Recipe Controller & Validation Resilience Tests', () => {
         expect(updated.ingredients.length).toBe(1);
         expect(updated.ingredients[0].inventoryItemId).toBe(validInventoryItemId);
         expect(updated.ingredients[0].quantity).toBe(4);
+    });
+
+    test('updateRecipeSchema does not strip calibration fields and updateRecipe persists calibration', async () => {
+        const created = await prisma.recipe.create({
+            data: {
+                tenantId,
+                name: 'Uncalibrated Sponge',
+                type: 'layer'
+            }
+        });
+
+        const rawBody = {
+            name: 'Calibrated Sponge',
+            calGrams: 500,
+            calShape: 'round',
+            calDimA: 6,
+            calHeightIn: 2,
+            trimPct: 8
+        };
+
+        const parseResult = updateRecipeSchema.safeParse({ body: rawBody });
+        expect(parseResult.success).toBe(true);
+        expect(parseResult.data.body.calGrams).toBe(500);
+        expect(parseResult.data.body.calShape).toBe('round');
+        expect(parseResult.data.body.calDimA).toBe(6);
+        expect(parseResult.data.body.calHeightIn).toBe(2);
+
+        const req = {
+            user: { tenantId },
+            params: { id: created.id },
+            body: parseResult.data.body
+        };
+        const res = {};
+        const updated = await callController(updateRecipe, req, res);
+
+        expect(updated).toBeDefined();
+        expect(updated.calGrams).toBe(500);
+        expect(updated.calShape).toBe('round');
+        expect(updated.isCalibrated).toBe(true);
+        expect(updated.density).toBeGreaterThan(0);
+        expect(updated.trimPct).toBe(0.08);
+
+        // Fetch back directly from database to verify persistence
+        const fromDb = await prisma.recipe.findUnique({ where: { id: created.id } });
+        expect(fromDb.calGrams).toBe(500);
+        expect(fromDb.isCalibrated).toBe(true);
+        expect(fromDb.density).toBeGreaterThan(0);
     });
 });

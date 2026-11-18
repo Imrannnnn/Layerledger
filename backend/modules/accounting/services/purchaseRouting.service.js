@@ -232,6 +232,7 @@ class PurchaseRoutingService {
             let fixedAssetRecord = null;
             if (classification.destination === 'fixed_asset') {
                 const assetAccount = await chartOfAccountsService.getAccountByCode(tenantId, classification.accountCode, tx);
+                const defaultLife = classification.accountCode === '1230' ? 36 : (classification.accountCode === '1240' && options.leaseTermMonths ? parseInt(options.leaseTermMonths, 10) : DEFAULT_USEFUL_LIFE_MONTHS);
                 fixedAssetRecord = await tx.fixedAsset.create({
                     data: {
                         tenantId,
@@ -241,7 +242,7 @@ class PurchaseRoutingService {
                         acquisitionDate: purchase.date || new Date(),
                         cost: amount,
                         residualValue: 0,
-                        usefulLifeMonths: options.usefulLifeMonths || DEFAULT_USEFUL_LIFE_MONTHS,
+                        usefulLifeMonths: options.usefulLifeMonths || defaultLife,
                         depreciationMethod: 'STRAIGHT_LINE',
                         useType: options.useType || 'production',
                         accumulatedDepreciation: 0,

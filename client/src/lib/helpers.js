@@ -16,6 +16,7 @@
 import * as XLSX from "xlsx"
 import { FLAVOR_EXTRAS, DECORATION_ITEMS } from "../constants.js"
 import { getAuthHeaders, loadLocal, saveLocal } from "./data.js"
+import { planArea, perimeter, gapArea, surfaceArea } from "./cakeGeometry.js"
 
 export const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -81,6 +82,29 @@ export const mapCategory = (cat, name = "") => {
   if (c.includes("flavor") || c.includes("extract") || c.includes("color") || c.includes("essence")) return "Flavours and Extracts"
   if (c.includes("edible") || c.includes("sprinkle") || c.includes("candy") || c.includes("wafer") || c.includes("fondant")) return "Edible Items"
   return "Other"
+}
+
+export const isDecorationCategory = (itemOrCat, maybeName = "") => {
+  let cat = ""
+  let name = ""
+  if (itemOrCat && typeof itemOrCat === "object") {
+    cat = itemOrCat.cat || itemOrCat.category || ""
+    name = itemOrCat.name || ""
+  } else {
+    cat = itemOrCat || ""
+    name = maybeName || ""
+  }
+  const c = (cat || "").trim()
+  const cLower = c.toLowerCase()
+  if (
+    cLower === "decoration extras" ||
+    cLower === "decoration" ||
+    cLower === "decorations" ||
+    cLower.includes("decor")
+  ) {
+    return true
+  }
+  return mapCategory(c, name) === "Decoration Extras"
 }
 
 
@@ -751,28 +775,33 @@ export function getRecipeCoverageValues(recipe) {
   }
 }
 
-export function calculateCakeGeometry(sizeInches, layerCount = 1, shape = "Round", overhangInches = 0) {
+export function calculateCakeGeometry(sizeInches, layerCount = 1, shape = "Round", overhangInches = 0, sizeBInches = 0) {
   const D = Math.max(0, parseFloat(sizeInches) || 0)
+  const B = Math.max(0, parseFloat(sizeBInches) || 0)
   const L = Math.max(1, parseInt(layerCount, 10) || 1)
   const H = 2 * L
   const overhang = parseFloat(overhangInches) || 0
-  const isSquare = String(shape || "").toLowerCase() === "square"
+  const normShape = String(shape || "").toLowerCase()
+  const isSquare = normShape === "square"
+  const isSheet = normShape === "sheet" || normShape === "rect" || normShape === "rectangular"
+  const geomShape = isSheet ? "rect" : isSquare ? "square" : "round"
 
-  let gap_area = 0
-  let surface_area = 0
+  const pa = planArea(geomShape, D, B || D)
+  const peri = perimeter(geomShape, D, B || D)
+  const gap_area = gapArea(pa, L)
+  const surface_area = surfaceArea(pa, peri, H)
+
   let sheet_area = 0
-
-  if (isSquare) {
-    gap_area = (D * D) * (L - 1)
-    surface_area = (D * D) + (4 * D * H)
+  if (isSheet) {
+    const W = B || D
+    sheet_area = Math.pow(Math.max(D, W) + 2 * H + overhang, 2)
+  } else if (isSquare) {
     sheet_area = Math.pow(D + 2 * H + overhang, 2)
   } else {
-    gap_area = ((Math.PI * D * D) / 4) * (L - 1)
-    surface_area = ((Math.PI * D * D) / 4) + (Math.PI * D * H)
     sheet_area = (Math.PI / 4) * Math.pow(D + 2 * H + overhang, 2)
   }
 
-  return { D, L, H, shape: isSquare ? "Square" : "Round", gap_area, surface_area, sheet_area }
+  return { D, B, L, H, shape: isSheet ? "Sheet" : isSquare ? "Square" : "Round", gap_area, surface_area, sheet_area }
 }
 
 export function calculateFillingGrams(recipe, geometry) {

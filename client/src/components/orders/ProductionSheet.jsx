@@ -8,10 +8,22 @@
  * and high-contrast, ink-saving printable formatting).
  * 
  * Three Tabs:
- *   1. Shopping list (aggregated ingredients once, shortfall banner, egg pieces @ 50g,
- *      liquids >400g in litres, unrounded batch counts).
- *   2. Bake sheet (numbered weigh-out list per pan, scaled recipe cards per pan & flavour).
- *   3. Build order (resting & chilling prep timeline, editable sequence).
+ *   1. Shopping list:
+ *      - Aggregated once across every recipe on the whole order (butter appears once).
+ *      - Stock check on every line: Needed, In Stock, Short (with shortfall alert).
+ *      - Sub-units where a baker thinks in them: eggs as pieces @ 50g, liquids in litres >= 400g.
+ *      - Batch counts shown unrounded (e.g. 12.89 batches means scale by 12.89).
+ *   2. Bake sheet:
+ *      - Numbered weigh-out list: every pan listed individually with pan size, layer thickness,
+ *        and the calibrated gram pour weight.
+ *      - Scaled recipe cards for each pan-size-and-flavour group (actual flour, butter, eggs, milk).
+ *      - Scaled recipe cards for made-by-the-piece decorations with breakage allowance.
+ *      - "Mark as Baked" action triggering raw-materials-to-finished-goods move (Section 8).
+ *   3. Build order:
+ *      - Generated build timeline from recipes, resting times, and delivery date.
+ *      - Made decoration (sugar roses, wafer paper) placed at the FRONT (Step 1) of the build order
+ *        before the bake, covering drying time (2 days for sugar roses, 1 day for wafer paper).
+ *      - Editable by the baker, and custom versions are preserved.
  * ----------------------------------------------------------------------------
  */
 
@@ -28,11 +40,13 @@ import {
   calculateDensity,
   scaleRecipeIngredients,
   calculatePortionsGeometry,
+  resolveOrderDecorations,
   STANDARD_PANS
 } from '../../lib/cakeGeometry.js';
-import { Printer, AlertTriangle, CheckCircle, Clock, ShoppingCart, Flame, ListOrdered, ChevronRight, Edit3, Sparkles } from 'lucide-react';
+import { bakeOrder } from '../../lib/accountingApi.js';
+import { Printer, AlertTriangle, CheckCircle, Clock, ShoppingCart, Flame, ListOrdered, ChevronRight, Edit3, Sparkles, Check } from 'lucide-react';
 
-export function ProductionSheet({ order, quote, inventory = [], recipes = [], onSaveOrder, onClose }) {
+export function ProductionSheet({ order, quote, inventory = [], recipes = [], onSaveOrder, onClose, onMarkBaked }) {
   const targetOrder = order || quote || {};
   const [activeTab, setActiveTab] = useState('shopping'); // 'shopping' | 'bake' | 'timeline'
   const [customTimeline, setCustomTimeline] = useState(() => {
@@ -40,6 +54,15 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
   });
   const [editingStepIndex, setEditingStepIndex] = useState(null);
   const [editedStepText, setEditedStepText] = useState('');
+
+  // Baked state tracking
+  const [isBaked, setIsBaked] = useState(() => {
+    return Boolean(targetOrder?.isBaked || targetOrder?.metadata?.isBaked || targetOrder?.status === 'ready' || targetOrder?.status === 'delivered');
+  });
+  const [bakedAt, setBakedAt] = useState(() => {
+    return targetOrder?.bakedAt || targetOrder?.metadata?.bakedAt || null;
+  });
+  const [bakingNotice, setBakingNotice] = useState('');
 
   // ---------------------------------------------------------------------------
   // Geometric & Production Aggregation Engine
@@ -49,14 +72,127 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
     const pansWeighOut = [];
     const recipePanCards = [];
     const recipeCoverCards = [];
+    const madeDecorCards = [];
     const decorList = [];
-    const ingredientAgg = new Map(); // ingredientId -> { id, name, unit, neededGrams, recipes: Set }
+    const ingredientAgg = new Map(); // key -> { id, name, unit, neededGrams, stockOnHand, recipes: Set }
     const recipeBatches = [];
 
     let panIndex = 1;
 
+    // A. Parse and process all made decorations first
+    const resolvedDecorations = resolveOrderDecorations(targetOrder, recipes, inventory);
+    resolvedDecorations.forEach(dec => {
+      if (dec.kind === 'made_piece') {
+        const rec = dec.recipe;
+        const rawIngs = rec.ingredients || rec.ing || [];
+        const baseYieldPieces = dec.baseYieldPieces;
+        const batchScale = dec.batchScale;
+
+        // Unrounded batch entry
+        recipeBatches.push({
+          recipeId: rec.id,
+          name: `${rec.name} (Made Decoration)`,
+          neededGrams: 0,
+          baseYield: `${baseYieldPieces} pcs`,
+          pieces: dec.piecesToMake,
+          batches: batchScale
+        });
+
+        // Scale ingredients for this made decoration
+        const scaledIngs = rawIngs.map(ing => {
+          const invId = ing.inventoryItemId || ing.iid || ing.id;
+          const invItem = inventory.find(i => i.id === invId || i.name?.toLowerCase() === (ing.name || '').toLowerCase());
+          const unit = ing.unit || invItem?.unit || 'g';
+          const perBatchQty = Number(ing.quantity !== undefined ? ing.quantity : ing.qty) || 0;
+          const scaledQty = perBatchQty * batchScale;
+          const perPieceQty = perBatchQty / Math.max(1, baseYieldPieces);
+
+          let gramsToAdd = scaledQty;
+          if (unit.toLowerCase() === 'kg' || unit.toLowerCase() === 'l') {
+            gramsToAdd = scaledQty * 1000;
+          }
+
+          const key = invId || ing.name?.toLowerCase();
+          if (ingredientAgg.has(key)) {
+            const existing = ingredientAgg.get(key);
+            existing.neededGrams += gramsToAdd;
+            existing.recipes.add(`${rec.name} (Decoration)`);
+          } else {
+            let stockOnHand = 0;
+            if (invItem) {
+              const u = (invItem.unit || '').toLowerCase();
+              stockOnHand = (u === 'kg' || u === 'l') ? (Number(invItem.stock) || 0) * 1000 : (Number(invItem.stock) || 0);
+            }
+            ingredientAgg.set(key, {
+              id: invId,
+              name: invItem?.name || ing.name || 'Ingredient',
+              unit: (unit === 'kg' || unit === 'l') ? 'g' : unit,
+              neededGrams: gramsToAdd,
+              stockOnHand,
+              recipes: new Set([`${rec.name} (Decoration)`])
+            });
+          }
+
+          return {
+            name: invItem?.name || ing.name,
+            unit,
+            quantity: Math.round(scaledQty * 10) / 10,
+            perPieceStr: `${perPieceQty.toFixed(2)} ${unit}`
+          };
+        });
+
+        madeDecorCards.push({
+          recipeId: rec.id,
+          name: rec.name,
+          piecesNeeded: dec.qtyNeeded,
+          breakagePct: dec.breakagePct,
+          piecesToMake: dec.piecesToMake,
+          baseYieldPieces,
+          batchScale,
+          ingredients: scaledIngs,
+          baseRecipe: rec
+        });
+      } else {
+        // Weighed or bought piece
+        const invItem = dec.invItem || inventory.find(i => i.name?.toLowerCase() === dec.name.toLowerCase());
+        const unit = dec.unit || invItem?.unit || 'pcs';
+        const key = invItem?.id || dec.name.toLowerCase();
+        let neededGrams = dec.qtyNeeded;
+        if (unit === 'kg' || unit === 'l') {
+          neededGrams = dec.qtyNeeded * 1000;
+        }
+
+        if (ingredientAgg.has(key)) {
+          const existing = ingredientAgg.get(key);
+          existing.neededGrams += neededGrams;
+          existing.recipes.add('Decoration Extra');
+        } else {
+          let stockOnHand = 0;
+          if (invItem) {
+            const u = (invItem.unit || '').toLowerCase();
+            stockOnHand = (u === 'kg' || u === 'l') ? (Number(invItem.stock) || 0) * 1000 : (Number(invItem.stock) || 0);
+          }
+          ingredientAgg.set(key, {
+            id: invItem?.id,
+            name: dec.name,
+            unit: (unit === 'kg' || unit === 'l') ? 'g' : unit,
+            neededGrams,
+            stockOnHand,
+            recipes: new Set(['Decoration Extra'])
+          });
+        }
+
+        decorList.push({
+          name: dec.name,
+          qty: dec.qtyNeeded,
+          unit,
+          kind: dec.kind
+        });
+      }
+    });
+
+    // B. Cake Tiers
     items.forEach((item, itemIdx) => {
-      // 1. CAKE TIERS
       if (item.tiers && Array.isArray(item.tiers)) {
         item.tiers.forEach((tier, tierIdx) => {
           const shape = (tier.shape || 'round').toLowerCase();
@@ -120,7 +256,7 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
           const tierGap = gapArea(pa, totalLayers);
           const tierSurf = surfaceArea(pa, pe, H);
 
-          // Fillings from item.fillings or tier.fillings
+          // Fillings
           const fillingsList = item.fillings && item.fillings.length > 0 ? item.fillings : (tier.fillings || []);
           if (fillingsList && Array.isArray(fillingsList) && tierGap > 0) {
             const gapShare = tierGap / fillingsList.length;
@@ -207,7 +343,7 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
         });
       }
 
-      // 2. PORTIONS (Slab or Counted)
+      // C. Portions (Slab or Counted)
       if (item.type === 'portions' || item.portions) {
         const p = item.portions || item;
         if (p.route === 'slab' || (!p.route && (p.layers || p.flavourRows))) {
@@ -314,21 +450,70 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
               });
             }
           }
-        }
-      }
+        } else if (p.route === 'count') {
+          // Counted portions: Doughnuts, chin chin, bread, cake pops, mousse cups (no geometry, unrounded batches)
+          const rec = recipes.find(r => r.id === p.countedRecipeId || r.name?.toLowerCase() === (p.countedRecipeId || '').toLowerCase());
+          if (rec) {
+            const servings = Number(p.countedServings || p.servings) || 40;
+            const batchSize = Number(rec.batchSize || rec.perBatch || rec.per_batch) || 12;
+            const breakage = (Number(rec.breakagePct ?? rec.breakage_pct) || 0) / 100;
+            const batches = (servings / Math.max(1, batchSize)) * (1 + breakage);
 
-      // 3. DECORATIONS
-      if (item.decorations && Array.isArray(item.decorations)) {
-        item.decorations.forEach(d => {
-          decorList.push({
-            name: d.name || 'Decoration Item',
-            grams: Number(d.grams) || 0
-          });
-        });
+            const existingBatch = recipeBatches.find(b => b.recipeId === rec.id);
+            if (existingBatch) {
+              existingBatch.batches += batches;
+              existingBatch.pieces = (existingBatch.pieces || 0) + servings;
+            } else {
+              recipeBatches.push({
+                recipeId: rec.id,
+                name: rec.name,
+                neededGrams: 0,
+                baseYield: `${batchSize} pcs`,
+                pieces: servings,
+                batches: batches // Never rounded up! E.g. 2.4
+              });
+            }
+
+            const rawIngs = rec.ingredients || rec.ing || [];
+            rawIngs.forEach(ing => {
+              const iid = ing.iid || ing.id || ing.inventoryId;
+              const invMatch = inventory.find(i => i.id === iid || i.name?.toLowerCase() === (ing.name || '').toLowerCase());
+              const name = invMatch?.name || ing.name || 'Ingredient';
+              const unit = (invMatch?.unit || ing.unit || 'g').toLowerCase();
+              const perBatchQty = Number(ing.qty !== undefined ? ing.qty : ing.quantity) || 0;
+              let gramsToAdd = 0;
+              if (unit === 'kg' || unit === 'l') {
+                gramsToAdd = perBatchQty * 1000 * batches;
+              } else {
+                gramsToAdd = perBatchQty * batches;
+              }
+              const key = iid || name.toLowerCase();
+              if (ingredientAgg.has(key)) {
+                const existing = ingredientAgg.get(key);
+                existing.neededGrams += gramsToAdd;
+                existing.recipes.add(rec.name);
+              } else {
+                let stockOnHand = 0;
+                if (invMatch) {
+                  const u = (invMatch.unit || '').toLowerCase();
+                  stockOnHand = (u === 'kg' || u === 'l') ? (Number(invMatch.stock) || 0) * 1000 : (Number(invMatch.stock) || 0);
+                }
+                ingredientAgg.set(key, {
+                  id: iid,
+                  name,
+                  unit: (unit === 'kg' || unit === 'l') ? 'g' : unit,
+                  neededGrams: gramsToAdd,
+                  stockOnHand,
+                  recipes: new Set([rec.name])
+                });
+              }
+            });
+          }
+        }
       }
     });
 
-    // Aggregate Ingredients across all recipe cards
+    // D. Aggregate Ingredients across all scaled cake & covering cards
     const allScaledCards = [...recipePanCards, ...recipeCoverCards];
     allScaledCards.forEach(card => {
       const base = card.baseRecipe;
@@ -384,12 +569,17 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
           existing.recipes.add(base.name);
         } else {
           const invItem = inventory.find(i => i.id === ing.id || i.name?.toLowerCase() === ing.name.toLowerCase());
+          let stockOnHand = 0;
+          if (invItem) {
+            const u = (invItem.unit || '').toLowerCase();
+            stockOnHand = (u === 'kg' || u === 'l') ? (Number(invItem.stock) || 0) * 1000 : (Number(invItem.stock) || 0);
+          }
           ingredientAgg.set(key, {
             id: ing.id,
             name: ing.name,
-            unit: ing.unit,
+            unit: (ing.unit === 'kg' || ing.unit === 'l') ? 'g' : ing.unit,
             neededGrams: ing.quantity,
-            stockOnHand: invItem ? invItem.stock : 0,
+            stockOnHand,
             recipes: new Set([base.name])
           });
         }
@@ -413,6 +603,7 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
       pansWeighOut,
       recipePanCards,
       recipeCoverCards,
+      madeDecorCards,
       decorList,
       recipeBatches,
       shoppingList,
@@ -420,16 +611,79 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
     };
   }, [targetOrder, recipes, inventory]);
 
-  // Default timeline derived from resting & setting constraints
+  // Default timeline derived from resting & setting constraints, with Made Decorations at the FRONT
   const defaultTimeline = useMemo(() => {
-    return [
-      { id: 'step_1', time: '2 days ahead', title: 'Prepare & rest fondant', desc: 'Roll out or knead fondant covering so it rests overnight and releases air bubbles.', auto: true },
-      { id: 'step_2', time: '1 day ahead (Morning)', title: 'Bake all sponge layers & slabs', desc: 'Weigh out batters according to the bake sheet. Bake, cool, and level off domes.', auto: true },
-      { id: 'step_3', time: '1 day ahead (Afternoon)', title: 'Fill & crumb coat · Chill', desc: 'Stack layers with calibrated fillings. Apply crumb coat to seal surface, then Chill for at least 4 hours.', auto: true },
-      { id: 'step_4', time: 'Delivery day (Morning)', title: 'Outside finish & decorations', desc: 'Apply outside buttercream/ganache/fondant finish. Add gold leaf, pearls, and toppers.', auto: true },
-      { id: 'step_5', time: 'Delivery day (Final)', title: 'Box, chill & dispatch', desc: 'Secure tiers with centre dowels, pack into box, and record client delivery in BakeWealth.', auto: true }
-    ];
-  }, []);
+    const list = [];
+
+    // Step 1: Made decoration prep at the FRONT of the build order (drying time requirement)
+    if (prodData.madeDecorCards && prodData.madeDecorCards.length > 0) {
+      prodData.madeDecorCards.forEach((d, i) => {
+        const isWafer = d.name.toLowerCase().includes('wafer');
+        list.push({
+          id: `step_decor_${i}`,
+          time: isWafer ? '1 day ahead (Before bake)' : '2 days ahead (Before bake)',
+          title: `Make & dry ${d.name}`,
+          desc: `${d.name} require ${isWafer ? '1 day' : '2 days'} drying time to set. Make ${d.piecesToMake} pieces (${d.piecesNeeded} needed + ${d.piecesToMake - d.piecesNeeded} breakage allowance) using gum paste, wire and colour so they are completely dry before assembling the cake.`,
+          auto: true,
+          isMadeDecor: true
+        });
+      });
+    }
+
+    // Step 2: Fondant prep (if fondant outside finish is used)
+    const hasFondant = (targetOrder.items || []).some(it => {
+      const fin = typeof it.outsideFinish === 'object' ? it.outsideFinish?.type : (it.finish || '');
+      return String(fin).toLowerCase().includes('fondant');
+    });
+    if (hasFondant) {
+      list.push({
+        id: 'step_fondant',
+        time: '1–2 days ahead',
+        title: 'Prepare & rest fondant',
+        desc: 'Knead and condition fondant covering so it releases air bubbles before rolling out.',
+        auto: true
+      });
+    }
+
+    // Step 3: Sponge & slab bake
+    const totalPans = prodData.pansWeighOut.length;
+    list.push({
+      id: 'step_bake',
+      time: '1 day ahead (Morning)',
+      title: 'Bake all sponge layers & slabs',
+      desc: `Weigh out batters for all ${totalPans} pans according to the numbered pan weigh-out sheet. Bake, cool completely, and level off domes.`,
+      auto: true
+    });
+
+    // Step 4: Fill & crumb coat
+    list.push({
+      id: 'step_fill',
+      time: '1 day ahead (Afternoon)',
+      title: 'Fill & crumb coat · Chill',
+      desc: 'Stack layers with calibrated fillings. Apply crumb coat to seal loose crumbs, then chill for at least 4 hours.',
+      auto: true
+    });
+
+    // Step 5: Outside finish & mount decorations
+    list.push({
+      id: 'step_finish',
+      time: 'Delivery day (Morning)',
+      title: 'Outside finish & mount decorations',
+      desc: 'Apply outside finish coat. Mount the dried sugar roses, edible prints, toppers, and decoration accents.',
+      auto: true
+    });
+
+    // Step 6: Box & dispatch
+    list.push({
+      id: 'step_box',
+      time: 'Delivery day (Final)',
+      title: 'Box, chill & dispatch',
+      desc: 'Secure tiers with centre dowels, pack securely into delivery box, and mark order ready for collection/delivery.',
+      auto: true
+    });
+
+    return list;
+  }, [prodData.madeDecorCards, prodData.pansWeighOut.length, targetOrder.items]);
 
   const timeline = customTimeline || defaultTimeline;
 
@@ -440,11 +694,11 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
     setEditingStepIndex(null);
     if (typeof onSaveOrder === 'function') {
       onSaveOrder({
-        ...order,
+        ...targetOrder,
         metadata: {
-          ...order?.metadata,
+          ...targetOrder?.metadata,
           productionSheet: {
-            ...order?.metadata?.productionSheet,
+            ...targetOrder?.metadata?.productionSheet,
             timeline: updated
           }
         }
@@ -452,9 +706,69 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
     }
   };
 
+  const handleMarkAsBaked = async () => {
+    try {
+      const now = new Date().toISOString();
+      setIsBaked(true);
+      setBakedAt(now);
+      setBakingNotice('Order marked as baked! Raw materials moved to finished goods inventory (Section 8).');
+      setTimeout(() => setBakingNotice(''), 5000);
+
+      // 1. Post GL order bake (Dr 1160 Finished Goods / Cr 1140 Raw Materials)
+      if (targetOrder?.id) {
+        bakeOrder(targetOrder.id, {
+          actualIngredientCost: targetOrder.cost || targetOrder.totalCost,
+          usages: targetOrder.usages
+        }).catch(err => {
+          console.warn("GL bakeOrder notice:", err);
+        });
+      }
+
+      // 2. Prepare updated order object
+      const updatedOrder = {
+        ...targetOrder,
+        isBaked: true,
+        bakedAt: now,
+        status: (targetOrder.status === 'pending' || targetOrder.status === 'confirmed') ? 'ready' : (targetOrder.status || 'ready'),
+        metadata: {
+          ...targetOrder.metadata,
+          isBaked: true,
+          bakedAt: now
+        }
+      };
+
+      // 3. Persist updated order locally
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          const prods = JSON.parse(localStorage.getItem('ll_prods') || '[]');
+          const updProds = prods.map(p => (p.id === targetOrder.id || p.quoteId === targetOrder.id) ? { ...p, isBaked: true, bakedAt: now, status: 'ready' } : p);
+          localStorage.setItem('ll_prods', JSON.stringify(updProds));
+
+          const quotes = JSON.parse(localStorage.getItem('ll_quotes') || '[]');
+          const updQuotes = quotes.map(q => q.id === targetOrder.id ? { ...q, isBaked: true, bakedAt: now } : q);
+          localStorage.setItem('ll_quotes', JSON.stringify(updQuotes));
+        } catch (e) {
+          console.warn("Storage update notice:", e);
+        }
+      }
+
+      // 4. Callback to parent
+      if (typeof onSaveOrder === 'function') {
+        onSaveOrder(updatedOrder);
+      }
+      if (typeof onMarkBaked === 'function') {
+        onMarkBaked(updatedOrder);
+      }
+    } catch (e) {
+      console.error("Failed to mark order as baked:", e);
+    }
+  };
+
   const printSheet = () => {
     window.print();
   };
+
+  const isConfirmed = targetOrder.status === 'confirmed' || !!targetOrder.confirmedAt || targetOrder.isProd;
 
   return (
     <div className="kitchen-sheet-container" style={{ maxWidth: 840, margin: '0 auto', paddingBottom: 64 }}>
@@ -466,7 +780,7 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
         }
         .sheet-tab-btn {
           font-family: var(--body);
-          font-size: 14.5px;
+          font-size: 14px;
           font-weight: 600;
           padding: 8px 18px;
           border-radius: 999px;
@@ -483,37 +797,37 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
       `}</style>
 
       {/* Top Header */}
-      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--gold)' }}>
-            Kitchen Production Sheet
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--gold)' }}>
+              Kitchen Production Sheet
+            </span>
+            <span style={{ fontSize: 11, background: isConfirmed ? '#E5F4EC' : '#FFF9EE', color: isConfirmed ? '#2D7A50' : 'var(--gold)', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
+              {isConfirmed ? 'Confirmed Order' : 'Generated on Confirmation'}
+            </span>
           </div>
           <h1 style={{ fontFamily: 'var(--display)', fontSize: 24, margin: '4px 0', color: 'var(--text)' }}>
             {targetOrder?.clientName || 'Order'} · {targetOrder?.deliveryDate || (targetOrder?.dueDate ? new Date(targetOrder.dueDate).toLocaleDateString('en-NG', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Confirmed Order')}
           </h1>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent('layerledger:open-help', { detail: { topic: 'prodsheet' } }))}
-            title="Learn how production sheets, numbered weigh-outs, and stock deduction work"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              background: "rgba(200, 145, 42, 0.12)",
-              border: "1.2px solid rgba(200, 145, 42, 0.45)",
-              color: "var(--gold)",
-              padding: "6px 12px",
-              borderRadius: 8,
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.15s"
-            }}
-          >
-            <Sparkles size={14} /> How Production Sheets Work
-          </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Section 8 "Mark as Baked" Action */}
+          {!isBaked ? (
+            <Btn
+              variant="success"
+              onClick={handleMarkAsBaked}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+              title="Click when baking is finished to move raw materials to finished goods inventory (Section 8)"
+            >
+              <Flame size={15} /> Mark as Baked
+            </Btn>
+          ) : (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#E8F5EE', color: '#2D7A50', border: '1px solid #C2E0CF', padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 700 }}>
+              <CheckCircle size={15} /> Baked {bakedAt ? `(${new Date(bakedAt).toLocaleDateString('en-NG', { month: 'short', day: 'numeric' })})` : '✓'}
+            </div>
+          )}
+
           <Btn small variant="outline" onClick={printSheet} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Printer size={14} /> Print Sheet
           </Btn>
@@ -523,8 +837,23 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
         </div>
       </div>
 
+      {/* Confirmation & Inventory Promise Banner */}
+      <div style={{ fontSize: 12, color: 'var(--muted)', background: '#F8F6F0', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Check size={14} style={{ color: '#2D7A50', flexShrink: 0 }} />
+        <span>
+          <strong>Generated when the order is confirmed.</strong> A confirmed order is a promise. Nothing in stock or in the accounts moves at confirmation; inventory moves to Finished Goods when you click <em>Mark as Baked</em>.
+        </span>
+      </div>
+
+      {bakingNotice && (
+        <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: '#E8F5EE', border: '1.5px solid #2D7A50', color: '#2D7A50', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <CheckCircle size={16} />
+          <span>{bakingNotice}</span>
+        </div>
+      )}
+
       {/* Tab Navigation */}
-      <div className="no-print" style={{ display: 'flex', gap: 8, margin: '14px 0 20px' }}>
+      <div className="no-print" style={{ display: 'flex', gap: 8, margin: '14px 0 18px' }}>
         <button
           type="button"
           className="sheet-tab-btn"
@@ -556,7 +885,7 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
 
       {/* Shortfall Alert Banner */}
       {prodData.shortfalls.length > 0 && (
-        <div style={{ marginBottom: 20, padding: '14px 18px', borderRadius: 10, background: '#FDF2E9', border: '1.5px solid #E0AE3A', color: '#9A5B14' }}>
+        <div style={{ marginBottom: 18, padding: '14px 18px', borderRadius: 10, background: '#FDF2E9', border: '1.5px solid #E0AE3A', color: '#9A5B14' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 14.5 }}>
             <AlertTriangle size={18} />
             <span>Shortfall Alert: {prodData.shortfalls.length} ingredient(s) need restocking before production begins!</span>
@@ -564,7 +893,7 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
           <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5 }}>
             {prodData.shortfalls.map((s, idx) => (
               <div key={idx}>
-                • <strong>{s.name}</strong>: Need {s.needed} {s.unit}, have {s.stockOnHand} {s.unit} (Short by {s.shortfall} {s.unit})
+                • <strong>{s.name}</strong>: Needed {s.needed.toLocaleString()} {s.unit}, in stock {s.stockOnHand.toLocaleString()} {s.unit} → <strong style={{ color: '#B03A2E' }}>Short by {s.shortfall.toLocaleString()} {s.unit}</strong>
               </div>
             ))}
           </div>
@@ -576,17 +905,17 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
       {/* ──────────────────────────────────────────────────────────────────── */}
       {activeTab === 'shopping' && (
         <div>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', background: '#F6F1E6', border: '1px dashed var(--border)', borderRadius: 11, padding: '10px 13px', marginBottom: 14 }}>
-            <b style={{ color: 'var(--text)' }}>Every ingredient on the whole order, added up once.</b> Butter runs through six of the recipes below. The list adds them together rather than printing butter six times, because that is what you carry to the market.
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', background: '#F6F1E6', border: '1px dashed var(--border)', borderRadius: 10, padding: '10px 13px', marginBottom: 14 }}>
+            <b style={{ color: 'var(--text)' }}>Every ingredient on the whole order, added up once.</b> Butter appears on one line even when it runs through six recipes. That is what a baker carries to the market.
           </div>
 
           <Card className="sheet-card" style={{ padding: 20, marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
               <span style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text)' }}>
-                Aggregated Shopping List & Ingredients
+                Aggregated Shopping List &amp; Stock Check
               </span>
-              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                Every ingredient summed once across all batters, fillings, and coverings
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Needed · In Stock · Short
               </span>
             </div>
 
@@ -598,8 +927,19 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
                 const litres = (isLiquid && item.needed >= 400) ? (item.needed / 1000).toFixed(2) : null;
 
                 return (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 14px', borderRadius: 8, background: item.isShort ? '#FFF9F5' : 'var(--panel)', border: item.isShort ? '1px solid #E0AE3A' : '1px solid var(--border)' }}>
-                    <div>
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '12px 14px',
+                      borderRadius: 8,
+                      background: item.isShort ? '#FFF9F5' : 'var(--panel)',
+                      border: item.isShort ? '1.5px solid #E0AE3A' : '1px solid var(--border)'
+                    }}
+                  >
+                    <div style={{ flex: 1, paddingRight: 12 }}>
                       <div style={{ fontSize: 15.5, fontWeight: 600, color: 'var(--text)' }}>
                         {item.name}
                       </div>
@@ -607,14 +947,43 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
                         Sources: {item.recipeListStr}
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 16.5, fontWeight: 700, color: item.isShort ? '#B03A2E' : 'var(--text)' }}>
-                        {item.needed.toLocaleString()} {item.unit || 'g'}
-                        {eggsCount && <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>({eggsCount} pcs @ 50g)</span>}
-                        {litres && <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>({litres} L)</span>}
+
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center', textAlign: 'right' }}>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>Needed</div>
+                        <div style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--text)' }}>
+                          {item.needed.toLocaleString()} {item.unit || 'g'}
+                        </div>
+                        {eggsCount && (
+                          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--gold)' }}>
+                            {eggsCount} pcs @ 50g
+                          </div>
+                        )}
+                        {litres && (
+                          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--gold)' }}>
+                            {litres} L
+                          </div>
+                        )}
                       </div>
-                      <div style={{ fontSize: 12, color: item.isShort ? '#B03A2E' : 'var(--muted)' }}>
-                        {item.stockOnHand > 0 ? `Stock on hand: ${item.stockOnHand} ${item.unit}` : 'Out of stock'}
+
+                      <div style={{ minWidth: 85 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>In Stock</div>
+                        <div style={{ fontSize: 13.5, fontWeight: 500, color: item.stockOnHand > 0 ? 'var(--text)' : '#B03A2E' }}>
+                          {item.stockOnHand > 0 ? `${item.stockOnHand.toLocaleString()} ${item.unit}` : 'Out of stock'}
+                        </div>
+                      </div>
+
+                      <div style={{ minWidth: 90 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>Short</div>
+                        {item.isShort ? (
+                          <span style={{ fontSize: 13.5, fontWeight: 700, color: '#B03A2E' }}>
+                            Short: {item.shortfall.toLocaleString()} {item.unit}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#2D7A50' }}>
+                            Sufficient ✓
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -623,13 +992,13 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
             </div>
           </Card>
 
-          {/* Batches Table */}
+          {/* Batches Table (Shown Unrounded) */}
           <Card className="sheet-card" style={{ padding: 20 }}>
             <div style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text)', marginBottom: 6 }}>
-              Batches to Mix (Exact Unrounded Batches)
+              Batches to Mix (Batch Counts Shown Unrounded)
             </div>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 12px' }}>
-              The recipe is one batch. These are not whole numbers and they are not meant to be. Scale the ingredients, do not round the batches.
+              Batch counts are shown unrounded (e.g. 12.89 batches means scale ingredients by 12.89). Batches are never rounded up, avoiding excess stock.
             </p>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
               <thead>
@@ -644,8 +1013,8 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
                 {prodData.recipeBatches.map((b, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '10px 6px', fontWeight: 600 }}>{b.name}</td>
-                    <td style={{ padding: '10px 6px' }}>{Math.round(b.neededGrams).toLocaleString()} g</td>
-                    <td style={{ padding: '10px 6px' }}>{Math.round(b.baseYield).toLocaleString()} g</td>
+                    <td style={{ padding: '10px 6px' }}>{b.neededGrams > 0 ? `${Math.round(b.neededGrams).toLocaleString()} g` : `${b.pieces} pcs`}</td>
+                    <td style={{ padding: '10px 6px' }}>{typeof b.baseYield === 'number' ? `${Math.round(b.baseYield).toLocaleString()} g` : b.baseYield}</td>
                     <td style={{ padding: '10px 6px', textAlign: 'right', fontWeight: 700, color: 'var(--gold)' }}>
                       {b.batches.toFixed(2)} batches
                     </td>
@@ -662,15 +1031,23 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
       {/* ──────────────────────────────────────────────────────────────────── */}
       {activeTab === 'bake' && (
         <div>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', background: '#F6F1E6', border: '1px dashed var(--border)', borderRadius: 11, padding: '10px 13px', marginBottom: 14 }}>
-            <b style={{ color: 'var(--text)' }}>One card per pan size and flavour, with the base recipe already scaled to it.</b> Not "1,851 g of vanilla sponge" with nothing behind it. The flour, butter, eggs and milk that add up to those 1,851 g, for that pan.
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', background: '#F6F1E6', border: '1px dashed var(--border)', borderRadius: 10, padding: '10px 13px', marginBottom: 14 }}>
+            <b style={{ color: 'var(--text)' }}>Every pan listed individually with calibrated pour weights.</b> Pans of the same size carry different weights because each flavour pours to its own calibration. Scaled recipe cards show actual flour, butter, eggs, and milk.
           </div>
 
-          {/* Numbered Weigh-out List */}
+          {/* Numbered Pan Weigh-Out List */}
           <Card className="sheet-card" style={{ padding: 20, marginBottom: 22 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text)', marginBottom: 12 }}>
-              Numbered Pan Weigh-Outs (One Row Per Pan)
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text)' }}>
+                Weigh-Out List: Every Pan Listed Individually (Numbered Pan Weigh-Outs)
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {prodData.pansWeighOut.length} pans to bake
+              </div>
             </div>
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px' }}>
+              Pan size, layer thickness, and the calibrated gram weight for that pan.
+            </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {prodData.pansWeighOut.map((pan) => (
                 <div key={pan.num} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 8, background: 'var(--panel)', border: '1px solid var(--border)' }}>
@@ -680,7 +1057,9 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
                     </span>
                     <div>
                       <span style={{ fontSize: 15.5, fontWeight: 600, color: 'var(--text)' }}>{pan.flavour}</span>
-                      <span style={{ fontSize: 12.5, color: 'var(--muted)', marginLeft: 8 }}>({pan.sizeLabel} · {pan.layerThickness.toFixed(2)}″ layer)</span>
+                      <span style={{ fontSize: 12.5, color: 'var(--muted)', marginLeft: 8 }}>
+                        ({pan.sizeLabel} · {pan.layerThickness.toFixed(2)}″ layer thickness)
+                      </span>
                     </div>
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--gold)', fontFamily: 'monospace' }}>
@@ -691,9 +1070,9 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
             </div>
           </Card>
 
-          {/* Scaled Recipe Cards per Pan Combination */}
+          {/* Scaled Kitchen Cards per Pan Group */}
           <div style={{ fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text)', margin: '18px 0 12px' }}>
-            Scaled Kitchen Cards (Scaled Recipe Cards)
+            Scaled Kitchen Cards (Scaled Recipe Cards by Pan &amp; Flavour Group)
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {prodData.recipePanCards.map((card, idx) => {
@@ -714,10 +1093,10 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--border)', paddingBottom: 10, marginBottom: 12 }}>
                     <div>
                       <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>{card.recipeName}</span>
-                      <span style={{ fontSize: 13, color: 'var(--muted)', marginLeft: 8 }}>for {card.panCount} × {card.sizeLabel}</span>
+                      <span style={{ fontSize: 13, color: 'var(--muted)', marginLeft: 8 }}>for {card.panCount} × {card.sizeLabel} ({card.layerThickness.toFixed(2)}″ thickness)</span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      Scale factor: <strong>{scalePerPan.toFixed(3)}</strong> (per pan) · <strong>{scaleTotal.toFixed(3)}</strong> (all {card.panCount} pans)
+                      Scale: <strong>{scalePerPan.toFixed(3)}</strong> (per pan) · <strong>{scaleTotal.toFixed(3)}</strong> (all {card.panCount} pans)
                     </div>
                   </div>
 
@@ -772,21 +1151,93 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
               </Card>
             ))}
 
-            {/* Decorations */}
+            {/* Made Decoration Scaled Recipe Cards (Sugar Roses, Wafer Paper, etc.) */}
+            {prodData.madeDecorCards && prodData.madeDecorCards.length > 0 && (
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text)', margin: '18px 0 12px' }}>
+                  Made Decoration Recipe Cards (Scaled with Breakage Allowance)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {prodData.madeDecorCards.map((card, idx) => (
+                    <Card key={`decor_${idx}`} className="sheet-card" style={{ padding: 20 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--border)', paddingBottom: 10, marginBottom: 12 }}>
+                        <div>
+                          <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>{card.name}</span>
+                          <span style={{ fontSize: 13, color: 'var(--muted)', marginLeft: 8 }}>
+                            ({card.piecesNeeded} pcs needed + {card.breakagePct}% breakage = <strong>{card.piecesToMake} pcs to make</strong>)
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          Scale factor: <strong>{card.batchScale.toFixed(3)}</strong> batches ({card.piecesToMake} ÷ {card.baseYieldPieces} base yield)
+                        </div>
+                      </div>
+
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--muted)', fontSize: 11.5 }}>
+                            <th style={{ padding: '6px 4px' }}>Ingredient</th>
+                            <th style={{ padding: '6px 4px', textAlign: 'right' }}>Per piece</th>
+                            <th style={{ padding: '6px 4px', textAlign: 'right' }}>Across all {card.piecesToMake} pieces</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {card.ingredients.map((ing, iIdx) => (
+                            <tr key={iIdx} style={{ borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ padding: '8px 4px', fontWeight: 500 }}>{ing.name}</td>
+                              <td style={{ padding: '8px 4px', textAlign: 'right', fontWeight: 600, fontFamily: 'monospace' }}>
+                                {ing.perPieceStr}
+                              </td>
+                              <td style={{ padding: '8px 4px', textAlign: 'right', fontWeight: 700, color: 'var(--gold)', fontFamily: 'monospace' }}>
+                                {ing.quantity.toLocaleString()} {ing.unit}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Weighed & Bought Decorations Summary */}
             {prodData.decorList.length > 0 && (
               <Card className="sheet-card" style={{ padding: 20 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text)', marginBottom: 10 }}>
-                  Decoration Materials
+                  Weighed &amp; Bought Decoration Materials
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                   {prodData.decorList.map((d, idx) => (
-                    <div key={idx} style={{ padding: '8px 14px', borderRadius: 8, background: 'var(--panel)', border: '1px solid var(--border)', fontSize: 14 }}>
-                      <strong>{d.name}</strong>: {d.grams} g
+                    <div key={idx} style={{ padding: '8px 14px', borderRadius: 8, background: 'var(--panel)', border: '1px solid var(--border)', fontSize: 13.5 }}>
+                      <strong>{d.name}</strong>: {d.qty} {d.unit} ({d.kind === 'weighed' ? 'Weighed extra' : 'Bought piece'})
                     </div>
                   ))}
                 </div>
               </Card>
             )}
+
+            {/* Section 8 "Mark as Baked" Action Card */}
+            <div style={{ marginTop: 20, padding: '16px 20px', borderRadius: 10, background: isBaked ? '#E8F5EE' : '#FEF9EE', border: `1.5px solid ${isBaked ? '#C2E0CF' : 'var(--gold)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: isBaked ? '#2D7A50' : 'var(--text)' }}>
+                  {isBaked ? 'Order Marked as Baked' : 'Finished Baking This Order?'}
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
+                  {isBaked
+                    ? `Raw materials moved to finished goods inventory on ${new Date(bakedAt).toLocaleString('en-NG')}.`
+                    : "Click 'Mark as Baked' to trigger the Section 8 raw-materials-to-finished-goods inventory movement."}
+                </div>
+              </div>
+              {!isBaked ? (
+                <Btn variant="success" onClick={handleMarkAsBaked} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                  <Flame size={15} /> Mark as Baked
+                </Btn>
+              ) : (
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#2D7A50', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <CheckCircle size={15} /> In Finished Goods
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -796,14 +1247,14 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
       {/* ──────────────────────────────────────────────────────────────────── */}
       {activeTab === 'timeline' && (
         <div>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', background: '#F6F1E6', border: '1px dashed var(--border)', borderRadius: 11, padding: '10px 13px', marginBottom: 14 }}>
-            <b style={{ color: 'var(--text)' }}>The sequence, not the recipes.</b> Each recipe keeps its own method. This page only says what has to happen before what, based on which steps need resting, chilling or setting time.
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', background: '#F6F1E6', border: '1px dashed var(--border)', borderRadius: 10, padding: '10px 13px', marginBottom: 14 }}>
+            <b style={{ color: 'var(--text)' }}>The sequence, not the recipes.</b> Made decorations (sugar roses, flowers) are scheduled at the FRONT of the build order so flowers have the required 2 days to dry before baking and assembly.
           </div>
 
           <Card className="sheet-card" style={{ padding: 22 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
               <span style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text)' }}>
-                Build Order & Rest Timeline (Production Timeline & Resting Order)
+                Build Order &amp; Rest Timeline
               </span>
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                 Sequence derived from resting, chilling, and setting requirements
@@ -812,14 +1263,27 @@ export function ProductionSheet({ order, quote, inventory = [], recipes = [], on
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {timeline.map((step, idx) => (
-                <div key={step.id || idx} style={{ display: 'flex', gap: 14, alignItems: 'flex-start', padding: '12px 16px', borderRadius: 8, background: 'var(--panel)', border: '1px solid var(--border)' }}>
+                <div
+                  key={step.id || idx}
+                  style={{
+                    display: 'flex',
+                    gap: 14,
+                    alignItems: 'flex-start',
+                    padding: '12px 16px',
+                    borderRadius: 8,
+                    background: step.isMadeDecor ? '#FFF9EE' : 'var(--panel)',
+                    border: step.isMadeDecor ? '1.5px solid var(--gold)' : '1px solid var(--border)'
+                  }}
+                >
                   <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, borderRadius: 999, background: 'var(--gold)', color: '#fff', fontWeight: 700, fontSize: 13.5 }}>
                     {idx + 1}
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{step.title}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{step.time}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: step.isMadeDecor ? 'var(--gold)' : 'var(--muted)' }}>
+                        {step.time}
+                      </span>
                     </div>
 
                     {editingStepIndex === idx ? (

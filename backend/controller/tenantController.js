@@ -416,11 +416,28 @@ const DEFAULT_MULTS = {
     "14-round": 5.5, "14-square": 6.6, "14-sheet": 6.7
 };
 
+const DEFAULT_RECURRING_COSTS = [
+    { id: 'cost-rent', name: 'Rent and occupancy', amount: 350000, productionPct: 70, basis: 'Floor area (70% kitchen / 30% front)' },
+    { id: 'cost-power', name: 'Electricity and gas', amount: 150000, productionPct: 80, basis: 'Ovens, chillers & provers load' },
+    { id: 'cost-water', name: 'Water', amount: 25000, productionPct: 100, basis: 'Baking & kitchen sanitization' },
+    { id: 'cost-kitchen-wages', name: 'Baker and kitchen wages', amount: 250000, productionPct: 100, basis: 'Direct kitchen baking labor' },
+    { id: 'cost-office-wages', name: 'Office and sales wages', amount: 100000, productionPct: 0, basis: 'Admin & sales compensation' },
+    { id: 'cost-equip-deprec', name: 'Equipment depreciation', amount: 50000, productionPct: 100, basis: 'Production machines & ovens (5060)' },
+    { id: 'cost-office-deprec', name: 'Office and computer depreciation', amount: 15000, productionPct: 0, basis: 'Admin PC & POS tablets (6400)' },
+    { id: 'cost-transport', name: 'Transport and logistics', amount: 40000, productionPct: 0, basis: 'Administrative errands & travel' }
+];
+
 const DEFAULT_MARGINS = {
     profitPct: 50,
     overheadPct: 27,
     accessoryPct: 10,
-    miscPct: 5
+    miscPct: 5,
+    monthlyOverhead: 900000,
+    annualProductionHours: 1800,
+    ordersPerMonth: 20,
+    hourlyRate: 6000,
+    perOrderRate: 45000,
+    recurringCosts: DEFAULT_RECURRING_COSTS
 };
 
 /**
@@ -471,12 +488,45 @@ const getTenantPricing = asyncHandler(async (req, res) => {
         ? Number(pricing.miscPct)
         : (appConfig.ll_setting_miscPct !== undefined ? Number(appConfig.ll_setting_miscPct) : DEFAULT_MARGINS.miscPct);
 
+    const monthlyOverhead = pricing.monthlyOverhead !== undefined
+        ? Number(pricing.monthlyOverhead)
+        : (appConfig.ll_setting_monthlyOverhead !== undefined ? Number(appConfig.ll_setting_monthlyOverhead) : DEFAULT_MARGINS.monthlyOverhead);
+
+    const annualProductionHours = pricing.annualProductionHours !== undefined
+        ? Number(pricing.annualProductionHours)
+        : (appConfig.ll_setting_annualProductionHours !== undefined ? Number(appConfig.ll_setting_annualProductionHours) : DEFAULT_MARGINS.annualProductionHours);
+
+    const ordersPerMonth = pricing.ordersPerMonth !== undefined
+        ? Number(pricing.ordersPerMonth)
+        : (appConfig.ll_setting_ordersPerMonth !== undefined ? Number(appConfig.ll_setting_ordersPerMonth) : DEFAULT_MARGINS.ordersPerMonth);
+
+    const derivedHourly = Math.round((monthlyOverhead * 12) / Math.max(1, annualProductionHours));
+    const derivedPerOrder = Math.round(monthlyOverhead / Math.max(1, ordersPerMonth));
+
+    const hourlyRate = pricing.hourlyRate !== undefined
+        ? Number(pricing.hourlyRate)
+        : (appConfig.ll_setting_hourlyRate !== undefined ? Number(appConfig.ll_setting_hourlyRate) : derivedHourly);
+
+    const perOrderRate = pricing.perOrderRate !== undefined
+        ? Number(pricing.perOrderRate)
+        : (appConfig.ll_setting_perOrderRate !== undefined ? Number(appConfig.ll_setting_perOrderRate) : derivedPerOrder);
+
+    const recurringCosts = pricing.recurringCosts !== undefined
+        ? pricing.recurringCosts
+        : (appConfig.ll_setting_recurringCosts !== undefined ? (typeof appConfig.ll_setting_recurringCosts === 'string' ? JSON.parse(appConfig.ll_setting_recurringCosts) : appConfig.ll_setting_recurringCosts) : DEFAULT_MARGINS.recurringCosts);
+
     res.json({
         multipliers,
         profitPct,
         overheadPct,
         accessoryPct,
-        miscPct
+        miscPct,
+        monthlyOverhead,
+        annualProductionHours,
+        ordersPerMonth,
+        hourlyRate,
+        perOrderRate,
+        recurringCosts
     });
 });
 
@@ -487,7 +537,7 @@ const getTenantPricing = asyncHandler(async (req, res) => {
  */
 const updateTenantPricing = asyncHandler(async (req, res) => {
     const tenantId = req.user.tenantId;
-    const { multipliers, profitPct, overheadPct, accessoryPct, miscPct } = req.body;
+    const { multipliers, profitPct, overheadPct, accessoryPct, miscPct, monthlyOverhead, annualProductionHours, ordersPerMonth, hourlyRate, perOrderRate, recurringCosts } = req.body;
 
     const existingTenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!existingTenant) {
@@ -508,12 +558,29 @@ const updateTenantPricing = asyncHandler(async (req, res) => {
     const updatedAccessoryPct = accessoryPct !== undefined ? Number(accessoryPct) : (currentPricing.accessoryPct !== undefined ? Number(currentPricing.accessoryPct) : DEFAULT_MARGINS.accessoryPct);
     const updatedMiscPct = miscPct !== undefined ? Number(miscPct) : (currentPricing.miscPct !== undefined ? Number(currentPricing.miscPct) : DEFAULT_MARGINS.miscPct);
 
+    const updatedMonthlyOverhead = monthlyOverhead !== undefined ? Number(monthlyOverhead) : (currentPricing.monthlyOverhead !== undefined ? Number(currentPricing.monthlyOverhead) : DEFAULT_MARGINS.monthlyOverhead);
+    const updatedAnnualProductionHours = annualProductionHours !== undefined ? Number(annualProductionHours) : (currentPricing.annualProductionHours !== undefined ? Number(currentPricing.annualProductionHours) : DEFAULT_MARGINS.annualProductionHours);
+    const updatedOrdersPerMonth = ordersPerMonth !== undefined ? Number(ordersPerMonth) : (currentPricing.ordersPerMonth !== undefined ? Number(currentPricing.ordersPerMonth) : DEFAULT_MARGINS.ordersPerMonth);
+
+    const calcHourly = Math.round((updatedMonthlyOverhead * 12) / Math.max(1, updatedAnnualProductionHours));
+    const calcPerOrder = Math.round(updatedMonthlyOverhead / Math.max(1, updatedOrdersPerMonth));
+
+    const updatedHourlyRate = hourlyRate !== undefined ? Number(hourlyRate) : (currentPricing.hourlyRate !== undefined ? Number(currentPricing.hourlyRate) : calcHourly);
+    const updatedPerOrderRate = perOrderRate !== undefined ? Number(perOrderRate) : (currentPricing.perOrderRate !== undefined ? Number(currentPricing.perOrderRate) : calcPerOrder);
+    const updatedRecurringCosts = recurringCosts !== undefined ? recurringCosts : (currentPricing.recurringCosts !== undefined ? currentPricing.recurringCosts : DEFAULT_MARGINS.recurringCosts);
+
     const newPricing = {
         multipliers: updatedMultipliers,
         profitPct: updatedProfitPct,
         overheadPct: updatedOverheadPct,
         accessoryPct: updatedAccessoryPct,
-        miscPct: updatedMiscPct
+        miscPct: updatedMiscPct,
+        monthlyOverhead: updatedMonthlyOverhead,
+        annualProductionHours: updatedAnnualProductionHours,
+        ordersPerMonth: updatedOrdersPerMonth,
+        hourlyRate: updatedHourlyRate,
+        perOrderRate: updatedPerOrderRate,
+        recurringCosts: updatedRecurringCosts
     };
 
     const newAppConfig = {
@@ -522,7 +589,13 @@ const updateTenantPricing = asyncHandler(async (req, res) => {
         ll_setting_profitPct: updatedProfitPct,
         ll_setting_overheadPct: updatedOverheadPct,
         ll_setting_accessoryPct: updatedAccessoryPct,
-        ll_setting_miscPct: updatedMiscPct
+        ll_setting_miscPct: updatedMiscPct,
+        ll_setting_monthlyOverhead: updatedMonthlyOverhead,
+        ll_setting_annualProductionHours: updatedAnnualProductionHours,
+        ll_setting_ordersPerMonth: updatedOrdersPerMonth,
+        ll_setting_hourlyRate: updatedHourlyRate,
+        ll_setting_perOrderRate: updatedPerOrderRate,
+        ll_setting_recurringCosts: updatedRecurringCosts
     };
 
     const mergedSettings = {
@@ -567,7 +640,13 @@ const resetTenantPricing = asyncHandler(async (req, res) => {
         ll_setting_profitPct: DEFAULT_MARGINS.profitPct,
         ll_setting_overheadPct: DEFAULT_MARGINS.overheadPct,
         ll_setting_accessoryPct: DEFAULT_MARGINS.accessoryPct,
-        ll_setting_miscPct: DEFAULT_MARGINS.miscPct
+        ll_setting_miscPct: DEFAULT_MARGINS.miscPct,
+        ll_setting_monthlyOverhead: DEFAULT_MARGINS.monthlyOverhead,
+        ll_setting_annualProductionHours: DEFAULT_MARGINS.annualProductionHours,
+        ll_setting_ordersPerMonth: DEFAULT_MARGINS.ordersPerMonth,
+        ll_setting_hourlyRate: DEFAULT_MARGINS.hourlyRate,
+        ll_setting_perOrderRate: DEFAULT_MARGINS.perOrderRate,
+        ll_setting_recurringCosts: DEFAULT_MARGINS.recurringCosts
     };
 
     const mergedSettings = {

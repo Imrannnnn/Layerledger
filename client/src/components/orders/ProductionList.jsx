@@ -608,8 +608,14 @@ export function ProductionList({ productions, setProductions, company, setView, 
       {selectedProductionSheetQuote && (
         <ProductionSheet
           quote={selectedProductionSheetQuote}
+          order={selectedProductionSheetQuote}
           inventory={inventory}
           recipes={recipes}
+          onSaveOrder={async (updated) => {
+            const upd = productions.map(x => (x.id === updated.id || x.quoteId === updated.id) ? updated : x)
+            setProductions(upd)
+            await saveLocal("ll_prods", upd)
+          }}
           onClose={() => setSelectedProductionSheetQuote(null)}
         />
       )}

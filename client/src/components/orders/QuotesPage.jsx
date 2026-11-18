@@ -10,7 +10,6 @@ import React, { useState, useEffect, useMemo, useRef } from "react"
 import { Btn, Card, SHead, iSt, Pagination } from "../common/ui.jsx"
 import { fmt, uid, parseSpecialDate } from "../../lib/helpers.js"
 import { saveInventory, saveProduction, loadExpenses, saveExpenses, loadCompany, loadQuotes, saveQuotes, saveLocal, loadLocal, calculateOrderUsages, updateInventoryItemOnServer, deleteOrderOnServer } from "../../lib/data.js"
-import { DEFAULT_MULTS } from "../../constants.js"
 import { Invoices } from "./Invoices.jsx"
 import { ProductionSheet } from "./ProductionSheet.jsx"
 import { ChevronUp, ChevronDown, Clock, Check, CreditCard, Pencil, Receipt, AlertTriangle, MessageSquare, Cake, Heart, Calendar, Search, X, ClipboardList } from "lucide-react"
@@ -993,8 +992,14 @@ export function QuotesPage({ inventory, setInventory, recipes, setView, producti
       {selectedProductionSheetQuote && (
         <ProductionSheet
           quote={selectedProductionSheetQuote}
+          order={selectedProductionSheetQuote}
           inventory={inventory}
           recipes={recipes}
+          onSaveOrder={async (updatedQuote) => {
+            const updated = quotes.map(x => x.id === updatedQuote.id ? updatedQuote : x)
+            setQuotes(updated)
+            await saveQuotes(updated)
+          }}
           onClose={() => setSelectedProductionSheetQuote(null)}
         />
       )}

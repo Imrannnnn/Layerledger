@@ -8,10 +8,10 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Tabs, TH, Modal, Alert, SearchableSelect, Spinner, Pagination } from "../common/ui.jsx"
-import { fmt, fmtCost, fmtQty, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES, formatApiError, COVERAGE_PRESETS, getRecipeCoverageValues, calculateCakeGeometry, calculateFillingGrams, calculateCoveringGrams, calibrateCoverageRates } from "../../lib/helpers.js"
-import { planArea, perimeter, gapArea, surfaceArea, calculateDensity, gramsPerPan, coveringMass, reverseThicknessMm, CM2 } from "../../lib/cakeGeometry.js"
+import { fmt, fmtCost, fmtQty, uid, recipeCost, parseCSV, callClaude, compressImage, mapCategory, DEFAULT_CATEGORIES, formatApiError, isDecorationCategory } from "../../lib/helpers.js"
+import { planArea, perimeter, gapArea, surfaceArea, calculateDensity, gramsPerPan, coveringMass, reverseThicknessMm, CM2, calculateCommittedStock } from "../../lib/cakeGeometry.js"
 
-import { DECORATION_ITEMS, DEFAULT_MULTS } from "../../constants.js"
+import { DECORATION_ITEMS } from "../../constants.js"
 import { 
   saveInventory, 
   saveRecipes, 
@@ -26,7 +26,7 @@ import {
   updateRecipeOnServer,
   deleteRecipeOnServer
 } from "../../lib/data.js"
-import { Pencil, Trash2, Check, X, AlertTriangle, ShoppingCart, Folder, FileSpreadsheet, Camera, Sparkles, Plus, ChevronUp, ChevronDown, Download, Search } from "lucide-react"
+import { Pencil, Trash2, Check, X, AlertTriangle, ShoppingCart, Folder, FileSpreadsheet, Camera, Sparkles, Plus, ChevronUp, ChevronDown, Download, Search, Sliders } from "lucide-react"
 import { exportInventoryPDF } from "../../lib/pdfReportGenerator.js"
 
 
@@ -52,19 +52,17 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
 
   const isPastry=r.type==="pastry"
   const isCovering=r.type==="covering" || r.type==="filling"
-  const cov = isCovering ? getRecipeCoverageValues(r) : null
   const [dismissPrompt, setDismissPrompt] = useState(false)
 
-  // Load multipliers from database/cache (set in Settings → Pricing setup)
-  const getMult=()=>{
-    try{
-      const all=loadLocal("ll_multipliers", DEFAULT_MULTS)
-      const key=size.replace(" inch","").replace('"','').trim()+"-"+shape.toLowerCase()
-      return all[key]||null
-    }catch{return null}
-  }
-  const mult=getMult()
-  const factor=(mult||1)*(+layers||1)
+  // Calibration-based geometric scaling (No multiplier table, no 14-inch ceiling)
+  const calShape = r.calShape || r.cal_shape || "round"
+  const calDimA = Number(r.calDimA ?? r.cal_dim_a) || 6
+  const calDimB = Number(r.calDimB ?? r.cal_dim_b) || 0
+  const refArea = planArea(calShape, calDimA, calDimB) || planArea("round", 6)
+  const numSize = parseFloat(size) || 6
+  const curArea = planArea(shape, numSize, shape === "rect" || shape === "sheet" ? numSize * 1.5 : 0)
+  const areaRatio = refArea > 0 ? (curArea / refArea) : 1
+  const factor = isPastry ? +batchCount : isCovering ? 1 : areaRatio * (+layers || 1)
   const cleanNote=(r.notes||"").replace(/\s*—\s*quantities for 1 layer/gi,"").replace(/\s*-\s*quantities for 1 layer/gi,"").trim()
 
   const batchCostTotal=r.ing.reduce((s,ing)=>{const it=inventory.find(x=>x.id===ing.iid);return s+(it?it.cost*ing.qty:0)},0)
@@ -76,7 +74,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <div style={{fontWeight:600,fontSize:15}}>{r.name}</div>
           {isCovering&&<span style={{fontSize:10,background:"#E8EFFC",color:"#2355A0",padding:"2px 7px",borderRadius:20,fontWeight:500}}>Covering · {[r.canFill !== false && r.canFill !== null ? "Fill" : null, r.canCrumb !== false && r.canCrumb !== null ? "Crumb" : null, r.canFinish !== false && r.canFinish !== null ? "Finish" : null].filter(Boolean).join(" | ") || "General"}</span>}
-          {isPastry&&<span style={{fontSize:10,background:"#FAEEDA",color:"#8C5E00",padding:"2px 7px",borderRadius:20,fontWeight:500}}>Pastry · {r.perBatch || r.batchSize || "?"} {r.sellMode === "weight" ? "g" : "pcs"}/batch</span>}
+          {isPastry&&<span style={{fontSize:10,background:"#FAEEDA",color:"#8C5E00",padding:"2px 7px",borderRadius:20,fontWeight:500}}>Made by piece · {r.perBatch || r.batchSize || "?"} {r.sellMode === "weight" ? "g" : "pcs"}/batch</span>}
           {!isCovering&&!isPastry&&(() => {
             const calG = Number(r.calGrams ?? r.cal_grams) || 0
             const calSh = r.calShape || r.cal_shape || "round"
@@ -109,7 +107,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
       </div>
     </div>
 
-    {isCovering && !cov?.is_calibrated && !dismissPrompt && (
+    {isCovering && !(r.isCalibrated || r.is_calibrated || (r.densityGPerCm3 > 0)) && !dismissPrompt && (
       <div
         onClick={e => e.stopPropagation()}
         style={{
@@ -176,7 +174,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
               :isCovering
               ?`Ingredients — 1 full batch`
               :`Ingredients — ${size}" · ${shape} · ${layers} layer${+layers>1?"s":""}`}
-            {!isPastry&&!isCovering&&mult===null&&<span style={{color:"#B03A2E",marginLeft:6}}>(set multiplier to see scaled qty)</span>}
+            {!isPastry&&!isCovering&&<span style={{color:"var(--gold)",marginLeft:6}}>(×{factor.toFixed(2)} scaled via geometry)</span>}
           </div>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead><tr>
@@ -186,7 +184,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
               {r.ing.map(ing=>{
                 const it=inventory.find(x=>x.id===ing.iid)
                 if(!it)return null
-                const scaleFactor=isPastry?+batchCount:isCovering?1:mult!==null?factor:1
+                const scaleFactor=isPastry?+batchCount:isCovering?1:factor
                 const rawQty=ing.qty*scaleFactor
                 const scaledQty=parseFloat(rawQty.toFixed(3))
                 const lineCost=it.cost*rawQty
@@ -201,7 +199,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
             <tfoot>
               <tr>
                 <td colSpan={3} style={{textAlign:"right",fontSize:12,color:"var(--muted)",paddingTop:8,borderTop:"1px solid var(--border)"}}>Total ingredient cost</td>
-                <td style={{textAlign:"right",fontWeight:700,color:"var(--gold)",fontSize:16,paddingTop:8,borderTop:"1px solid var(--border)"}}>{fmt(batchCostTotal*(isPastry?+batchCount:isCovering?1:mult!==null?factor:1))}</td>
+                <td style={{textAlign:"right",fontWeight:700,color:"var(--gold)",fontSize:16,paddingTop:8,borderTop:"1px solid var(--border)"}}>{fmt(batchCostTotal*(isPastry?+batchCount:isCovering?1:factor))}</td>
               </tr>
               {!isPastry&&!isCovering&&(
                 <>
@@ -269,10 +267,39 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
               </div>
             </>:<>
               <div>
-                <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Size</label>
-                <select value={size} onChange={e=>setSize(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",color:"var(--text)",fontSize:13}}>
-                  {["6","7","8","9","10","12","14"].map(s=><option key={s} value={s}>{s} inch</option>)}
-                </select>
+                <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Size (in)</label>
+                <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="0.5"
+                    value={size}
+                    onChange={e=>setSize(e.target.value)}
+                    style={{flex:1,padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",color:"var(--text)",fontSize:13}}
+                  />
+                  <span style={{fontSize:12,color:"var(--muted)"}}>inches</span>
+                </div>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  {["6","7","8","9","10","12","14","16","18"].map(s=>(
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={()=>setSize(s)}
+                      style={{
+                        padding:"2px 8px",
+                        borderRadius:6,
+                        border:String(size)===s?"1px solid var(--gold)":"1px solid var(--border)",
+                        background:String(size)===s?"var(--gold)":"var(--panel)",
+                        color:String(size)===s?"#fff":"var(--muted)",
+                        fontSize:11,
+                        cursor:"pointer"
+                      }}
+                    >
+                      {s}"
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Shape</label>
@@ -287,16 +314,18 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
                 </select>
               </div>
               <div style={{borderTop:"1px solid var(--border)",paddingTop:10}}>
-                <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Multiplier</label>
-                {mult!==null
-                  ?<div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <div style={{flex:1,padding:"7px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",fontSize:14,fontWeight:600,color:"var(--gold)"}}>× {mult.toFixed(1)}</div>
-                      <span style={{fontSize:11,color:"#357A52",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:3}}><Check size={11}/> Set</span>
-                    </div>
-                  :<div style={{padding:"7px 12px",borderRadius:8,border:"1px solid #F0C0BB",background:"#FDEBE9",fontSize:13,color:"#B03A2E"}}>
-                      Not set — go to <strong>Settings → Pricing setup</strong> to add this size/shape multiplier.
-                    </div>
-                }
+                <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Geometric Area Scaling</label>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{flex:1,padding:"7px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--panel)",fontSize:14,fontWeight:600,color:"var(--gold)"}}>
+                    × {areaRatio.toFixed(2)}
+                  </div>
+                  <span style={{fontSize:11,color:"#357A52",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:3}}>
+                    <Check size={11}/> Geometry
+                  </span>
+                </div>
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>
+                  {curArea.toFixed(1)} in² ({size}" {shape}) vs {refArea.toFixed(1)} in² ({calDimA}" {calShape} base)
+                </div>
               </div>
               <div style={{background:"var(--panel)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:6}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
@@ -307,13 +336,13 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
                   <span style={{fontSize:11.5,color:"var(--muted)"}}>Cost per layer</span>
                   <span style={{fontSize:14,fontWeight:600,color:"var(--gold)"}}>{fmt(batchCostTotal / (parseFloat(r.yieldLayers) || 1))}</span>
                 </div>
-                {mult!==null&&<div style={{borderTop:"1px dashed var(--border)",paddingTop:6,marginTop:2}}>
+                <div style={{borderTop:"1px dashed var(--border)",paddingTop:6,marginTop:2}}>
                   <div style={{fontSize:11,color:"var(--muted)",marginBottom:3}}>{size}" · {shape} · {layers} layer{+layers>1?"s":""} scaled</div>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
                     <span style={{fontSize:12,color:"var(--muted)",fontWeight:500}}>Scaled order cost</span>
                     <span style={{fontSize:18,fontWeight:700,color:"var(--gold)"}}>{fmt(r.ing.reduce((s,ing)=>{const it=inventory.find(x=>x.id===ing.iid);return s+(it?it.cost*ing.qty*factor:0)},0))}</span>
                   </div>
-                </div>}
+                </div>
               </div>
             </>}
 
@@ -329,7 +358,7 @@ export function RecipeCard({r, inventory, isOwner, onEdit, onDelete, onDuplicate
 //  DECORATIONS TAB (standalone — own state, saved to sessionStorage)
 
 // ═══════════════════════════════════════════════════════════
-export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setView,setTab,searchQuery="",company={}}){
+export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setView,setTab,searchQuery="",company={},productions=[],recipes=[]}){
   const [showImport,setShowImport]=useState(false)
   const [showAdd,setShowAdd]=useState(false)
   const [saving,setSaving]=useState(false)
@@ -337,6 +366,23 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
   const [currentPage,setCurrentPage]=useState(1)
   const [pageSize,setPageSize]=useState(25)
   const [selectedCategory,setSelectedCategory]=useState("all")
+
+  // Committed stock derived from production sheets of confirmed, undelivered orders
+  const committedStockMap = useMemo(() => {
+    let prods = productions;
+    if (!Array.isArray(prods) || prods.length === 0) {
+      try {
+        if (typeof window !== "undefined" && window.localStorage) {
+          const storedProds = JSON.parse(localStorage.getItem("ll_prods") || "[]");
+          const storedQuotes = JSON.parse(localStorage.getItem("ll_quotes") || "[]");
+          prods = [...storedProds, ...storedQuotes];
+        }
+      } catch (e) {
+        prods = [];
+      }
+    }
+    return calculateCommittedStock(prods, inventory, recipes);
+  }, [productions, inventory, recipes]);
 
   useEffect(() => {
     setCurrentPage(1)
@@ -696,7 +742,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
     return<span style={{background:"#E5F4EC",color:"#2D7A50",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>In Stock</span>
   }
 
-  const storedDecorations = useMemo(() => loadLocal("ll_decorations", DECORATION_ITEMS), [])
+  const storedDecorations = useMemo(() => loadLocal("ll_decorations", DECORATION_ITEMS), [inventory])
   const decorIids = useMemo(() => new Set(storedDecorations.map(d => d.iid)), [storedDecorations])
 
   const getItemCategory = useCallback((item) => {
@@ -768,8 +814,11 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
         {lowStock.length>0&&<span onClick={()=>setView("shopping")} style={{fontSize:12.5,color:"#B03A2E",fontWeight:600,cursor:"pointer",background:"#FDEBE9",padding:"3px 10px",borderRadius:20,display:"inline-flex",alignItems:"center",gap:4}}><AlertTriangle size={12}/> {lowStock.length} low stock → Shopping List</span>}
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <Btn small variant="outline" onClick={() => exportInventoryPDF(inventory, company)} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <Btn small variant="outline" onClick={() => exportInventoryPDF(inventory, company, committedStockMap)} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
           <Download size={13} /> Download PDF
+        </Btn>
+        <Btn small variant="outline" onClick={() => setView ? setView("stockadjust") : (window.location.hash = "#stockadjust")} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <Sliders size={13} /> Stock Adjustment
         </Btn>
         {isOwner&&<>
           {inventory.length > 0 && (
@@ -940,7 +989,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
             <option value="__new__">+ Add New Category...</option>
           </select>
         </div>
-        <Sel label="Unit *" value={newItem.unit} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["kg","g","L","ml","pcs","pack","bottle","roll","set"].map(u=>({value:u,label:u}))}/>
+        <Sel label="Unit *" value={newItem.unit} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["kg","g","pcs","sheets","m","pack","bottle","roll","set","L","ml"].map(u=>({value:u,label:u}))}/>
         <Inp label="Min Alert" type="number" step="any" min="0" value={newItem.minStock} onChange={v=>setNewItem(p=>({...p,minStock:v}))} placeholder="e.g. 0.5"/>
       </div>
 
@@ -1332,7 +1381,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
                         const editing = editId === item.id
                         const isSelected = selectedItemIds.has(item.id)
                         const onHand = Number(item.onHand ?? item.stock ?? 0)
-                        const committed = Number(item.committed ?? 0)
+                        const committed = Number(committedStockMap.get(item.id) || item.committed || 0)
                         const free = Number(item.free ?? (onHand - committed))
                         return (
                           <tr key={item.id} style={{background: isSelected ? "#FFF3D6" : isLow ? "#FFF9EE" : idx % 2 === 0 ? "var(--panel)" : "#F8F3EA"}}>
@@ -1349,7 +1398,7 @@ export function InventoryTab({inventory,setInventory,isOwner,showMsg=()=>{},setV
                             {editing ? (
                               <>
                                 <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12}}/></td>
-                                <td style={{padding:"6px 8px"}}><select value={editRow.unit||"kg"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}>{["kg","g","L","ml","pcs","pack","bottle"].map(u=><option key={u}>{u}</option>)}</select></td>
+                                <td style={{padding:"6px 8px"}}><select value={editRow.unit||"kg"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:60}}>{["kg","g","pcs","sheets","m","pack","bottle","roll","set","L","ml"].map(u=><option key={u}>{u}</option>)}</select></td>
                                 <td style={{padding:"6px 8px"}}><input type="number" step="any" min="0" value={editRow.stock !== undefined ? editRow.stock : ""} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,padding:"4px 6px",fontSize:12,width:70}}/></td>
                                 <td style={{padding:"6px 8px",color:"var(--muted)",fontSize:11.5}}>—</td>
                                 <td style={{padding:"6px 8px",color:"var(--muted)",fontSize:11.5}}>—</td>
@@ -1525,31 +1574,45 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
     const itemsMap = new Map()
 
     stored.forEach(d => {
-      const invItem = inventory.find(x => x.id === d.iid)
+      // Find matching inventory item: by d.iid, OR fallback by d.id (e.g. d_xxx), OR by matching name!
+      const invItem = (inventory || []).find(x => x.id === d.iid) ||
+                      (d.id?.startsWith("d_") ? (inventory || []).find(x => x.id === d.id.slice(2)) : null) ||
+                      (inventory || []).find(x => x.id === d.id) ||
+                      (inventory || []).find(x => (x.name || "").toLowerCase() === (d.name || d.label || "").toLowerCase()) ||
+                      (inventory || []).find(x => {
+                        const xn = (x.name || "").toLowerCase()
+                        const dn = (d.name || d.label || "").toLowerCase()
+                        return xn && dn && (xn.includes(dn) || dn.includes(xn))
+                      })
+
+      const resolvedIid = invItem ? invItem.id : d.iid
+
+      // If linked to an inventory item that is NOT in Decoration Extras category, skip it
+      if (invItem && !isDecorationCategory(invItem)) {
+        return
+      }
+
       itemsMap.set(d.id, {
         id: d.id,
         name: d.name || invItem?.name || "Decoration Extra",
         label: d.label || d.name || invItem?.name || "Decoration Extra",
-        iid: d.iid,
+        iid: resolvedIid,
         qty: d.qty !== undefined ? d.qty : 1
       })
     })
 
-    inventory.forEach(invItem => {
-      const isDecor = invItem.cat === "Decoration Extras" || 
-                      invItem.category === "Decoration Extras" || 
-                      mapCategory(invItem.cat, invItem.name) === "Decoration Extras"
-      if (isDecor) {
-        const id = "d_" + invItem.id
-        if (!itemsMap.has(id) && ![...itemsMap.values()].some(x => x.iid === invItem.id)) {
-          itemsMap.set(id, {
-            id,
-            name: invItem.name,
-            label: invItem.name,
-            iid: invItem.id,
-            qty: 1
-          })
-        }
+    ;(inventory || []).forEach(invItem => {
+      if (!isDecorationCategory(invItem)) return
+
+      const id = "d_" + invItem.id
+      if (!itemsMap.has(id) && ![...itemsMap.values()].some(x => x.iid === invItem.id)) {
+        itemsMap.set(id, {
+          id,
+          name: invItem.name,
+          label: invItem.name,
+          iid: invItem.id,
+          qty: 1
+        })
       }
     })
 
@@ -1570,21 +1633,11 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
   }, [displayItems, currentPage, pageSize])
 
   const decorOptions = useMemo(() => {
-    const isDecor = (i) => {
-      const cat = (i.cat || i.category || "").trim()
-      return (
-        cat === "Decoration Extras" ||
-        cat === "Decoration" ||
-        cat === "Decorations" ||
-        cat.toLowerCase().includes("decor") ||
-        mapCategory(cat, i.name) === "Decoration Extras"
-      )
-    }
-    return inventory
-      .filter(isDecor)
+    return (inventory || [])
+      .filter(i => isDecorationCategory(i))
       .map(i => ({
         value: i.id,
-        label: `${i.name} (${i.unit}) — ${fmtCost(i.cost)}/${i.unit}`
+        label: `${i.name} (${i.unit}) — ${fmtCost(i.cost)}/${i.unit}${i.cat ? ` [${i.cat}]` : ""}`
       }))
   }, [inventory])
 
@@ -1728,14 +1781,23 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
           <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:0.8,fontWeight:500}}>Linked Inventory Item</label>
           <SearchableSelect
             value={newItem.iid}
-            onChange={val=>setNewItem(p=>({...p,iid:val}))}
+            onChange={val => {
+              const inv = (inventory || []).find(x => x.id === val)
+              setNewItem(p => ({
+                ...p,
+                iid: val,
+                name: p.name.trim() ? p.name : (inv?.name || ""),
+                cost: inv?.cost !== undefined ? inv.cost : p.cost,
+                unit: inv?.unit || p.unit || "pcs"
+              }))
+            }}
             options={decorOptions}
             placeholder="Type to search item..."
           />
         </div>
         {!newItem.iid && <>
           <Inp label="Cost / Unit (₦)" type="number" value={newItem.cost || ""} onChange={v=>setNewItem(p=>({...p,cost:v}))} placeholder="e.g. 2500"/>
-          <Sel label="Unit" value={newItem.unit || "pcs"} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["pcs","pack","kg","g","L","ml","bottle","set"].map(u=>({value:u,label:u}))}/>
+          <Sel label="Unit" value={newItem.unit || "pcs"} onChange={v=>setNewItem(p=>({...p,unit:v}))} options={["pcs","sheets","m","pack","kg","g","L","ml","bottle","set"].map(u=>({value:u,label:u}))}/>
         </>}
         <Inp label="Standard Qty Used *" type="number" value={newItem.qty} onChange={v=>setNewItem(p=>({...p,qty:v}))} placeholder="e.g. 0.15"/>
       </div>
@@ -1808,32 +1870,52 @@ export function DecorationsTab({inventory, setInventory, isOwner, searchQuery=""
               <td style={{padding:"6px 8px", minWidth: 200}}>
                 <SearchableSelect
                   value={editRow.iid||""}
-                  onChange={val=>setEditRow(r=>({...r,iid:val}))}
-                  options={inventory.filter(i => {
-                    const cat = (i.cat || i.category || "").trim()
-                    return (
-                      cat === "Decoration Extras" ||
-                      cat === "Decoration" ||
-                      cat === "Decorations" ||
-                      cat.toLowerCase().includes("decor") ||
-                      mapCategory(cat, i.name) === "Decoration Extras" ||
-                      i.id === editRow.iid
-                    )
-                  }).map(i => ({
-                    value: i.id,
-                    label: `${i.name} (${i.unit}) — ${fmtCost(i.cost)}/${i.unit}`
-                  }))}
+                  onChange={val => {
+                    const inv = (inventory || []).find(x => x.id === val)
+                    setEditRow(r => ({
+                      ...r,
+                      iid: val,
+                      name: (r.name && r.name !== "Decoration Extra") ? r.name : (inv?.name || r.name)
+                    }))
+                  }}
+                  options={decorOptions}
                   placeholder="Type to search item..."
                 />
               </td>
 
-
               <td style={{padding:"6px 8px"}}><input type="number" step="any" value={editRow.qty||""} onChange={e=>setEditRow(r=>({...r,qty:e.target.value}))} style={{...iSt,width:70,padding:"4px 6px",fontSize:12}}/></td>
-              <td style={{padding:"6px 8px",fontSize:13}}>{editRow.iid&&inventory.find(x=>x.id===editRow.iid)?fmtCost(inventory.find(x=>x.id===editRow.iid).cost*(+editRow.qty||0)):"—"}</td>
+              <td style={{padding:"6px 8px",fontSize:13}}>{editRow.iid&&(inventory || []).find(x=>x.id===editRow.iid)?fmtCost((inventory || []).find(x=>x.id===editRow.iid).cost*(+editRow.qty||0)):"—"}</td>
               <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={saveEdit} disabled={saving}><Check size={12}/></Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}><X size={12}/></Btn></div></td>
             </> : <>
               <td style={{padding:"9px 10px",fontWeight:500,fontSize:13}}>{d.name||d.label}</td>
-              <td style={{padding:"9px 10px",color:"var(--muted)",fontSize:12.5}}>{it?.name||<span style={{color:"#B03A2E",display:"inline-flex",alignItems:"center",gap:3}}><AlertTriangle size={11}/> Not found</span>}</td>
+              <td style={{padding:"9px 10px",fontSize:12.5}}>
+                {it ? (
+                  <span style={{ color: "#085041", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <Check size={12} color="#085041" /> {it.name} <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 400 }}>({it.unit})</span>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startEdit(d)}
+                    title="Click to link to an inventory item"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#B03A2E",
+                      fontWeight: 600,
+                      fontSize: 12,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      textDecoration: "underline"
+                    }}
+                  >
+                    <AlertTriangle size={12} color="#B03A2E" /> Link to inventory item
+                  </button>
+                )}
+              </td>
               <td style={{padding:"9px 10px",fontSize:13}}>{d.qty} {it?.unit||""}</td>
               <td style={{padding:"9px 10px",color:"var(--gold)",fontWeight:500,fontSize:13}}>{it?fmtCost(it.cost*d.qty):"—"}</td>
               {isOwner&&<td style={{padding:"9px 10px"}}><div style={{display:"flex",gap:4}}><Btn small variant="ghost" onClick={()=>startEdit(d)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><Pencil size={11}/> Edit</Btn><Btn small variant="danger" onClick={()=>deleteItem(d.id)} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:4}}><X size={11}/></Btn></div></td>}
@@ -2023,7 +2105,7 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
         <div>
           <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Unit</label>
           <select value={newItem.unit} onChange={e=>setNewItem(n=>({...n,unit:e.target.value}))} style={{...iSt}}>
-            {["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}
+            {["pcs","sheets","m","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}
           </select>
         </div>
         <Inp label="Min Alert" type="number" value={newItem.minStock} onChange={v=>setNewItem(n=>({...n,minStock:v}))} placeholder="5"/>
@@ -2104,7 +2186,7 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
                 ?<>
                   <td style={{padding:"6px 8px"}}><input value={editRow.name||""} onChange={e=>setEditRow(r=>({...r,name:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
                   <td style={{padding:"6px 8px"}}><input type="number" step="any" value={editRow.price !== undefined ? editRow.price : ""} onChange={e=>setEditRow(r=>({...r,price:e.target.value}))} style={{...iSt,fontSize:12}}/></td>
-                  <td style={{padding:"6px 8px"}}><select value={editRow.unit||"pcs"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,fontSize:12}}>{["pcs","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
+                  <td style={{padding:"6px 8px"}}><select value={editRow.unit||"pcs"} onChange={e=>setEditRow(r=>({...r,unit:e.target.value}))} style={{...iSt,fontSize:12}}>{["pcs","sheets","m","pack","roll","set","kg","g","L","ml","bottle"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
                   <td style={{padding:"6px 8px"}}><input type="number" step="any" min="0" value={editRow.stock !== undefined ? editRow.stock : ""} onChange={e=>setEditRow(r=>({...r,stock:e.target.value}))} style={{...iSt,fontSize:12,width:70}}/></td>
                   <td style={{padding:"6px 8px"}}></td>
                   <td style={{padding:"6px 8px"}}><div style={{display:"flex",gap:4}}><Btn small variant="success" onClick={()=>saveEdit(item.id)} disabled={saving}><Check size={12}/></Btn><Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={saving}><X size={12}/></Btn></div></td>
@@ -2140,7 +2222,7 @@ export function PackagingTab({inventory,setInventory,isOwner,searchQuery=""}){
 
 
 
-export function MasterList({inventory,setInventory,recipes,setRecipes,user,setView,company}){
+export function MasterList({inventory,setInventory,recipes,setRecipes,productions=[],user,setView,company}){
   const [tab,setTab]=useState("inventory")
   const [msg,setMsg]=useState("")
   const [msgColor,setMsgColor]=useState("gold")
@@ -2190,17 +2272,17 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
   const openRecipe = (r) => {
     setRecipeModalError(null)
     if (r) {
-      const isCov = r.type === "covering" || r.type === "filling"
-      const cov = isCov ? getRecipeCoverageValues(r) : {}
+      const rawTr = r.trimPct !== undefined ? Number(r.trimPct) : (r.trim_pct !== undefined ? Number(r.trim_pct) : 8)
+      const normTrim = (rawTr > 0 && rawTr <= 1) ? Math.round(rawTr * 100) : (rawTr || 8)
       setRecipeModal({
         ...r,
         calShape: r.calShape || r.cal_shape || "round",
-        calDimA: r.calDimA !== undefined ? r.calDimA : (r.cal_dim_a !== undefined ? r.cal_dim_a : 6),
-        calDimB: r.calDimB !== undefined ? r.calDimB : (r.cal_dim_b !== undefined ? r.cal_dim_b : 8),
-        calGrams: r.calGrams !== undefined ? r.calGrams : (r.cal_grams !== undefined ? r.cal_grams : 617),
-        calHeightIn: r.calHeightIn !== undefined ? r.calHeightIn : (r.cal_height_in !== undefined ? r.cal_height_in : 2),
-        trimPct: r.trimPct !== undefined ? r.trimPct : (r.trim_pct !== undefined ? r.trim_pct : 8),
-        density: r.density !== undefined ? r.density : (r.densityGPerCm3 ? r.densityGPerCm3 * 16.387 : null),
+        calDimA: r.calDimA !== undefined && r.calDimA !== null ? r.calDimA : (r.cal_dim_a !== undefined && r.cal_dim_a !== null ? r.cal_dim_a : 6),
+        calDimB: r.calDimB !== undefined && r.calDimB !== null ? r.calDimB : (r.cal_dim_b !== undefined && r.cal_dim_b !== null ? r.cal_dim_b : 8),
+        calGrams: r.calGrams !== undefined && r.calGrams !== null && r.calGrams !== "" ? r.calGrams : (r.cal_grams !== undefined && r.cal_grams !== null && r.cal_grams !== "" ? r.cal_grams : ""),
+        calHeightIn: r.calHeightIn !== undefined && r.calHeightIn !== null ? r.calHeightIn : (r.cal_height_in !== undefined && r.cal_height_in !== null ? r.cal_height_in : 2),
+        trimPct: normTrim,
+        density: r.density !== undefined && r.density !== null ? Number(r.density) : (r.densityGPerCm3 ? r.densityGPerCm3 * 16.387 : null),
         canFill: r.canFill !== undefined ? r.canFill : (r.can_fill !== undefined ? r.can_fill : true),
         canCrumb: r.canCrumb !== undefined ? r.canCrumb : (r.can_crumb !== undefined ? r.can_crumb : true),
         canFinish: r.canFinish !== undefined ? r.canFinish : (r.can_finish !== undefined ? r.can_finish : true),
@@ -2212,12 +2294,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         sellMode: r.sellMode || r.sell_mode || "piece",
         perBatch: r.perBatch !== undefined ? r.perBatch : (r.per_batch !== undefined ? r.per_batch : (r.batchSize || 30)),
         breakagePct: r.breakagePct !== undefined ? r.breakagePct : (r.breakage_pct !== undefined ? r.breakage_pct : 5),
-        application: r.application || cov.application || "spread",
-        fill_rate: r.fill_rate !== undefined ? r.fill_rate : (r.fillRate !== undefined ? r.fillRate : (cov.fill_rate ?? null)),
-        crumb_rate: r.crumb_rate !== undefined ? r.crumb_rate : (r.crumbRate !== undefined ? r.crumbRate : (cov.crumb_rate ?? 0)),
-        cover_rate: r.cover_rate !== undefined ? r.cover_rate : (r.coverRate !== undefined ? r.coverRate : (cov.cover_rate ?? null)),
-        sheet_overhang_in: r.sheet_overhang_in !== undefined ? r.sheet_overhang_in : (r.sheetOverhangIn !== undefined ? r.sheetOverhangIn : (cov.sheet_overhang_in ?? null)),
-        is_calibrated: r.is_calibrated !== undefined ? r.is_calibrated : (r.isCalibrated !== undefined ? r.isCalibrated : (cov.is_calibrated || false))
+        is_calibrated: r.is_calibrated !== undefined ? r.is_calibrated : (r.isCalibrated !== undefined ? r.isCalibrated : false)
       })
     } else {
       setRecipeModal({
@@ -2227,11 +2304,10 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         tiers: 1,
         type: "layer",
         covering: "buttercream",
-        application: "spread",
         calShape: "round",
         calDimA: 6,
         calDimB: 8,
-        calGrams: 617,
+        calGrams: "",
         calHeightIn: 2,
         trimPct: 8,
         density: null,
@@ -2246,10 +2322,6 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         sellMode: "piece",
         perBatch: 30,
         breakagePct: 5,
-        fill_rate: 3.00,
-        crumb_rate: 1.64,
-        cover_rate: 3.263,
-        sheet_overhang_in: null,
         is_calibrated: false,
         ing: []
       })
@@ -2286,12 +2358,17 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
 
     // Auto-calculate density for cake layers if calibration values entered
     const payload = { ...recipeModal }
-    if (payload.type === "cake_layer" || payload.type === "layer" || (!payload.type && (payload.calGrams || payload.cal_grams))) {
+    const isCakeLayer = !payload.type || ["layer", "cake_layer", "cake", "sponge", "batter"].includes(String(payload.type).toLowerCase()) || !!(payload.calGrams || payload.cal_grams)
+    if (isCakeLayer) {
       const g = Number(payload.calGrams ?? payload.cal_grams) || 0
       const sh = payload.calShape || payload.cal_shape || "round"
       const da = Number(payload.calDimA ?? payload.cal_dim_a) || 6
       const db = Number(payload.calDimB ?? payload.cal_dim_b) || 8
       const h = Number(payload.calHeightIn ?? payload.cal_height_in) || 2
+      const rawTr = payload.trimPct !== undefined ? Number(payload.trimPct) : (payload.trim_pct !== undefined ? Number(payload.trim_pct) : 8)
+      const tr = (rawTr > 0 && rawTr <= 1) ? Math.round(rawTr * 100) : (rawTr || 8)
+      payload.trimPct = tr
+      payload.trim_pct = tr
       if (g > 0 && da > 0 && h > 0) {
         const dens = calculateDensity(g, sh, da, db, h)
         payload.density = dens
@@ -2315,19 +2392,32 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     try {
       const isExisting = recipes.some(r => r.id === payload.id)
       let savedRec
-      if (isExisting) {
-        savedRec = await updateRecipeOnServer(payload.id, payload)
-      } else {
-        savedRec = await createRecipeOnServer(payload)
+      try {
+        if (isExisting) {
+          savedRec = await updateRecipeOnServer(payload.id, payload)
+        } else {
+          savedRec = await createRecipeOnServer(payload)
+        }
+      } catch (srvErr) {
+        console.error("Server recipe save failed:", srvErr)
+        if (!navigator.onLine || srvErr.message?.includes("Failed to fetch") || srvErr.message?.includes("NetworkError")) {
+          console.warn("Offline mode detected, keeping local state:", srvErr)
+          savedRec = { ...payload }
+          showMsg("Saved locally (offline mode)", "gold")
+        } else {
+          throw srvErr
+        }
       }
       const updated = recipes.find(r => r.id === savedRec.id)
         ? recipes.map(r => r.id === savedRec.id ? savedRec : r)
         : [...recipes, savedRec]
       setRecipes(updated)
+      saveLocal("ll_recipes", updated)
       setRecipeModal(null)
       setRecipeModalError(null)
-      showMsg("Recipe saved directly to database","green")
+      showMsg("Recipe saved successfully","green")
     } catch (e) {
+      console.error("Recipe save error details:", e)
       const formatted = e.details || formatApiError(e, { title: "Failed to save recipe" })
       setRecipeModalError(formatted)
       showMsg(formatted.displayMessage, "red")
@@ -2378,10 +2468,6 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         sellMode: r.sellMode ?? r.sell_mode,
         perBatch: r.perBatch ?? r.per_batch,
         breakagePct: r.breakagePct ?? r.breakage_pct,
-        fillRate: r.fillRate ?? r.fill_rate,
-        crumbRate: r.crumbRate ?? r.crumb_rate,
-        coverRate: r.coverRate ?? r.cover_rate,
-        sheetOverhangIn: r.sheetOverhangIn ?? r.sheet_overhang_in,
         isCalibrated: r.isCalibrated ?? r.is_calibrated,
         ing: r.ing ? r.ing.map(i => ({ ...i })) : []
       }
@@ -2441,7 +2527,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
     </div>
 
     {/* ── INVENTORY ── */}
-    {tab==="inventory"&&<InventoryTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} showMsg={showMsg} setView={setView} setTab={setTab} searchQuery={searchQuery} company={company}/>}
+    {tab==="inventory"&&<InventoryTab inventory={inventory} setInventory={setInventory} isOwner={isOwner} showMsg={showMsg} setView={setView} setTab={setTab} searchQuery={searchQuery} company={company} productions={productions} recipes={recipes}/>}
 
     {/* ── RECIPES ── */}
     {tab==="recipes"&&<div>
@@ -2487,7 +2573,7 @@ export function MasterList({inventory,setInventory,recipes,setRecipes,user,setVi
         <div style={{marginBottom:11}}>
           <label style={{fontSize:10.5,color:"var(--muted)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Recipe type *</label>
           <div style={{display:"flex",gap:8}}>
-            {[{v:"layer",l:"Cake layer",sub:"Vanilla, Red Velvet, Chocolate etc."},{v:"covering",l:"Covering / Filling",sub:"Buttercream, Fondant, Ganache etc."},{v:"pastry",l:"Pastry / Batch",sub:"Donuts, tarts, brownies, loaves etc."}].map(t=><div key={t.v} onClick={()=>setRecipeModal(r=>({...r,type:t.v}))} style={{flex:1,padding:"10px 12px",borderRadius:8,border:`1.5px solid ${(recipeModal.type||"layer")===t.v?"var(--gold)":"var(--border)"}`,background:(recipeModal.type||"layer")===t.v?"#FFF9EE":"var(--panel)",cursor:"pointer"}}>
+            {[{v:"layer",l:"Cake layer",sub:"Vanilla, Red Velvet, Chocolate etc."},{v:"covering",l:"Covering / Filling",sub:"Buttercream, Fondant, Ganache etc."},{v:"pastry",l:"Made by the piece",sub:"Sugar roses, flowers, donuts, tarts etc."}].map(t=><div key={t.v} onClick={()=>setRecipeModal(r=>({...r,type:t.v}))} style={{flex:1,padding:"10px 12px",borderRadius:8,border:`1.5px solid ${(recipeModal.type||"layer")===t.v?"var(--gold)":"var(--border)"}`,background:(recipeModal.type||"layer")===t.v?"#FFF9EE":"var(--panel)",cursor:"pointer"}}>
               <div style={{fontSize:13,fontWeight:500,color:(recipeModal.type||"layer")===t.v?"var(--gold)":"var(--text)"}}>{t.l}</div>
               <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{t.sub}</div>
             </div>)}
@@ -2988,19 +3074,31 @@ export function RecipeScanModal({ inventory, onClose, onImport }) {
 
 export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
   const shape = recipeModal.calShape || "round"
-  const dimA = Number(recipeModal.calDimA) || 6
-  const dimB = Number(recipeModal.calDimB) || 8
-  const grams = Number(recipeModal.calGrams) || 617
-  const heightIn = Number(recipeModal.calHeightIn) || 2
-  const trimPct = recipeModal.trimPct !== undefined ? Number(recipeModal.trimPct) : 8
+  const rawDimA = recipeModal.calDimA
+  const rawDimB = recipeModal.calDimB
+  const rawGrams = recipeModal.calGrams
+  const rawHeight = recipeModal.calHeightIn
+  const rawTrim = recipeModal.trimPct !== undefined && recipeModal.trimPct !== "" ? Number(recipeModal.trimPct) : (recipeModal.trim_pct !== undefined && recipeModal.trim_pct !== "" ? Number(recipeModal.trim_pct) : 8)
+  const trimPct = (rawTrim > 0 && rawTrim <= 1) ? Math.round(rawTrim * 100) : (rawTrim !== "" && rawTrim !== undefined && !isNaN(rawTrim) ? Number(rawTrim) : 8)
 
-  // plan area in sq in
+  const dimA = rawDimA !== "" && rawDimA !== undefined && rawDimA !== null ? Number(rawDimA) : 6
+  const dimB = rawDimB !== "" && rawDimB !== undefined && rawDimB !== null ? Number(rawDimB) : 8
+  const grams = rawGrams !== "" && rawGrams !== undefined && rawGrams !== null ? Number(rawGrams) : 0
+  const heightIn = rawHeight !== "" && rawHeight !== undefined && rawHeight !== null ? Number(rawHeight) : 2
+
+  // Density: calculate live from entered calibration numbers, or use saved recipe density
+  const hasCustomNumbers = grams > 0 && dimA > 0 && heightIn > 0
+  const density = hasCustomNumbers
+    ? calculateDensity(grams, shape, dimA, dimB, heightIn)
+    : (Number(recipeModal.density) > 0 ? Number(recipeModal.density) : 0)
+
+  // plan area in sq in of the calibration pan
   const pArea = planArea(shape, dimA, dimB)
-  const density = calculateDensity(grams, shape, dimA, dimB, heightIn)
 
   // Worked example for 10" round, 3 layers at 2"
   const exPArea = planArea("round", 10)
-  const exPerPan = Math.round(gramsPerPan(density, exPArea, 2, trimPct / 100))
+  const effectiveDensity = density > 0 ? density : 10.911
+  const exPerPan = Math.round(gramsPerPan(effectiveDensity, exPArea, 2, (trimPct || 8) / 100))
   const exTotal = exPerPan * 3
 
   return (
@@ -3047,7 +3145,10 @@ export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
               <button
                 key={s}
                 type="button"
-                onClick={() => setRecipeModal(r => ({ ...r, calShape: s, isCalibrated: true }))}
+                onClick={() => {
+                  const d = grams > 0 ? calculateDensity(grams, s, dimA, dimB, heightIn) : recipeModal.density
+                  setRecipeModal(r => ({ ...r, calShape: s, density: d || r.density, isCalibrated: !!d, is_calibrated: !!d }))
+                }}
                 style={{
                   flex: 1,
                   padding: "5px 2px",
@@ -3075,8 +3176,20 @@ export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
             type="number"
             step="0.5"
             min="1"
-            value={recipeModal.calDimA ?? 6}
-            onChange={e => setRecipeModal(r => ({ ...r, calDimA: parseFloat(e.target.value) || 0, isCalibrated: true }))}
+            value={recipeModal.calDimA !== undefined && recipeModal.calDimA !== null ? recipeModal.calDimA : ""}
+            placeholder="6"
+            onChange={e => {
+              const raw = e.target.value
+              if (raw === "") {
+                setRecipeModal(r => ({ ...r, calDimA: "" }))
+                return
+              }
+              const v = parseFloat(raw)
+              if (!isNaN(v)) {
+                const d = grams > 0 ? calculateDensity(grams, shape, v, dimB, heightIn) : null
+                setRecipeModal(r => ({ ...r, calDimA: v, density: d || r.density, isCalibrated: !!d, is_calibrated: !!d }))
+              }
+            }}
             style={{ ...iSt, padding: "5px 8px", fontSize: 12 }}
           />
         </div>
@@ -3088,8 +3201,20 @@ export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
               type="number"
               step="0.5"
               min="1"
-              value={recipeModal.calDimB ?? 8}
-              onChange={e => setRecipeModal(r => ({ ...r, calDimB: parseFloat(e.target.value) || 0, isCalibrated: true }))}
+              value={recipeModal.calDimB !== undefined && recipeModal.calDimB !== null ? recipeModal.calDimB : ""}
+              placeholder="8"
+              onChange={e => {
+                const raw = e.target.value
+                if (raw === "") {
+                  setRecipeModal(r => ({ ...r, calDimB: "" }))
+                  return
+                }
+                const v = parseFloat(raw)
+                if (!isNaN(v)) {
+                  const d = grams > 0 ? calculateDensity(grams, shape, dimA, v, heightIn) : null
+                  setRecipeModal(r => ({ ...r, calDimB: v, density: d || r.density, isCalibrated: !!d, is_calibrated: !!d }))
+                }
+              }}
               style={{ ...iSt, padding: "5px 8px", fontSize: 12 }}
             />
           </div>
@@ -3101,8 +3226,20 @@ export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
             type="number"
             step="5"
             min="1"
-            value={recipeModal.calGrams ?? 617}
-            onChange={e => setRecipeModal(r => ({ ...r, calGrams: parseFloat(e.target.value) || 0, isCalibrated: true }))}
+            value={recipeModal.calGrams !== undefined && recipeModal.calGrams !== null ? recipeModal.calGrams : ""}
+            placeholder="e.g. 617"
+            onChange={e => {
+              const raw = e.target.value
+              if (raw === "") {
+                setRecipeModal(r => ({ ...r, calGrams: "" }))
+                return
+              }
+              const v = parseFloat(raw)
+              if (!isNaN(v)) {
+                const d = calculateDensity(v, shape, dimA, dimB, heightIn)
+                setRecipeModal(r => ({ ...r, calGrams: v, density: d, isCalibrated: d > 0, is_calibrated: d > 0 }))
+              }
+            }}
             style={{ ...iSt, padding: "5px 8px", fontSize: 12 }}
           />
         </div>
@@ -3113,8 +3250,20 @@ export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
             type="number"
             step="0.25"
             min="0.25"
-            value={recipeModal.calHeightIn ?? 2}
-            onChange={e => setRecipeModal(r => ({ ...r, calHeightIn: parseFloat(e.target.value) || 0, isCalibrated: true }))}
+            value={recipeModal.calHeightIn !== undefined && recipeModal.calHeightIn !== null ? recipeModal.calHeightIn : ""}
+            placeholder="2"
+            onChange={e => {
+              const raw = e.target.value
+              if (raw === "") {
+                setRecipeModal(r => ({ ...r, calHeightIn: "" }))
+                return
+              }
+              const v = parseFloat(raw)
+              if (!isNaN(v)) {
+                const d = grams > 0 ? calculateDensity(grams, shape, dimA, dimB, v) : null
+                setRecipeModal(r => ({ ...r, calHeightIn: v, density: d || r.density, isCalibrated: !!d, is_calibrated: !!d }))
+              }
+            }}
             style={{ ...iSt, padding: "5px 8px", fontSize: 12 }}
           />
         </div>
@@ -3125,8 +3274,19 @@ export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
             type="number"
             step="1"
             min="0"
-            value={recipeModal.trimPct ?? 8}
-            onChange={e => setRecipeModal(r => ({ ...r, trimPct: parseFloat(e.target.value) || 0 }))}
+            value={recipeModal.trimPct !== undefined && recipeModal.trimPct !== null ? recipeModal.trimPct : ""}
+            placeholder="8"
+            onChange={e => {
+              const raw = e.target.value
+              if (raw === "") {
+                setRecipeModal(r => ({ ...r, trimPct: "", trim_pct: "" }))
+                return
+              }
+              const v = parseFloat(raw)
+              if (!isNaN(v)) {
+                setRecipeModal(r => ({ ...r, trimPct: v, trim_pct: v }))
+              }
+            }}
             style={{ ...iSt, padding: "5px 8px", fontSize: 12 }}
           />
         </div>
@@ -3135,10 +3295,14 @@ export function CakeLayerCalibrationCard({ recipeModal, setRecipeModal }) {
       <div style={{ background: "#F5F0E4", borderRadius: 8, padding: "9px 12px", border: "1px solid var(--border)", fontSize: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
           <span>Worked Example: 10″ round, 3 layers at 2″</span>
-          <span style={{ color: "var(--gold)" }}>{exTotal.toLocaleString()} g batter total</span>
+          <span style={{ color: density > 0 ? "var(--gold)" : "var(--muted)" }}>
+            {exTotal.toLocaleString()} g batter total {density > 0 ? "" : "(benchmark)"}
+          </span>
         </div>
         <div style={{ color: "var(--muted)", fontSize: 11.5 }}>
-          Plan area: {pArea.toFixed(1)} in² · {exPerPan.toLocaleString()} g poured per pan (includes {trimPct}% trim allowance)
+          {density > 0
+            ? `Calibrated pan area: ${pArea.toFixed(1)} in² · ${exPerPan.toLocaleString()} g poured per 10″ pan (includes ${trimPct}% trim allowance)`
+            : `Enter your pan test numbers above to compute this recipe's custom batter calibration.`}
         </div>
       </div>
     </div>
@@ -3162,8 +3326,10 @@ export function CoveringCalibrationCard({ recipeModal, setRecipeModal }) {
   const wastePct = recipeModal.wastePct ?? 10
 
   // Worked example for 10" round, 3 layers at 2"
-  const exFillArea = planArea("round", 10) * 2
-  const exSurfArea = planArea("round", 10) + perimeter("round", 10) * 6
+  const exPlan = planArea("round", 10)
+  const exPeri = perimeter("round", 10)
+  const exFillArea = gapArea(exPlan, 3)
+  const exSurfArea = surfaceArea(exPlan, exPeri, 6)
   const exFillG = canFill ? Math.round(coveringMass(exFillArea, thickFillMm, density, wastePct / 100)) : 0
   const exCrumbG = canCrumb ? Math.round(coveringMass(exSurfArea, thickCrumbMm, density, wastePct / 100)) : 0
   const exFinG = canFinish ? Math.round(coveringMass(exSurfArea, thickFinishMm, density, wastePct / 100)) : 0
@@ -3173,7 +3339,7 @@ export function CoveringCalibrationCard({ recipeModal, setRecipeModal }) {
     const g = parseFloat(gVal) || 0
     setCalUsedGrams(gVal)
     if (g > 0) {
-      const sArea = planArea(calShape, parseFloat(calSize)) + perimeter(calShape, parseFloat(calSize)) * (parseFloat(calLayers) * 2)
+      const sArea = surfaceArea(planArea(calShape, parseFloat(calSize)), perimeter(calShape, parseFloat(calSize)), parseFloat(calLayers) * 2)
       const t = reverseThicknessMm(g, sArea, density, wastePct / 100)
       setDerivedThick(t > 0 ? parseFloat(t.toFixed(1)) : null)
     } else {
@@ -3379,7 +3545,7 @@ export function PastrySettingsCard({ recipeModal, setRecipeModal }) {
         How this batch divides
       </div>
       <p style={{ fontSize: 11.5, color: "var(--muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
-        For everything that comes out of a batch in countable pieces or by weight (donuts, chin chin, loaves, cookies).
+        For everything made in countable pieces or by weight (sugar roses, flowers, donuts, chin chin, loaves, cookies).
       </p>
 
       <div style={{ marginBottom: 10 }}>
@@ -3449,377 +3615,3 @@ export function PastrySettingsCard({ recipeModal, setRecipeModal }) {
     </div>
   )
 }
-
-export function CoverageWorkedExampleAndCalibration({ recipeModal, setRecipeModal }) {
-  const [showDetail, setShowDetail] = useState(false)
-  const [calSize, setCalSize] = useState("10")
-  const [calLayers, setCalLayers] = useState("2")
-  const [calShape, setCalShape] = useState("Round")
-  const [calUnit, setCalUnit] = useState("grams") // "grams" or "batches"
-  const [calUsed, setCalUsed] = useState("")
-  const [calSuccess, setCalSuccess] = useState(false)
-
-  const cov = getRecipeCoverageValues(recipeModal)
-  const isRolled = recipeModal.application === "rolled" || cov.application === "rolled"
-
-  // 1. Preset selection
-  const handleSelectPreset = (preset) => {
-    setRecipeModal(r => ({
-      ...r,
-      application: preset.application,
-      fill_rate: preset.fill_rate,
-      crumb_rate: preset.crumb_rate,
-      cover_rate: preset.cover_rate,
-      sheet_overhang_in: preset.sheet_overhang_in,
-      is_calibrated: false
-    }))
-    setCalSuccess(false)
-  }
-
-  // Determine current active preset if matches
-  const activePresetId = COVERAGE_PRESETS.find(p => 
-    p.application === (recipeModal.application || cov.application) &&
-    (p.fill_rate === null ? recipeModal.fill_rate === null : Number(p.fill_rate) === Number(recipeModal.fill_rate ?? cov.fill_rate)) &&
-    Number(p.cover_rate) === Number(recipeModal.cover_rate ?? cov.cover_rate)
-  )?.id
-
-  // 2. Worked example against reference cake (10" 2 layers)
-  const refOverhang = isRolled ? (Number(recipeModal.sheet_overhang_in ?? cov.sheet_overhang_in) || 2.4) : 0
-  const refGeom = calculateCakeGeometry(10, 2, "Round", refOverhang)
-  const betweenLayersG = (recipeModal.fill_rate !== null && recipeModal.fill_rate !== undefined && !isRolled)
-    ? Math.round((Number(recipeModal.fill_rate ?? cov.fill_rate) || 0) * refGeom.gap_area)
-    : 0
-  const crumbCoatG = Math.round((Number(recipeModal.crumb_rate ?? cov.crumb_rate) || 0) * refGeom.surface_area)
-  const outsideFinishG = Math.round((Number(recipeModal.cover_rate ?? cov.cover_rate) || 0) * (isRolled ? refGeom.sheet_area : refGeom.surface_area))
-  const totalRefGrams = betweenLayersG + crumbCoatG + outsideFinishG
-
-  const batchWeight = Number(recipeModal.batchWeight) || 0
-  const batchesText = batchWeight > 0 ? (totalRefGrams / batchWeight).toFixed(2) : null
-
-  // 3. Calibration calculations
-  const calOverhang = isRolled ? (Number(recipeModal.sheet_overhang_in ?? cov.sheet_overhang_in) || 2.4) : 0
-  const calGeom = calculateCakeGeometry(calSize, calLayers, calShape, calOverhang)
-  const calBaseline = calculateFillingGrams(recipeModal, calGeom) + calculateCoveringGrams(recipeModal, calGeom)
-
-  const rawEntered = parseFloat(calUsed) || 0
-  const enteredGrams = calUnit === "batches" && batchWeight > 0 ? rawEntered * batchWeight : rawEntered
-  const calScale = calBaseline > 0 && enteredGrams > 0 ? (enteredGrams / calBaseline) : 1
-  const pctDiff = calBaseline > 0 && enteredGrams > 0 ? Math.round(((enteredGrams - calBaseline) / calBaseline) * 100) : 0
-
-  const scaledFill = recipeModal.fill_rate !== null && recipeModal.fill_rate !== undefined
-    ? Number(((Number(recipeModal.fill_rate ?? cov.fill_rate) || 0) * calScale).toFixed(3))
-    : null
-  const scaledCrumb = Number(((Number(recipeModal.crumb_rate ?? cov.crumb_rate) || 0) * calScale).toFixed(3))
-  const scaledCover = Number(((Number(recipeModal.cover_rate ?? cov.cover_rate) || 0) * calScale).toFixed(3))
-
-  const handleApplyCalibration = () => {
-    if (!enteredGrams || enteredGrams <= 0) return
-    setRecipeModal(r => ({
-      ...r,
-      fill_rate: scaledFill,
-      crumb_rate: scaledCrumb,
-      cover_rate: scaledCover,
-      is_calibrated: true
-    }))
-    setCalSuccess(true)
-    setTimeout(() => setCalSuccess(false), 5000)
-  }
-
-  return (
-    <div style={{ marginBottom: 14, marginTop: 4 }}>
-      {/* SECTION: How does it go on the cake? */}
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <label style={{ fontSize: 10.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .8, fontWeight: 600 }}>
-            How does it go on the cake? *
-          </label>
-          {(recipeModal.is_calibrated || cov.is_calibrated) && (
-            <span style={{ fontSize: 11, color: "#1E6B37", background: "#E8F5EE", padding: "2px 8px", borderRadius: 12, fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <Check size={11} /> Calibrated to your hand
-            </span>
-          )}
-        </div>
-        
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          {COVERAGE_PRESETS.map(preset => {
-            const isSelected = activePresetId === preset.id
-            return (
-              <div
-                key={preset.id}
-                onClick={() => handleSelectPreset(preset)}
-                style={{
-                  padding: "9px 11px",
-                  borderRadius: 8,
-                  border: `1.5px solid ${isSelected ? "var(--gold)" : "var(--border)"}`,
-                  background: isSelected ? "#FFF9EE" : "var(--panel)",
-                  cursor: "pointer",
-                  transition: "all 0.15s"
-                }}
-              >
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: isSelected ? "var(--gold)" : "var(--text)" }}>
-                  {preset.label}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, lineHeight: 1.3 }}>
-                  {preset.subtext}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* SECTION: Worked Example against Reference Cake (10" 2 layers) */}
-      <div style={{ background: "#F5F0E4", borderRadius: 8, padding: "10px 12px", marginBottom: 10, border: "1px solid var(--border)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .6 }}>
-            Worked Example — 10" 2-layer round
-          </span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--gold)" }}>
-            Total: {totalRefGrams} g {batchesText ? `(${batchesText} batches)` : ""}
-          </span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, fontSize: 11.5 }}>
-          <div style={{ background: "var(--panel)", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)" }}>
-            <div style={{ color: "var(--muted)", fontSize: 10 }}>Between layers</div>
-            <div style={{ fontWeight: 600, marginTop: 1 }}>{betweenLayersG > 0 ? `${betweenLayersG} g` : "—"}</div>
-          </div>
-          <div style={{ background: "var(--panel)", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)" }}>
-            <div style={{ color: "var(--muted)", fontSize: 10 }}>Crumb coat</div>
-            <div style={{ fontWeight: 600, marginTop: 1 }}>{crumbCoatG > 0 ? `${crumbCoatG} g` : "0 g"}</div>
-          </div>
-          <div style={{ background: "var(--panel)", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)" }}>
-            <div style={{ color: "var(--muted)", fontSize: 10 }}>Outside finish</div>
-            <div style={{ fontWeight: 600, marginTop: 1 }}>{outsideFinishG} g</div>
-          </div>
-        </div>
-        <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6, fontStyle: "italic" }}>
-          The app uses this to calculate exact grams needed for any cake size in the order calculator.
-        </div>
-      </div>
-
-      {/* SECTION: Collapsible "See the detail" disclosure */}
-      <div style={{ marginBottom: 12 }}>
-        <button
-          type="button"
-          onClick={() => setShowDetail(d => !d)}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--gold)",
-            fontSize: 11.5,
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            padding: 0,
-            marginBottom: 6
-          }}
-        >
-          {showDetail ? "Hide the detail" : "See the detail"} {showDetail ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
-        </button>
-
-        {showDetail && (
-          <div style={{ padding: "10px 12px", background: "var(--panel)", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ display: "grid", gridTemplateColumns: isRolled ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8 }}>
-              {!isRolled && (
-                <div>
-                  <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
-                    Fill rate (g/in²)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={recipeModal.fill_rate ?? (cov.fill_rate || "")}
-                    onChange={e => {
-                      const v = e.target.value === "" ? null : parseFloat(e.target.value)
-                      setRecipeModal(r => ({ ...r, fill_rate: v }))
-                    }}
-                    style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
-                  />
-                </div>
-              )}
-              <div>
-                <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
-                  Crumb coat (g/in²)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={recipeModal.crumb_rate ?? (cov.crumb_rate || 0)}
-                  onChange={e => {
-                    const v = parseFloat(e.target.value) || 0
-                    setRecipeModal(r => ({ ...r, crumb_rate: v }))
-                  }}
-                  style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
-                  Outside finish (g/in²)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={recipeModal.cover_rate ?? (cov.cover_rate || "")}
-                  onChange={e => {
-                    const v = e.target.value === "" ? null : parseFloat(e.target.value)
-                    setRecipeModal(r => ({ ...r, cover_rate: v }))
-                  }}
-                  style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
-                />
-              </div>
-            </div>
-
-            {isRolled && (
-              <div style={{ borderTop: "1px dashed var(--border)", paddingTop: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
-                      Sheet overhang (inches)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={recipeModal.sheet_overhang_in ?? (cov.sheet_overhang_in || 2.4)}
-                      onChange={e => {
-                        const v = parseFloat(e.target.value) || 0
-                        setRecipeModal(r => ({ ...r, sheet_overhang_in: v }))
-                      }}
-                      style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
-                    />
-                  </div>
-                  <div style={{ flex: 2, fontSize: 11, color: "var(--muted)", marginTop: 14 }}>
-                    Extra draped around the base before trimming (default: 2.4 in).
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* SECTION: Calibration Helper */}
-      <div style={{ background: "#F0F4FA", border: "1px solid #D2E0F5", borderRadius: 8, padding: "10px 12px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600, color: "#2355A0" }}>
-            Calibrate against a cake you've made
-          </div>
-          {calSuccess && (
-            <span style={{ fontSize: 11, color: "#1E6B37", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-              <Check size={12} /> Rates calibrated!
-            </span>
-          )}
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.5fr", gap: 8, marginBottom: 8 }}>
-          <div>
-            <label style={{ fontSize: 9.5, color: "#4A6E9B", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
-              Cake size
-            </label>
-            <select
-              value={calSize}
-              onChange={e => setCalSize(e.target.value)}
-              style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
-            >
-              {["6", "7", "8", "9", "10", "12", "14"].map(s => <option key={s} value={s}>{s} inch</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 9.5, color: "#4A6E9B", display: "block", marginBottom: 3, textTransform: "uppercase" }}>
-              Layers
-            </label>
-            <select
-              value={calLayers}
-              onChange={e => setCalLayers(e.target.value)}
-              style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
-            >
-              {["1", "2", "3", "4", "5", "6"].map(l => <option key={l} value={l}>{l} layer{+l > 1 ? "s" : ""}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3 }}>
-              <label style={{ fontSize: 9.5, color: "#4A6E9B", textTransform: "uppercase" }}>
-                Quantity used
-              </label>
-              <div style={{ display: "flex", gap: 4 }}>
-                <span
-                  onClick={() => setCalUnit("grams")}
-                  style={{
-                    fontSize: 9.5,
-                    cursor: "pointer",
-                    fontWeight: calUnit === "grams" ? 700 : 400,
-                    color: calUnit === "grams" ? "#2355A0" : "#8AA0C4",
-                    textDecoration: calUnit === "grams" ? "underline" : "none"
-                  }}
-                >
-                  Grams
-                </span>
-                <span style={{ fontSize: 9.5, color: "#8AA0C4" }}>|</span>
-                <span
-                  onClick={() => setCalUnit("batches")}
-                  style={{
-                    fontSize: 9.5,
-                    cursor: "pointer",
-                    fontWeight: calUnit === "batches" ? 700 : 400,
-                    color: calUnit === "batches" ? "#2355A0" : "#8AA0C4",
-                    textDecoration: calUnit === "batches" ? "underline" : "none"
-                  }}
-                >
-                  Batches
-                </span>
-              </div>
-            </div>
-            <input
-              type="number"
-              step="any"
-              placeholder={calUnit === "batches" ? "e.g. 0.5" : `e.g. ${Math.round(calBaseline)}`}
-              value={calUsed}
-              onChange={e => setCalUsed(e.target.value)}
-              style={{ ...iSt, fontSize: 12, padding: "5px 8px" }}
-            />
-          </div>
-        </div>
-
-        {/* Live Calibration Feedback */}
-        <div style={{ fontSize: 11, color: "#3B5C82", background: "#E5EDF7", padding: "6px 9px", borderRadius: 6, marginBottom: 8, lineHeight: 1.4 }}>
-          <div>
-            Standard starting amount for a {calSize}" {calLayers}-layer {calShape.toLowerCase()}: <strong>{Math.round(calBaseline)} g</strong>
-          </div>
-          {rawEntered > 0 && (
-            <>
-              <div style={{ marginTop: 2 }}>
-                You used: <strong>{Math.round(enteredGrams)} g</strong> ({pctDiff >= 0 ? `+${pctDiff}%` : `${pctDiff}%`})
-              </div>
-              <div style={{ marginTop: 2, fontSize: 10.5, color: "#2355A0" }}>
-                Updated rates: {!isRolled && `Between layers ${scaledFill} g/in², `}Crumb coat {scaledCrumb} g/in², Outside finish {scaledCover} g/in²
-              </div>
-            </>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={handleApplyCalibration}
-          disabled={!rawEntered || rawEntered <= 0}
-          style={{
-            background: rawEntered > 0 ? "#2355A0" : "#A2B8D8",
-            color: "#fff",
-            border: "none",
-            borderRadius: 6,
-            padding: "5px 12px",
-            fontSize: 11.5,
-            fontWeight: 600,
-            cursor: rawEntered > 0 ? "pointer" : "not-allowed",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4
-          }}
-        >
-          <Check size={12} /> Save these rates to this recipe
-        </button>
-      </div>
-    </div>
-  )
-}
-

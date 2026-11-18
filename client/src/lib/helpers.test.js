@@ -15,7 +15,8 @@ import {
   calculateCakeGeometry,
   calculateFillingGrams,
   calculateCoveringGrams,
-  calibrateCoverageRates
+  calibrateCoverageRates,
+  isDecorationCategory
 } from './helpers';
 
 jest.mock('../constants.js', () => ({
@@ -393,6 +394,32 @@ Cocoa;Dry Goods;kg;2,5;15,5;2`;
       expect(result.crumb_rate).toBeCloseTo(1.8391, 3);
       expect(result.cover_rate).toBeCloseTo(3.6592, 3);
       expect(result.is_calibrated).toBe(true);
+    });
+  });
+
+  describe('isDecorationCategory', () => {
+    it('should return true for Decoration Extras, Decoration, and Decorations categories', () => {
+      expect(isDecorationCategory('Decoration Extras')).toBe(true);
+      expect(isDecorationCategory('decoration extras')).toBe(true);
+      expect(isDecorationCategory('Decorations')).toBe(true);
+      expect(isDecorationCategory('Decoration')).toBe(true);
+      expect(isDecorationCategory({ cat: 'Decoration Extras', name: 'Pearls' })).toBe(true);
+      expect(isDecorationCategory({ category: 'Decorations', name: 'Cake Topper' })).toBe(true);
+    });
+
+    it('should return false for non-decoration categories like Dry Goods and Packaging', () => {
+      expect(isDecorationCategory('Dry Goods')).toBe(false);
+      expect(isDecorationCategory('Dairy and Fats')).toBe(false);
+      expect(isDecorationCategory('Board and Packaging')).toBe(false);
+      expect(isDecorationCategory({ cat: 'Dry Goods', name: 'Flour' })).toBe(false);
+      expect(isDecorationCategory({ cat: 'Dry Goods', name: 'Sugar' })).toBe(false);
+      expect(isDecorationCategory({ cat: 'Board and Packaging', name: '10 inch board' })).toBe(false);
+    });
+
+    it('should infer Decoration Extras for unassigned categories when name suggests decoration', () => {
+      expect(isDecorationCategory('', 'Gold topper')).toBe(true);
+      expect(isDecorationCategory({ cat: '', name: 'Fresh flower' })).toBe(true);
+      expect(isDecorationCategory({ cat: '', name: 'Silk ribbon' })).toBe(true);
     });
   });
 });

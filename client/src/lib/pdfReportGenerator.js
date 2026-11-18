@@ -239,7 +239,7 @@ export function printHtmlDocument({ title, contentHtml, company = {}, subtitle =
 /**
  * 1. INVENTORY MASTER LIST PDF EXPORT
  */
-export function exportInventoryPDF(inventory = [], company = {}) {
+export function exportInventoryPDF(inventory = [], company = {}, committedStockMap = new Map()) {
   const totalItems = inventory.length
   const totalValuation = inventory.reduce((sum, item) => sum + ((Number(item.stock) || 0) * (Number(item.cost) || 0)), 0)
   const lowStockCount = inventory.filter(i => (Number(i.stock) || 0) <= (i.minStock !== undefined && i.minStock !== null && i.minStock !== "" && !isNaN(Number(i.minStock)) ? Number(i.minStock) : 5)).length
@@ -280,7 +280,9 @@ export function exportInventoryPDF(inventory = [], company = {}) {
           <th>Item Name</th>
           <th>Category</th>
           <th>Unit</th>
-          <th class="right">Current Stock</th>
+          <th class="right">On Hand</th>
+          <th class="right">Committed</th>
+          <th class="right">Free</th>
           <th class="right">Min Level</th>
           <th class="right">Unit Cost</th>
           <th class="right">Total Value</th>
@@ -289,17 +291,21 @@ export function exportInventoryPDF(inventory = [], company = {}) {
       </thead>
       <tbody>
         ${sorted.map((item, idx) => {
-          const stock = Number(item.stock) || 0
+          const onHand = Number(item.onHand ?? item.stock ?? 0)
+          const committed = Number(committedStockMap?.get ? committedStockMap.get(item.id) : (item.committed || 0)) || 0
+          const free = Number(item.free ?? (onHand - committed))
           const minStock = item.minStock !== undefined && item.minStock !== null && item.minStock !== "" && !isNaN(Number(item.minStock)) ? Number(item.minStock) : 5
           const cost = Number(item.cost) || 0
-          const val = stock * cost
-          const stockDisplay = Number.isInteger(stock) ? stock.toLocaleString() : stock
+          const val = onHand * cost
+          const onHandDisplay = Number.isInteger(onHand) ? onHand.toLocaleString() : onHand
+          const committedDisplay = Number.isInteger(committed) ? committed.toLocaleString() : committed
+          const freeDisplay = Number.isInteger(free) ? free.toLocaleString() : free
           const costDisplay = cost % 1 !== 0 ? `₦${cost.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : fmt(cost)
           const valDisplay = val % 1 !== 0 && val < 100 ? `₦${val.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : fmt(val)
           let statusBadge = `<span class="badge badge-green">In Stock</span>`
-          if (stock === 0) {
+          if (onHand === 0) {
             statusBadge = `<span class="badge badge-red">Out of Stock</span>`
-          } else if (stock <= minStock) {
+          } else if (onHand <= minStock) {
             statusBadge = `<span class="badge badge-amber">Low Stock</span>`
           }
 
@@ -309,7 +315,9 @@ export function exportInventoryPDF(inventory = [], company = {}) {
               <td class="bold">${item.name || "—"}</td>
               <td>${mapCategory(item.cat, item.name)}</td>
               <td>${item.unit || "kg"}</td>
-              <td class="right bold">${stockDisplay}</td>
+              <td class="right bold">${onHandDisplay}</td>
+              <td class="right" style="color: #888;">${committedDisplay}</td>
+              <td class="right bold" style="color: ${free < 0 ? '#B03A2E' : '#2D7A50'}">${freeDisplay}</td>
               <td class="right" style="color: #777;">${minStock}</td>
               <td class="right">${costDisplay}</td>
               <td class="right bold">${valDisplay}</td>

@@ -41,6 +41,23 @@ class FixedAssetService {
     }
 
     /**
+     * Set useful life per asset class:
+     * - Computer equipment 1230 is normally three years (36 months)
+     * - Leasehold improvements 1240 run over the lease term rather than a fixed figure
+     * - Other classes confirmed at five years (60 months)
+     */
+    getDefaultUsefulLifeMonths(categoryOrCode, leaseTermMonths = null) {
+        const cat = String(categoryOrCode || '').toLowerCase();
+        if (cat === '1230' || cat.includes('computer') || cat.includes('laptop') || cat.includes('printer') || cat.includes('tablet')) {
+            return 36;
+        }
+        if (cat === '1240' || cat.includes('leasehold') || cat.includes('renovation') || cat.includes('improvement')) {
+            return leaseTermMonths ? parseInt(leaseTermMonths, 10) : 60;
+        }
+        return 60; // 5 years confirmed
+    }
+
+    /**
      * Register a new fixed asset
      */
     async registerFixedAsset(tenantId, assetData, externalTx = null) {
@@ -51,7 +68,6 @@ class FixedAssetService {
             }
 
             const residualValue = parseFloat(assetData.residualValue || 0);
-            const usefulLifeMonths = parseInt(assetData.usefulLifeMonths || 60, 10); // Standard 5 years default (Ruling 14)
 
             // Resolve asset account
             let accountCode = assetData.accountCode;
@@ -64,6 +80,9 @@ class FixedAssetService {
             if (!useType) {
                 useType = accountCode === '1200' ? 'production' : (accountCode === '1280' ? 'intangible' : 'office');
             }
+
+            const defaultLife = this.getDefaultUsefulLifeMonths(accountCode || assetData.assetCategory, assetData.leaseTermMonths);
+            const usefulLifeMonths = parseInt(assetData.usefulLifeMonths || defaultLife, 10);
 
             const assetAccount = await chartOfAccountsService.getAccountByCode(tenantId, accountCode, tx);
             if (!assetAccount) {

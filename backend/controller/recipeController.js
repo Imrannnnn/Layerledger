@@ -82,13 +82,18 @@ const createRecipe = asyncHandler(async (req, res) => {
 
     // Cake layer calibration fields
     const calShape = req.body.calShape || req.body.cal_shape || null;
-    const calDimA = req.body.calDimA !== undefined ? Number(req.body.calDimA) : (req.body.cal_dim_a !== undefined ? Number(req.body.cal_dim_a) : null);
-    const calDimB = req.body.calDimB !== undefined ? Number(req.body.calDimB) : (req.body.cal_dim_b !== undefined ? Number(req.body.cal_dim_b) : null);
-    const calGrams = req.body.calGrams !== undefined ? Number(req.body.calGrams) : (req.body.cal_grams !== undefined ? Number(req.body.cal_grams) : null);
-    const calHeightIn = req.body.calHeightIn !== undefined ? Number(req.body.calHeightIn) : (req.body.cal_height_in !== undefined ? Number(req.body.cal_height_in) : null);
-    const trimPct = req.body.trimPct !== undefined ? Number(req.body.trimPct) : (req.body.trim_pct !== undefined ? Number(req.body.trim_pct) : 0.08);
+    const rawA = req.body.calDimA !== undefined ? req.body.calDimA : req.body.cal_dim_a;
+    const calDimA = rawA !== undefined && rawA !== null && rawA !== "" && !isNaN(Number(rawA)) ? Number(rawA) : null;
+    const rawB = req.body.calDimB !== undefined ? req.body.calDimB : req.body.cal_dim_b;
+    const calDimB = rawB !== undefined && rawB !== null && rawB !== "" && !isNaN(Number(rawB)) ? Number(rawB) : null;
+    const rawG = req.body.calGrams !== undefined ? req.body.calGrams : req.body.cal_grams;
+    const calGrams = rawG !== undefined && rawG !== null && rawG !== "" && !isNaN(Number(rawG)) ? Number(rawG) : null;
+    const rawH = req.body.calHeightIn !== undefined ? req.body.calHeightIn : req.body.cal_height_in;
+    const calHeightIn = rawH !== undefined && rawH !== null && rawH !== "" && !isNaN(Number(rawH)) ? Number(rawH) : null;
+    const rawTrim = req.body.trimPct !== undefined ? Number(req.body.trimPct) : (req.body.trim_pct !== undefined ? Number(req.body.trim_pct) : 0.08);
+    const trimPct = (rawTrim > 0 && rawTrim <= 1) ? rawTrim : ((rawTrim || 8) / 100);
 
-    let density = req.body.density !== undefined ? Number(req.body.density) : null;
+    let density = req.body.density !== undefined && req.body.density !== null && !isNaN(Number(req.body.density)) ? Number(req.body.density) : null;
     let isCalibrated = req.body.isCalibrated !== undefined ? !!req.body.isCalibrated : (req.body.is_calibrated !== undefined ? !!req.body.is_calibrated : false);
 
     if (calGrams && calShape && calDimA && calHeightIn) {
@@ -233,19 +238,24 @@ const updateRecipe = asyncHandler(async (req, res) => {
         updateData.calShape = req.body.calShape || req.body.cal_shape || null;
     }
     if (req.body.calDimA !== undefined || req.body.cal_dim_a !== undefined) {
-        updateData.calDimA = req.body.calDimA !== undefined ? Number(req.body.calDimA) : Number(req.body.cal_dim_a);
+        const raw = req.body.calDimA !== undefined ? req.body.calDimA : req.body.cal_dim_a;
+        updateData.calDimA = raw !== undefined && raw !== null && raw !== "" && !isNaN(Number(raw)) ? Number(raw) : null;
     }
     if (req.body.calDimB !== undefined || req.body.cal_dim_b !== undefined) {
-        updateData.calDimB = req.body.calDimB !== undefined ? Number(req.body.calDimB) : (req.body.cal_dim_b ? Number(req.body.cal_dim_b) : null);
+        const raw = req.body.calDimB !== undefined ? req.body.calDimB : req.body.cal_dim_b;
+        updateData.calDimB = raw !== undefined && raw !== null && raw !== "" && !isNaN(Number(raw)) ? Number(raw) : null;
     }
     if (req.body.calGrams !== undefined || req.body.cal_grams !== undefined) {
-        updateData.calGrams = req.body.calGrams !== undefined ? Number(req.body.calGrams) : Number(req.body.cal_grams);
+        const raw = req.body.calGrams !== undefined ? req.body.calGrams : req.body.cal_grams;
+        updateData.calGrams = raw !== undefined && raw !== null && raw !== "" && !isNaN(Number(raw)) ? Number(raw) : null;
     }
     if (req.body.calHeightIn !== undefined || req.body.cal_height_in !== undefined) {
-        updateData.calHeightIn = req.body.calHeightIn !== undefined ? Number(req.body.calHeightIn) : Number(req.body.cal_height_in);
+        const raw = req.body.calHeightIn !== undefined ? req.body.calHeightIn : req.body.cal_height_in;
+        updateData.calHeightIn = raw !== undefined && raw !== null && raw !== "" && !isNaN(Number(raw)) ? Number(raw) : null;
     }
     if (req.body.trimPct !== undefined || req.body.trim_pct !== undefined) {
-        updateData.trimPct = req.body.trimPct !== undefined ? Number(req.body.trimPct) : Number(req.body.trim_pct);
+        const rawTrim = req.body.trimPct !== undefined ? Number(req.body.trimPct) : Number(req.body.trim_pct);
+        updateData.trimPct = (rawTrim > 0 && rawTrim <= 1) ? rawTrim : ((rawTrim || 8) / 100);
     }
 
     const curShape = updateData.calShape !== undefined ? updateData.calShape : existing.calShape;
@@ -254,8 +264,9 @@ const updateRecipe = asyncHandler(async (req, res) => {
     const curGrams = updateData.calGrams !== undefined ? updateData.calGrams : existing.calGrams;
     const curHeight = updateData.calHeightIn !== undefined ? updateData.calHeightIn : existing.calHeightIn;
 
-    if (req.body.density !== undefined) {
+    if (req.body.density !== undefined && req.body.density !== null && !isNaN(Number(req.body.density)) && Number(req.body.density) > 0) {
         updateData.density = Number(req.body.density);
+        updateData.isCalibrated = true;
     } else if (curGrams && curShape && curDimA && curHeight) {
         updateData.density = calculateDensity(curGrams, curShape, curDimA, curDimB, curHeight);
         updateData.isCalibrated = true;

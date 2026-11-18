@@ -506,9 +506,17 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
                         (name && adj.name && adj.name.trim().toLowerCase() === name)
       return matchMonth && matchItem
     })
-    const totalDelta = matching.reduce((s, a) => s + (Number(a.delta) || (Number(a.newStock) - Number(a.onHand)) || 0), 0)
+    const totalDelta = matching.reduce((s, a) => s + (Number(a.qtyDelta !== undefined ? a.qtyDelta : a.delta) || (Number(a.newStock) - Number(a.onHand)) || 0), 0)
     return parseFloat(totalDelta.toFixed(3))
   }, [adjustmentsList, sel, inventory])
+
+  // Individual stock adjustments and losses in selected month (One row per loss carrying its reason)
+  const mAdjustments = useMemo(() => {
+    return (adjustmentsList || []).filter(adj => {
+      const d = adj.date || adj.createdAt || ""
+      return isDateInMonth(d, sel)
+    })
+  }, [adjustmentsList, sel])
 
   // Combined inventory list including items entered in Opening Stock and Purchases this month
   const allStockItems = useMemo(() => {
@@ -628,6 +636,14 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
       const closing = Math.max(0, parseFloat((opening + bought - used + adjusted).toFixed(3)))
       return s + closing * (i.cost || 0)
     }, 0)).toLocaleString()}</td></tr></table>
+    ${mAdjustments.length > 0 ? `
+    <div class="sec">Stock Adjustments &amp; Losses (${mAdjustments.length})</div>
+    <table><tr><th>Date</th><th>Item</th><th style="text-align:right">± Adjusted</th><th>Reason Code</th><th>Note</th></tr>
+    ${mAdjustments.map(a => {
+      const qDelta = Number(a.qtyDelta !== undefined ? a.qtyDelta : a.delta) || 0;
+      return `<tr><td>${a.date ? a.date.slice(0, 10) : '—'}</td><td>${a.name || a.item || 'Item'}</td><td style="text-align:right;color:${qDelta < 0 ? '#B03A2E' : '#357A52'}">${qDelta > 0 ? `+${qDelta}` : qDelta} ${a.unit || ''}</td><td>${a.reason || 'Adjustment'}</td><td>${a.note || '—'}</td></tr>`;
+    }).join('')}
+    </table>` : ''}
     <div class="sec">Overhead Expenses</div>
     <table><tr><th>Date</th><th>Description</th><th>Category</th><th style="text-align:right">Amount</th></tr>
     ${mExp.map(e => `<tr><td>${e.date || ""}</td><td>${e.description || ""}</td><td>${e.category || ""}</td><td style="text-align:right">₦${Math.round(e.amount || 0).toLocaleString()}</td></tr>`).join("")}
@@ -809,6 +825,51 @@ export function MonthlyOverview({ inventory, recipes = [], productions = [], set
             </tr>
           </tfoot>
         </table>
+
+        {/* STOCK ADJUSTMENTS & LOSSES: One row per loss, carrying its reason */}
+        {mAdjustments.length > 0 && (
+          <div style={{ padding: "12px 16px", borderTop: "1.5px solid var(--border)", background: "#FFFDF9" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text)" }}>
+                Stock Adjustments &amp; Losses ({mAdjustments.length})
+              </span>
+              <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                One row per loss, carrying its audit reason
+              </span>
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ background: "#EDE5D6", color: "var(--muted)", textAlign: "left", fontSize: 11 }}>
+                  <th style={{ padding: "6px 8px" }}>Date</th>
+                  <th style={{ padding: "6px 8px" }}>Item</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right" }}>± Adjusted</th>
+                  <th style={{ padding: "6px 8px" }}>Reason Code</th>
+                  <th style={{ padding: "6px 8px" }}>Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mAdjustments.map((adj, aIdx) => {
+                  const qDelta = Number(adj.qtyDelta !== undefined ? adj.qtyDelta : adj.delta) || 0;
+                  return (
+                    <tr key={adj.id || aIdx} style={{ borderBottom: "1px solid var(--border)" }}>
+                      <td style={{ padding: "6px 8px", color: "var(--muted)" }}>{adj.date ? adj.date.slice(0, 10) : "—"}</td>
+                      <td style={{ padding: "6px 8px", fontWeight: 600, color: "var(--text)" }}>{adj.name || adj.item || "Item"}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: qDelta < 0 ? "#B03A2E" : "#357A52" }}>
+                        {qDelta > 0 ? `+${qDelta}` : qDelta} {adj.unit || ""}
+                      </td>
+                      <td style={{ padding: "6px 8px" }}>
+                        <span style={{ padding: "2px 7px", borderRadius: 4, background: qDelta < 0 ? "#FDEBE9" : "#E5F4EC", color: qDelta < 0 ? "#B03A2E" : "#2D7A50", fontSize: 11, fontWeight: 600 }}>
+                          {adj.reason || "Adjustment"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "6px 8px", color: "var(--muted)" }}>{adj.note || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* PURCHASES + EXPENSES SIDE BY SIDE */}

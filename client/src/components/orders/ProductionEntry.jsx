@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, Steps, Spinner } from "../common/ui.jsx"
 import { fmt, uid, today, calcFullCost, callClaude, compressImage } from "../../lib/helpers.js"
+import { planArea, perimeter, gapArea, surfaceArea, calculateDensity, gramsPerPan, coveringMass } from "../../lib/cakeGeometry.js"
 import { saveInventory, saveProduction, loadLocal, saveLocal, loadClients, upsertClient, checkPlanLimit, notifyPlanLimitReached } from "../../lib/data.js"
 import { Camera, Sparkles, Check, Lightbulb, AlertTriangle } from "lucide-react"
 
@@ -60,9 +61,6 @@ export function ProductionEntry({inventory,setInventory,recipes,productions,setP
   const [prefillPhone]=useState(()=>prefill?.clientPhone||"")
   const [decQtyMap,setDecQtyMap]=useState({})
   const layerRecipes=recipes.filter(r=>!r.type||r.type==="layer")
-  const loadMults=()=>loadLocal("ll_multipliers", DEFAULT_MULTS)
-  const multTable=loadMults()
-  const getMult=(s,sh)=>multTable[`${s}-${sh}`]||1
   const addProdTier=()=>setTiers(t=>[...t,{id:Date.now(),size:"6",shape:"round",covering:"Buttercream",layers:[{id:Date.now()+1,flavour:""}]}])
   const removeProdTier=id=>setTiers(t=>t.filter(x=>x.id!==id))
   const updatePTier=(id,key,val)=>setTiers(t=>t.map(x=>x.id===id?{...x,[key]:val}:x))
@@ -72,13 +70,48 @@ export function ProductionEntry({inventory,setInventory,recipes,productions,setP
   const tierRecipeCost=(flavour,size,shape)=>{
     const r=recipes.find(x=>x.name.toLowerCase().includes(flavour.toLowerCase()))
     if(!r)return 0
-    const base=r.ing.reduce((s,ing)=>{const it=inventory.find(x=>x.id===ing.iid);return s+(it?it.cost*ing.qty:0)},0)
-    return base*getMult(size,shape)
+    const calG = Number(r.cal_grams ?? r.calGrams) || 0
+    const calSh = r.cal_shape || r.calShape || "round"
+    const calA = Number(r.cal_dim_a ?? r.calDimA) || 6
+    const calB = Number(r.cal_dim_b ?? r.calDimB) || 8
+    const calH = Number(r.cal_height_in ?? r.calHeightIn) || 2
+    const dens = Number(r.density) || (calG > 0 ? calculateDensity(calG, calSh, calA, calB, calH) : 10.911)
+    const trim = ((r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8))) / 100
+    const pArea = planArea(shape || "round", Number(size) || 6)
+    const gpp = gramsPerPan(dens, pArea, 2, trim)
+    const totalCost = (r.ing || []).reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it ? (Number(it.cost) || 0) * (Number(ing.qty) || 0) : 0) }, 0)
+    const batchGrams = Number(r.cal_grams || r.calGrams) || Number(r.batchWeight) ||
+      (r.ing || []).reduce((s, ing) => {
+        const it = inventory.find(x => x.id === ing.iid)
+        return s + (it?.unit === "kg" ? (Number(ing.qty) || 0) * 1000 : it?.unit === "g" ? (Number(ing.qty) || 0) : 0)
+      }, 0)
+    const cpg = batchGrams > 0 ? totalCost / batchGrams : 0
+    return gpp * cpg
   }
   const tierCoveringCost=(cov,size,shape,numLayers)=>{
-    const c=availCoverings.find(x=>x.name===cov)
-    if(!c||!c.cost)return 0
-    return c.cost*(c.scales?getMult(size,shape):1)*numLayers
+    if(!cov)return 0
+    const pArea = planArea(shape || "round", Number(size) || 6)
+    const peri = perimeter(shape || "round", Number(size) || 6)
+    const H = (Number(numLayers) || 1) * 2
+    const sArea = surfaceArea(pArea, peri, H)
+    const gArea = gapArea(pArea, Number(numLayers) || 1)
+    const covRecipe = recipes.find(x => (x.type === "covering" || !x.type) && x.name.toLowerCase().includes(cov.toLowerCase()))
+    if (covRecipe) {
+      const fillG = covRecipe.can_fill !== false ? coveringMass(gArea, covRecipe.thickFillMm || covRecipe.thick_fill_mm || 4.5, covRecipe.density || 0.9, (covRecipe.wastePct || covRecipe.waste_pct || 15) / 100) : 0
+      const finG = covRecipe.can_finish !== false ? coveringMass(sArea, covRecipe.thickFinishMm || covRecipe.thick_finish_mm || 4.9, covRecipe.density || 0.9, (covRecipe.wastePct || covRecipe.waste_pct || 15) / 100) : 0
+      const totalCost = (covRecipe.ing || []).reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it ? (Number(it.cost) || 0) * (Number(ing.qty) || 0) : 0) }, 0)
+      const batchGrams = Number(covRecipe.cal_grams || covRecipe.calGrams) || Number(covRecipe.batchWeight) ||
+        (covRecipe.ing || []).reduce((s, ing) => {
+          const it = inventory.find(x => x.id === ing.iid)
+          return s + (it?.unit === "kg" ? (Number(ing.qty) || 0) * 1000 : it?.unit === "g" ? (Number(ing.qty) || 0) : 0)
+        }, 0)
+      const cpg = batchGrams > 0 ? totalCost / batchGrams : 0
+      return (fillG + finG) * cpg
+    }
+    const c = availCoverings.find(x => x.name === cov)
+    if (!c || !c.cost) return 0
+    const baseArea = planArea("round", 6)
+    return c.cost * (c.scales && baseArea > 0 ? (pArea / baseArea) : 1) * numLayers
   }
   const tierTotalCost=tiers.reduce((s,t)=>s+t.layers.reduce((s2,l)=>s2+(l.flavour?tierRecipeCost(l.flavour,t.size,t.shape):0),0)+tierCoveringCost(t.covering,t.size,t.shape,t.layers.length),0)
   const topperCost=(+topper.make||0)+(+topper.deliver||0)
@@ -329,9 +362,19 @@ Analyze this cake image carefully and return ONLY valid JSON with this exact str
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
             <div>
               <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:3,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Size (inches)</label>
-              <select value={tier.size} onChange={e=>updatePTier(tier.id,"size",e.target.value)} style={{...iSt}}>
-                {["4","5","6","7","8","9","10","12","14"].map(s=><option key={s} value={s}>{s}"</option>)}
-              </select>
+              <div style={{position:"relative"}}>
+                <input
+                  type="number"
+                  step="any"
+                  min="1"
+                  max="60"
+                  placeholder="e.g. 8"
+                  value={tier.size !== undefined ? tier.size : ""}
+                  onChange={e=>updatePTier(tier.id,"size",e.target.value)}
+                  style={{...iSt,paddingRight:24}}
+                />
+                <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,color:"var(--muted)",pointerEvents:"none",fontWeight:600}}>″</span>
+              </div>
             </div>
             <div>
               <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:3,textTransform:"uppercase",letterSpacing:.8,fontWeight:500}}>Shape</label>

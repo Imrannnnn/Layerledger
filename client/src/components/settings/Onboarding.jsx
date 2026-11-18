@@ -34,7 +34,6 @@ export function Onboarding({ gold, company, setCompany, inventory, setInventory,
   const [profitPct, setProfitPct] = useState(settings.profitPct || 40)
   const [overheadPct, setOverheadPct] = useState(settings.overheadPct !== undefined ? settings.overheadPct : 27)
   const [accessoryPct, setAccessoryPct] = useState(settings.accessoryPct !== undefined ? settings.accessoryPct : 10)
-  const [miscPct, setMiscPct] = useState(settings.miscPct !== undefined ? settings.miscPct : 5)
 
   // Excel / PDF / Photo Import Modal State (Step 2)
   const [showImport, setShowImport] = useState(false)
@@ -2943,30 +2942,14 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
               </div>
             </div>
 
-            {/* Miscellaneous Allowance */}
-            <div style={{ background: "#FAF7F0", padding: "14px 18px", borderRadius: 12, border: "1px solid var(--border)", marginBottom: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 13.5, fontWeight: 600, color: "var(--text)" }}>Miscellaneous Allowance</span>
-                <span style={{ fontSize: 20, fontWeight: 700, color: gold }}>{miscPct}%</span>
-              </div>
-              <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 8 }}>Safety buffer for minor ingredient wastage, spills, or unforeseen bakery production incidentals.</div>
-              <input type="range" min={0} max={30} step={1} value={miscPct} onChange={e => { setMiscPct(+e.target.value); st("miscPct", +e.target.value) }} style={{ width: "100%", accentColor: gold, cursor: "pointer", height: 6 }} />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--muted)", marginTop: 3 }}>
-                <span>0%</span>
-                <span>Default: 5%</span>
-                <span>30%</span>
-              </div>
-            </div>
-
             {/* Transparent Calculation Preview Box */}
             <div style={{ padding: "12px 14px", background: "#F5F0E4", borderRadius: 10, fontSize: 12, color: "var(--muted)", marginBottom: 20, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>Pricing Example (Ingredients: ₦10,000)</div>
               <div>• Overhead ({overheadPct}%): ₦{Math.round(10000 * (overheadPct / 100)).toLocaleString()}</div>
               <div>• Accessories ({accessoryPct}%): ₦{Math.round(10000 * (accessoryPct / 100)).toLocaleString()}</div>
-              <div>• Miscellaneous ({miscPct}%): ₦{Math.round(10000 * (miscPct / 100)).toLocaleString()}</div>
-              <div>• Total Cost: <strong>₦{Math.round(10000 * (1 + overheadPct / 100 + accessoryPct / 100 + miscPct / 100)).toLocaleString()}</strong></div>
+              <div>• Total Cost: <strong>₦{Math.round(10000 * (1 + overheadPct / 100 + accessoryPct / 100)).toLocaleString()}</strong></div>
               <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px dashed var(--border)" }}>
-                • Suggested Selling Price ({profitPct}% profit): <strong style={{ color: gold, fontSize: 13 }}>{fmt(Math.round((10000 * (1 + overheadPct / 100 + accessoryPct / 100 + miscPct / 100)) / Math.max(0.05, 1 - profitPct / 100)))}</strong>
+                • Suggested Selling Price ({profitPct}% profit): <strong style={{ color: gold, fontSize: 13 }}>{fmt(Math.round((10000 * (1 + overheadPct / 100 + accessoryPct / 100)) / Math.max(0.05, 1 - profitPct / 100)))}</strong>
               </div>
             </div>
 
@@ -2986,7 +2969,6 @@ Return ONLY valid JSON in this exact structure with no markdown code fences or c
                   st("profitPct", +profitPct)
                   st("overheadPct", +overheadPct)
                   st("accessoryPct", +accessoryPct)
-                  st("miscPct", +miscPct)
                   setStep(5)
                 }}>Save & Finish →</Btn>
               </div>

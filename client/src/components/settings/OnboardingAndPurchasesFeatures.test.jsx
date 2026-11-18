@@ -154,7 +154,6 @@ describe("Step-by-step requested features", () => {
     expect(container.textContent).toContain("Default Profit Margin")
     expect(container.textContent).toContain("Overhead Allowance")
     expect(container.textContent).toContain("Accessories Allowance")
-    expect(container.textContent).toContain("Miscellaneous Allowance")
     expect(container.textContent).toContain("Pricing Example")
   })
 

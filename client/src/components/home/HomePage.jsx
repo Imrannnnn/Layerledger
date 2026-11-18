@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react"
+import { planArea, perimeter, gapArea, surfaceArea, coveringMass } from "../../lib/cakeGeometry.js"
 
 const DENS = {
   "All-purpose flour": 0.53,
@@ -276,33 +277,22 @@ export function HomePage({
     const hours = parseFloat(kHours) || 0
     const rate = parseFloat(kRate) || 0
     const h = layers * lh
-    let top = 0
-    let per = 0
-    if (kShape === "round") {
-      top = Math.PI * (a / 2) * (a / 2)
-      per = Math.PI * a
-    } else if (kShape === "square") {
-      top = a * a
-      per = 4 * a
-    } else {
-      top = a * b
-      per = 2 * (a + b)
-    }
-    const surface = top + per * h
-    const fillArea = Math.max(0, layers - 1) * top
+    const top = planArea(kShape, a, b)
+    const per = perimeter(kShape, a, b)
+    const surface = surfaceArea(top, per, h)
+    const fillArea = gapArea(top, layers)
 
     const cv = K_COV[kCov] || K_COV.bc
     const fl = K_FLAV[kFlav] || K_FLAV.choc
-    const kGrams = (areaSqIn, mm, m) => areaSqIn * K_SQ * (mm / 10) * m.d * (1 + m.w)
 
     const batter = fl.g * top * h * fl.c
     const fill =
-      kGrams(fillArea, cv.f !== null ? cv.f : K_UNDER.f, cv.f !== null ? cv : K_UNDER) *
+      coveringMass(fillArea, cv.f !== null ? cv.f : K_UNDER.f, (cv.f !== null ? cv : K_UNDER).d, (cv.f !== null ? cv : K_UNDER).w) *
       (cv.f !== null ? cv.c : K_UNDER.c)
     let crumb = 0
-    if (cv.k !== null) crumb = kGrams(surface, cv.k, cv) * cv.c
-    else if (kCov !== "whip") crumb = kGrams(surface, K_UNDER.k, K_UNDER) * K_UNDER.c
-    const finish = kGrams(surface, cv.n, cv) * cv.c
+    if (cv.k !== null) crumb = coveringMass(surface, cv.k, cv.d, cv.w) * cv.c
+    else if (kCov !== "whip") crumb = coveringMass(surface, K_UNDER.k, K_UNDER.d, K_UNDER.w) * K_UNDER.c
+    const finish = coveringMass(surface, cv.n, cv.d, cv.w) * cv.c
     const time = hours * rate
     const cost = batter + fill + crumb + finish + K_PACK + time
     const price = cost / (1 - K_MARGIN)
@@ -392,7 +382,7 @@ export function HomePage({
 
   // Scaler calculation
   const { sOutText, sNoteText } = useMemo(() => {
-    const area = (n, shape) => shape === "Round" ? Math.PI * Math.pow(n / 2, 2) : n * n
+    const area = (n, shape) => planArea(shape, n)
     const a = area(Number(sFromSize), sFromShape)
     const b = area(Number(sToSize), sToShape)
     const r = a > 0 ? b / a : 1
@@ -405,7 +395,7 @@ export function HomePage({
 
   // Pan equivalent calculation
   const { pOutText, pNoteText } = useMemo(() => {
-    const area = (n, shape) => shape === "Round" ? Math.PI * Math.pow(n / 2, 2) : n * n
+    const area = (n, shape) => planArea(shape, n)
     const shape = pShape
     const n = Number(pSize)
     const a = area(n, shape)

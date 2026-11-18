@@ -960,14 +960,16 @@ Return ONLY valid JSON with this exact structure, no preamble:
       const receiptDate = normalizeToIsoDate(parsed.receipt_date)
       const monthStr = receiptDate.slice(0, 7)
       const approved = parsed.items.filter(r => r.approved)
-      // Only rows where the user explicitly selected "expense" are expenses; everything else belongs to Purchases
-      const purchases = approved.filter(r => r.type !== "expense")
+      // 3-way routing: inventory (default), expense, or fixed_asset (PPE)
+      const inventoryPurchases = approved.filter(r => r.type === "purchase" || (!r.type && r.type !== "expense" && r.type !== "fixed_asset"))
+      const ppeItems = approved.filter(r => r.type === "fixed_asset")
+      const expenseItems = approved.filter(r => r.type === "expense")
 
-      // Update inventory: stock + cost/unit for purchases
+      // Update inventory: stock + cost/unit for inventory purchases
       let updInv = [...inventory]
       const purchaseLog = []
 
-      purchases.forEach(r => {
+      inventoryPurchases.forEach(r => {
         let invItem = updInv.find(i => i.id === r.overrideId)
         const unitSize = +r.unit_size || +r.qty || 1
         const cpu = parseFloat(((+r.unit_price || +r.line_total || 0) / unitSize).toFixed(2))
@@ -1008,11 +1010,86 @@ Return ONLY valid JSON with this exact structure, no preamble:
           price: +r.unit_price || lineTotal,
           total: lineTotal,
           cpu,
-          stockAdded
+          stockAdded,
+          destination: "inventory"
         })
       })
 
-      if (purchases.length > 0) {
+      // Route PPE items: Creates fixed assets with useful life & single home for depreciation
+      if (ppeItems.length > 0) {
+        const existingAssets = (typeof loadLocal === "function" ? loadLocal("ll_fixed_assets", []) : []) || []
+        const newAssets = ppeItems.map(r => {
+          const cost = +r.line_total || (+r.unit_price ? +r.unit_price * (+r.qty || 1) : 0)
+          const code = r.asset_code || "1200"
+          const defaultLife = code === "1230" ? 36 : 60
+          const usefulLifeMonths = +r.useful_life_months || defaultLife
+          const useType = r.use_type || (code === "1200" ? "production" : "office")
+          const assetName = (r.item_on_receipt || "").trim() || `${parsed.supplier || "Supplier"} Equipment`
+
+          return {
+            id: uid(),
+            name: assetName,
+            accountCode: code,
+            assetCategory: code === "1210" ? "motor_vehicles" : (code === "1230" ? "computer_equipment" : (code === "1240" ? "leasehold_improvements" : (code === "1220" ? "furniture_fixtures" : "bakery_equipment"))),
+            cost,
+            residualValue: 0,
+            usefulLifeMonths,
+            useType,
+            acquisitionDate: receiptDate,
+            status: "ACTIVE",
+            supplier: parsed.supplier || "Vendor"
+          }
+        })
+
+        const allAssets = [...newAssets, ...existingAssets]
+        if (typeof saveLocal === "function") {
+          await saveLocal("ll_fixed_assets", allAssets)
+        }
+
+        // Try registering with backend accounting API if online
+        try {
+          const { registerFixedAsset } = await import("../../lib/accountingApi.js")
+          for (const asset of newAssets) {
+            await registerFixedAsset({
+              name: asset.name,
+              accountCode: asset.accountCode,
+              assetCategory: asset.assetCategory,
+              cost: asset.cost,
+              residualValue: asset.residualValue,
+              usefulLifeMonths: asset.usefulLifeMonths,
+              useType: asset.useType,
+              acquisitionDate: asset.acquisitionDate,
+              postInitialEntry: true,
+              paymentMethod: "cash"
+            }).catch(() => {})
+          }
+        } catch (e) {
+          // offline fallback
+        }
+
+        // Record in purchaseLog for purchase history with destination = "fixed_asset"
+        newAssets.forEach(asset => {
+          purchaseLog.push({
+            id: uid(),
+            date: receiptDate,
+            supplier: parsed.supplier || "Equipment Supplier",
+            itemId: null,
+            item: asset.name,
+            category: "Fixed Assets (PPE)",
+            unit: "unit",
+            unitSize: 1,
+            qty: 1,
+            price: asset.cost,
+            total: asset.cost,
+            cpu: asset.cost,
+            stockAdded: 0,
+            destination: "fixed_asset",
+            isFixedAsset: true
+          })
+        })
+      }
+
+      if (inventoryPurchases.length > 0) {
         setInventory(updInv)
         await saveInventory(updInv)
       }
@@ -1605,17 +1682,28 @@ Return ONLY valid JSON with this exact structure, no preamble:
                     </div>
                   )}
 
-                  {/* Linking / Add New item dropdown */}
+                  {/* Linking / Routing: Inventory vs Expense vs PPE */}
                   {r.approved && (
                     <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
-                      {/* Selection: Link to Inventory vs Link to Expense */}
+                      {/* Selection: Link to Inventory vs Link to Expense vs PPE Asset */}
                       <select
                         value={r.type || "purchase"}
-                        onChange={e => updateRow(idx, "type", e.target.value)}
-                        style={{ ...iSt, fontSize: 12, padding: "5px 8px", width: 150 }}
+                        onChange={e => {
+                          const val = e.target.value
+                          updateRow(idx, "type", val)
+                          if (val === "fixed_asset") {
+                            const code = r.asset_code || "1200"
+                            const defaultMonths = code === "1230" ? 36 : 60
+                            updateRow(idx, "asset_code", code)
+                            updateRow(idx, "useful_life_months", r.useful_life_months || defaultMonths)
+                            updateRow(idx, "use_type", r.use_type || (code === "1200" ? "production" : "office"))
+                          }
+                        }}
+                        style={{ ...iSt, fontSize: 12, padding: "5px 8px", width: 160 }}
                       >
                         <option value="purchase">Link to Inventory</option>
                         <option value="expense">Link to Expense</option>
+                        <option value="fixed_asset">PPE Asset (Capitalise)</option>
                       </select>
 
                       {/* Render based on selection */}
@@ -1647,6 +1735,51 @@ Return ONLY valid JSON with this exact structure, no preamble:
                               <Check size={12} /> Linked
                             </span>
                           )}
+                        </div>
+                      ) : r.type === "fixed_asset" ? (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1, flexWrap: "wrap" }}>
+                          <select
+                            value={r.asset_code || "1200"}
+                            onChange={e => {
+                              const code = e.target.value
+                              const defaultMonths = code === "1230" ? 36 : 60
+                              const defaultUse = code === "1200" ? "production" : "office"
+                              updateRow(idx, "asset_code", code)
+                              updateRow(idx, "useful_life_months", defaultMonths)
+                              updateRow(idx, "use_type", defaultUse)
+                            }}
+                            style={{ ...iSt, fontSize: 12, padding: "5px 8px", minWidth: 170 }}
+                          >
+                            <option value="1200">1200 Bakery Equipment</option>
+                            <option value="1210">1210 Motor Vehicles</option>
+                            <option value="1220">1220 Furniture &amp; Fixtures</option>
+                            <option value="1230">1230 Computer Equipment (3 yrs)</option>
+                            <option value="1240">1240 Leasehold Improvements</option>
+                          </select>
+
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <label style={{ fontSize: 10, color: "var(--muted)", whiteSpace: "nowrap" }}>Life:</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="360"
+                              placeholder="Months"
+                              value={r.useful_life_months || (r.asset_code === "1230" ? 36 : 60)}
+                              onChange={e => updateRow(idx, "useful_life_months", Math.max(1, parseInt(e.target.value, 10) || 1))}
+                              style={{ ...iSt, fontSize: 11, padding: "4px 6px", width: 65 }}
+                              title="Useful life in months (editable)"
+                            />
+                            <span style={{ fontSize: 10, color: "var(--muted)" }}>mo</span>
+                          </div>
+
+                          <select
+                            value={r.use_type || (r.asset_code === "1200" ? "production" : "office")}
+                            onChange={e => updateRow(idx, "use_type", e.target.value)}
+                            style={{ ...iSt, fontSize: 11, padding: "5px 6px", width: 105 }}
+                          >
+                            <option value="production">Production</option>
+                            <option value="office">Office/Admin</option>
+                          </select>
                         </div>
                       ) : (
                         <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1 }}>

@@ -7,9 +7,9 @@
  * Quotes share client details, general order note, and a unified invoice total.
  * ----------------------------------------------------------------------------
  */
-import React, { useState, useEffect, useMemo, useRef } from "react"
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Btn, iSt, Inp, Sel, Card, SHead, SearchableSelect } from "../common/ui.jsx"
-import { fmt, uid, today, MONTHS, SPECIAL_DATE_TYPES, parseSpecialDate, formatSpecialDate, calculateCakeGeometry, calculateFillingGrams, calculateCoveringGrams, getRecipeCoverageValues } from "../../lib/helpers.js"
+import { fmt, uid, today, MONTHS, SPECIAL_DATE_TYPES, parseSpecialDate, formatSpecialDate, mapCategory, isDecorationCategory } from "../../lib/helpers.js"
 import {
   planArea,
   perimeter,
@@ -23,11 +23,13 @@ import {
   calculatePortionsGeometry,
   calculateCostStack,
   deriveOverheadRates,
+  getPanLibrary,
   STANDARD_PANS,
+  DEFAULT_COVERINGS_SEED,
   CM2
 } from "../../lib/cakeGeometry.js"
 import { loadCompany, loadLocal, saveLocal, loadQuotes, saveQuotes, loadClients, upsertClient, clearTempCalculatorState, checkPlanLimit, notifyPlanLimitReached } from "../../lib/data.js"
-import { DEFAULT_MULTS, DECORATION_ITEMS, PRICING_SIZES } from "../../constants.js"
+import { DECORATION_ITEMS } from "../../constants.js"
 import { Camera, Check, MessageCircle, ClipboardList, Calculator, Cake, Heart, CalendarHeart, Cookie, X, ChevronDown, ChevronUp, Plus, Trash2, Calendar, Clock, AlertTriangle, Crop, RotateCcw, FileText, Sparkles } from "lucide-react"
 import ImageCropperModal from "./ImageCropperModal.jsx"
 
@@ -662,45 +664,118 @@ const parseBirthdayMonth = (bStr = "") => parseSpecialDate(bStr).month
 const parseBirthdayDay = (bStr = "") => parseSpecialDate(bStr).day
 
 export function OrderCalculator({ inventory, recipes, settings, setView, company }) {
-  const getMults = () => loadLocal("ll_multipliers", DEFAULT_MULTS)
-  const mults = getMults()
+  const [panLib, setPanLib] = useState(() => getPanLibrary())
+  useEffect(() => {
+    const handlePanUpdate = () => setPanLib(getPanLibrary())
+    window.addEventListener('pan_library_updated', handlePanUpdate)
+    return () => window.removeEventListener('pan_library_updated', handlePanUpdate)
+  }, [])
+  const activePans = panLib && panLib.length > 0 ? panLib : STANDARD_PANS
 
   const decorations = useMemo(() => {
-    const stored = loadLocal("ll_decorations", DECORATION_ITEMS)
-    const itemsMap = new Map()
+    const list = []
+    const seenNames = new Set()
 
+    // 1. Stored decorations from local storage / seed
+    const stored = loadLocal("ll_decorations", DECORATION_ITEMS)
     stored.forEach(d => {
-      const invItem = inventory.find(x => x.id === d.iid)
-      itemsMap.set(d.id, {
+      const invItem = (inventory || []).find(x => x.id === d.iid)
+      if (invItem && !isDecorationCategory(invItem)) return
+      const name = d.label || d.name || invItem?.name || "Decoration Extra"
+      const u = (invItem?.unit || d.unit || "pcs").toLowerCase().trim()
+      const isWeight = (u === "g" || u === "kg")
+      const isKg = (u === "kg" || u === "l")
+      const rawCost = Number(invItem?.cost ?? d.cost) || 0
+      const costPerGram = isKg ? (rawCost / 1000) : (isWeight ? rawCost : 0)
+      const unitCost = !isWeight ? rawCost : costPerGram
+      const kind = isWeight ? "weighed" : "bought_piece"
+      const unitLabel = isWeight ? "g" : "pcs"
+
+      list.push({
         id: d.id,
-        name: d.name || invItem?.name || "Decoration Extra",
-        label: d.label || d.name || invItem?.name || "Decoration Extra",
-        iid: d.iid,
-        qty: d.qty !== undefined ? d.qty : 1
+        iid: d.iid || (invItem ? invItem.id : null),
+        name,
+        label: name,
+        kind,
+        unit: unitLabel,
+        unitLabel,
+        costPerGram,
+        unitCost,
+        rateLabel: isWeight ? `${fmt(costPerGram)}/g` : `${fmt(unitCost)}/${u || "pc"}`,
+        invItem
+      })
+      seenNames.add(name.toLowerCase())
+    })
+
+    // 2. Inventory items in category "Decoration Extras"
+    ;(inventory || []).forEach(invItem => {
+      if (!isDecorationCategory(invItem)) return
+      const name = invItem.name || "Decoration Extra"
+      if (seenNames.has(name.toLowerCase())) return
+      seenNames.add(name.toLowerCase())
+
+      const u = (invItem.unit || "").toLowerCase().trim()
+      const isWeight = (u === "g" || u === "kg")
+      const isKg = (u === "kg" || u === "l")
+      const rawCost = Number(invItem.cost) || 0
+      const costPerGram = isKg ? (rawCost / 1000) : (isWeight ? rawCost : 0)
+      const unitCost = !isWeight ? rawCost : costPerGram
+      const kind = isWeight ? "weighed" : "bought_piece"
+      const unitLabel = isWeight ? "g" : "pcs"
+      const did = "d_" + invItem.id
+
+      list.push({
+        id: did,
+        iid: invItem.id,
+        name,
+        label: name,
+        kind,
+        unit: unitLabel,
+        unitLabel,
+        costPerGram,
+        unitCost,
+        rateLabel: isWeight ? `${fmt(costPerGram)}/g` : `${fmt(unitCost)}/${invItem.unit || "pc"}`,
+        invItem
       })
     })
 
-    inventory.forEach(invItem => {
-      const c = (invItem.cat || invItem.category || "").toLowerCase()
-      const n = (invItem.name || "").toLowerCase()
-      const isDecor = c.includes("decor") || c.includes("topper") || c.includes("ribbon") || c.includes("flower") ||
-        n.includes("decor") || n.includes("topper") || n.includes("ribbon") || n.includes("flower")
-      if (isDecor) {
-        const id = "d_" + invItem.id
-        if (!itemsMap.has(id) && ![...itemsMap.values()].some(x => x.iid === invItem.id)) {
-          itemsMap.set(id, {
-            id,
-            name: invItem.name,
-            label: invItem.name,
-            iid: invItem.id,
-            qty: 1
-          })
-        }
-      }
+    // 3. Made here by the piece (Recipes of type "pastry" / "Made by the piece")
+    const pieceRecipes = (recipes || []).filter(r => r.type === "pastry" || r.batchSize || r.perBatch)
+    pieceRecipes.forEach(rec => {
+      const name = rec.name
+      if (seenNames.has(name.toLowerCase())) return
+      seenNames.add(name.toLowerCase())
+
+      const totalCost = (rec.ing || []).reduce((s, ing) => {
+        const it = (inventory || []).find(x => x.id === ing.iid)
+        return s + (it ? (Number(it.cost) || 0) * (Number(ing.qty) || 0) : 0)
+      }, 0)
+      const pieces = Number(rec.batchSize || rec.perBatch || rec.per_batch) || 12
+      const breakage = Number(rec.breakagePct || rec.breakage_pct || 0) / 100
+      const costPerPiece = pieces > 0 ? (totalCost / pieces) * (1 + breakage) : 0
+
+      list.push({
+        id: "r_" + rec.id,
+        recipeId: rec.id,
+        name,
+        label: name,
+        kind: "made_piece",
+        unit: "pcs",
+        unitLabel: "pcs",
+        costPerGram: 0,
+        unitCost: costPerPiece,
+        costPerPiece,
+        rateLabel: `${fmt(costPerPiece)}/pc (recipe)`,
+        recipe: rec
+      })
     })
 
-    return Array.from(itemsMap.values())
-  }, [inventory])
+    return list.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+  }, [inventory, recipes])
+
+  const weighedDecorations = useMemo(() => decorations.filter(d => d.kind === "weighed"), [decorations])
+  const boughtPieceDecorations = useMemo(() => decorations.filter(d => d.kind === "bought_piece"), [decorations])
+  const madePieceDecorations = useMemo(() => decorations.filter(d => d.kind === "made_piece"), [decorations])
 
   const packagingItems = useMemo(() => {
     const pkgInventoryItems = inventory.filter(item => {
@@ -721,19 +796,54 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   const FILLING_TYPES = ["Buttercream", "Jam", "Ganache", "Custard", "Cream Cheese", "Whipped Cream"]
   const EVENT_TYPES = ["Birthday", "Wedding", "Anniversary", "Naming / Christening", "Graduation", "Corporate / Office", "Bridal Shower", "Baby Shower", "Engagement", "Valentine", "Mother's Day", "Father's Day", "Christmas", "Easter", "Thanksgiving", "Get Well", "Congratulations", "Just Because", "Other"]
 
-  const getMult = (size, shape) => {
-    if (!size || !shape) return 0
-    const key = `${String(size).replace(/"/g, '').trim()}-${String(shape).trim().toLowerCase()}`
-    return mults[key] || 1
+  const getRecipeDensity = (flavour, recipe) => {
+    if (recipe) {
+      if (Number(recipe.density) > 0) return Number(recipe.density)
+      const calG = Number(recipe.cal_grams ?? recipe.calGrams) || 0
+      if (calG > 0) {
+        const calSh = recipe.cal_shape || recipe.calShape || "round"
+        const calA = Number(recipe.cal_dim_a ?? recipe.calDimA) || 6
+        const calB = Number(recipe.cal_dim_b ?? recipe.calDimB) || 8
+        const calH = Number(recipe.cal_height_in ?? recipe.calHeightIn) || 2
+        const d = calculateDensity(calG, calSh, calA, calB, calH)
+        if (d > 0) return d
+      }
+    }
+    const name = (flavour || recipe?.name || "").toLowerCase()
+    if (name.includes("chocolate")) return 11.088
+    if (name.includes("red velvet") || name.includes("velvet")) return 13.104
+    if (name.includes("fruit")) return 14.0
+    if (name.includes("carrot")) return 12.5
+    // Default standard vanilla / sponge cake density (617g in 6" round pan at 2" levelled height)
+    return 10.911
   }
 
-  const layerCost = (flavour, size, shape) => {
+  const layerCost = (flavour, size, shape, sizeB = 0, layerThickness = 2) => {
     if (!flavour || typeof flavour !== "string" || !flavour.trim()) return 0
     const r = recipes.find(x => x.name.toLowerCase() === flavour.trim().toLowerCase()) ||
               recipes.find(x => x.name.toLowerCase().includes(flavour.trim().toLowerCase()))
     if (!r) return 0
-    const base = (r.ing || []).reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it ? (Number(it.cost) || 0) * (Number(ing.qty) || 0) : 0) }, 0)
-    return base * getMult(size, shape)
+
+    const dens = getRecipeDensity(flavour, r)
+    const rawTrim = r ? (r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8)) : 8
+    const trim = (rawTrim > 0 && rawTrim <= 1) ? rawTrim : (rawTrim / 100) || 0.08
+    const pArea = planArea(shape || "Round", Number(size) || 10, Number(sizeB) || 0)
+    const th = Number(layerThickness) > 0 ? Number(layerThickness) : 2
+    const gpp = gramsPerPan(dens, pArea, th, trim)
+    const cpg = getRecipeCostPerGram(r)
+    return gpp * cpg
+  }
+
+  const layerBatterGrams = (flavour, size, shape, sizeB = 0, layerThickness = 2) => {
+    const fStr = (flavour || "").trim()
+    const r = recipes.find(x => x.name.toLowerCase() === fStr.toLowerCase()) ||
+              recipes.find(x => fStr && x.name.toLowerCase().includes(fStr.toLowerCase()))
+    const dens = getRecipeDensity(fStr, r)
+    const rawTrim = r ? (r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8)) : 8
+    const trim = (rawTrim > 0 && rawTrim <= 1) ? rawTrim : (rawTrim / 100) || 0.08
+    const pArea = planArea(shape || "Round", Number(size) || 10, Number(sizeB) || 0)
+    const th = Number(layerThickness) > 0 ? Number(layerThickness) : 2
+    return Math.round(gramsPerPan(dens, pArea, th, trim))
   }
 
   const FALLBACK_CPK = { "Buttercream": 3500, "Fondant": 7500, "Drip": 4000, "Ganache": 5000, "Whipped Cream": 3000, "Mirror Glaze": 6000, "Jam": 2000, "Custard": 1800, "Cream Cheese": 4500 }
@@ -817,36 +927,127 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
            { name }
   }
 
-  const computeFormulaFilling = (typeName, size, shape, layers) => {
-    if (!typeName) return 0
-    const r = getRecipeByName(typeName)
-    const layerCount = (layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || layers?.length || 1
-    const geom = calculateCakeGeometry(size, layerCount, shape)
-    return Math.round(calculateFillingGrams(r, geom))
+  const resolveCoveringProps = (typeNameOrRecipe) => {
+    const name = typeof typeNameOrRecipe === "string" ? typeNameOrRecipe : (typeNameOrRecipe?.name || "")
+    const n = name.toLowerCase()
+    let seed = DEFAULT_COVERINGS_SEED.bc
+    if (n.includes("fondant") || n.includes("marzipan")) seed = DEFAULT_COVERINGS_SEED.fd
+    else if (n.includes("ganache") || n.includes("fudge") || n.includes("chocolate")) seed = DEFAULT_COVERINGS_SEED.gn
+    else if (n.includes("whipped") || n.includes("mousse")) seed = DEFAULT_COVERINGS_SEED.wc
+    else if (n.includes("caramel")) seed = DEFAULT_COVERINGS_SEED.cm
+
+    const r = typeof typeNameOrRecipe === "object" && typeNameOrRecipe !== null ? typeNameOrRecipe : null
+    const density = Number(r?.density ?? r?.density_g_cm3 ?? r?.coverage?.density) || seed.density
+    const wastePct = Number(r?.waste_pct ?? r?.wastePct ?? r?.coverage?.wastePct) || seed.wastePct
+    const thickFill = Number(r?.thick_fill ?? r?.thick_fill_mm ?? r?.thickness?.fill ?? r?.thickMm) || seed.thickness.fill
+    const thickFinish = Number(r?.thick_finish ?? r?.thick_finish_mm ?? r?.thickness?.finish ?? r?.thickMm) || seed.thickness.finish
+    const thickCrumb = Number(r?.thick_crumb ?? r?.thick_crumb_mm ?? r?.thickness?.crumb) || seed.thickness.crumb
+
+    return { density, wastePct, thickFill, thickFinish, thickCrumb, seed }
   }
 
-  const computeFormulaCovering = (typeName, size, shape, layers) => {
+  const getItemGeometry = (item) => {
+    let totalSurface = 0
+    let totalGaps = 0
+    let totalBatterGrams = 0
+    const tiers = item?.tiers || []
+
+    tiers.forEach(tier => {
+      const totalLayers = (tier.layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || 1
+      const cakeH = Number(tier.height) > 0 ? Number(tier.height) : (Number(tier.layerHeight) > 0 ? Number(tier.layerHeight) * totalLayers : totalLayers * 2)
+      const eachH = cakeH / totalLayers
+      const pArea = planArea(tier.shape || "Round", Number(tier.size) || 10, Number(tier.sizeB) || 0)
+      const peri = perimeter(tier.shape || "Round", Number(tier.size) || 10, Number(tier.sizeB) || 0)
+      const surf = surfaceArea(pArea, peri, cakeH)
+      const gaps = gapArea(pArea, totalLayers)
+
+      totalSurface += surf
+      totalGaps += gaps
+
+      ;(tier.layers || []).forEach(l => {
+        const gOne = layerBatterGrams(l.flavour, tier.size, tier.shape, tier.sizeB, eachH)
+        totalBatterGrams += gOne * (Number(l.qty) || 1)
+      })
+    })
+
+    return { totalSurface, totalGaps, totalBatterGrams, totalTiers: tiers.length }
+  }
+
+  const computeItemFillingGrams = (typeName, item) => {
+    if (!typeName) return 0
+    const { totalGaps } = getItemGeometry(item)
+    if (totalGaps <= 0) return 0
+    const fillingsList = item?.fillings && item.fillings.length > 0 ? item.fillings : [{ type: typeName }]
+    const gapShare = totalGaps / Math.max(1, fillingsList.length)
+    const r = getRecipeByName(typeName)
+    const { thickFill, density, wastePct } = resolveCoveringProps(r || typeName)
+    if (!thickFill || thickFill <= 0) return 0
+    return Math.round(coveringMass(gapShare, thickFill, density, wastePct))
+  }
+
+  const computeItemCrumbGrams = (typeName, item) => {
+    if (!typeName || typeName === "None") return 0
+    const { totalSurface } = getItemGeometry(item)
+    if (totalSurface <= 0) return 0
+    const r = getRecipeByName(typeName)
+    const { thickCrumb, density, wastePct } = resolveCoveringProps(r || typeName)
+    if (!thickCrumb || thickCrumb <= 0) return 0
+    return Math.round(coveringMass(totalSurface, thickCrumb, density, wastePct))
+  }
+
+  const computeItemFinishGrams = (typeName, item) => {
+    if (!typeName || typeName === "None") return 0
+    const { totalSurface } = getItemGeometry(item)
+    if (totalSurface <= 0) return 0
+    const r = getRecipeByName(typeName)
+    const { thickFinish, density, wastePct } = resolveCoveringProps(r || typeName)
+    if (!thickFinish || thickFinish <= 0) return 0
+    return Math.round(coveringMass(totalSurface, thickFinish, density, wastePct))
+  }
+
+  const computeFormulaFilling = (typeName, size, shape, layers, sizeB = 0) => {
     if (!typeName) return 0
     const r = getRecipeByName(typeName)
-    const cov = getRecipeCoverageValues(r)
-    const overhang = cov.application === "rolled" ? (Number(cov.sheet_overhang_in) || 2.4) : 0
     const layerCount = (layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || layers?.length || 1
-    const geom = calculateCakeGeometry(size, layerCount, shape, overhang)
-    return Math.round(calculateCoveringGrams(r, geom))
+    const pArea = planArea(shape, Number(size) || 0, Number(sizeB) || 0)
+    const gArea = gapArea(pArea, layerCount)
+    if (gArea <= 0) return 0
+    const { thickFill, density, wastePct } = resolveCoveringProps(r || typeName)
+    if (!thickFill || thickFill <= 0) return 0
+    return Math.round(coveringMass(gArea, thickFill, density, wastePct))
+  }
+
+  const computeFormulaCovering = (typeName, size, shape, layers, sizeB = 0) => {
+    if (!typeName) return 0
+    const r = getRecipeByName(typeName)
+    const layerCount = (layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || layers?.length || 1
+    const pArea = planArea(shape, Number(size) || 0, Number(sizeB) || 0)
+    const peri = perimeter(shape, Number(size) || 0, Number(sizeB) || 0)
+    const totalHeight = layerCount * 2
+    const sArea = surfaceArea(pArea, peri, totalHeight)
+    if (sArea <= 0) return 0
+    const { thickFinish, density, wastePct } = resolveCoveringProps(r || typeName)
+    if (!thickFinish || thickFinish <= 0) return 0
+    return Math.round(coveringMass(sArea, thickFinish, density, wastePct))
   }
 
   const updateTierGeometry = (t, patch) => {
     const newSize = patch.size !== undefined ? patch.size : t.size
+    const newSizeB = patch.sizeB !== undefined ? patch.sizeB : (t.sizeB || 0)
     const newShape = patch.shape !== undefined ? patch.shape : t.shape
     const newLayers = patch.layers !== undefined ? patch.layers : t.layers
+    const hasValidSize = Number(newSize) > 0
+
     const fillings = (patch.fillings !== undefined ? patch.fillings : t.fillings || []).map(f => {
       if (f.isManual || !f.type) return f
-      const formulaGrams = computeFormulaFilling(f.type, newSize, newShape, newLayers)
+      if (!hasValidSize) return f
+      const formulaGrams = computeFormulaFilling(f.type, newSize, newShape, newLayers, newSizeB)
       return { ...f, grams: formulaGrams }
     })
     const coverings = (patch.coverings !== undefined ? patch.coverings : t.coverings || []).map(c => {
       if (c.isManual || !c.type) return c
-      const formulaGrams = computeFormulaCovering(c.type, newSize, newShape, newLayers)
+      if (!hasValidSize) return c
+      const formulaGrams = computeFormulaCovering(c.type, newSize, newShape, newLayers, newSizeB)
       return { ...c, grams: formulaGrams }
     })
     return {
@@ -857,64 +1058,115 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     }
   }
 
+  const canDoCoveringJob = useCallback((typeNameOrRecipe, job) => {
+    const name = typeof typeNameOrRecipe === "string" ? typeNameOrRecipe : (typeNameOrRecipe?.name || "")
+    const r = typeof typeNameOrRecipe === "object" && typeNameOrRecipe !== null ? typeNameOrRecipe : getRecipeByName(name)
+    const n = name.toLowerCase()
+
+    if (r) {
+      if (job === "fill") {
+        if (r.can_fill !== undefined) return Boolean(r.can_fill)
+        if (r.canFill !== undefined) return Boolean(r.canFill)
+        if (r.job_filling !== undefined) return Boolean(r.job_filling)
+        if (r.jobs?.fill !== undefined) return Boolean(r.jobs.fill)
+      }
+      if (job === "crumb") {
+        if (r.can_crumb !== undefined) return Boolean(r.can_crumb)
+        if (r.canCrumb !== undefined) return Boolean(r.canCrumb)
+        if (r.job_crumb !== undefined) return Boolean(r.job_crumb)
+        if (r.jobs?.crumb !== undefined) return Boolean(r.jobs.crumb)
+      }
+      if (job === "finish") {
+        if (r.can_finish !== undefined) return Boolean(r.can_finish)
+        if (r.canFinish !== undefined) return Boolean(r.canFinish)
+        if (r.job_finish !== undefined) return Boolean(r.job_finish)
+        if (r.jobs?.finish !== undefined) return Boolean(r.jobs.finish)
+      }
+    }
+
+    let seed = DEFAULT_COVERINGS_SEED.bc
+    if (n.includes("fondant") || n.includes("marzipan")) seed = DEFAULT_COVERINGS_SEED.fd
+    else if (n.includes("ganache") || n.includes("fudge") || n.includes("chocolate")) seed = DEFAULT_COVERINGS_SEED.gn
+    else if (n.includes("whipped") || n.includes("mousse")) seed = DEFAULT_COVERINGS_SEED.wc
+    else if (n.includes("caramel")) seed = DEFAULT_COVERINGS_SEED.cm
+
+    return Boolean(seed.jobs?.[job])
+  }, [recipes])
+
   const allCoveringTypes = useMemo(() => {
     const list = []
     const seen = new Set()
     recipes.filter(r => r.type === "covering" || !r.type).forEach(r => {
-      const cov = getRecipeCoverageValues(r)
-      if (cov.cover_rate !== null && cov.cover_rate !== undefined && cov.cover_rate > 0) {
+      if (canDoCoveringJob(r, "finish")) {
         list.push(r.name)
         seen.add(r.name.toLowerCase())
       }
     })
     COVERING_TYPES.forEach(name => {
-      if (!seen.has(name.toLowerCase())) {
-        const cov = getRecipeCoverageValues({ name })
-        if (cov.cover_rate !== null && cov.cover_rate !== undefined && cov.cover_rate > 0) {
-          list.push(name)
-          seen.add(name.toLowerCase())
-        }
+      if (!seen.has(name.toLowerCase()) && canDoCoveringJob(name, "finish")) {
+        list.push(name)
+        seen.add(name.toLowerCase())
       }
     })
     return list
-  }, [recipes])
+  }, [recipes, canDoCoveringJob])
 
   const allFillingTypes = useMemo(() => {
     const list = []
     const seen = new Set()
-    recipes.filter(r => r.type === "covering" || !r.type).forEach(r => {
-      const cov = getRecipeCoverageValues(r)
-      if (cov.fill_rate !== null && cov.fill_rate !== undefined && cov.fill_rate > 0) {
+    recipes.filter(r => r.type === "covering" || r.type === "filling" || !r.type).forEach(r => {
+      if (canDoCoveringJob(r, "fill")) {
         list.push(r.name)
         seen.add(r.name.toLowerCase())
       }
     })
     FILLING_TYPES.forEach(name => {
-      if (!seen.has(name.toLowerCase())) {
-        const cov = getRecipeCoverageValues({ name })
-        if (cov.fill_rate !== null && cov.fill_rate !== undefined && cov.fill_rate > 0) {
-          list.push(name)
-          seen.add(name.toLowerCase())
-        }
+      if (!seen.has(name.toLowerCase()) && canDoCoveringJob(name, "fill")) {
+        list.push(name)
+        seen.add(name.toLowerCase())
       }
     })
     return list
-  }, [recipes])
+  }, [recipes, canDoCoveringJob])
+
+  const crumbCoatOptions = useMemo(() => {
+    const list = []
+    const seen = new Set()
+    recipes.filter(r => r.type === "covering" || !r.type).forEach(r => {
+      if (canDoCoveringJob(r, "crumb")) {
+        list.push(r.name)
+        seen.add(r.name.toLowerCase())
+      }
+    })
+    COVERING_TYPES.forEach(name => {
+      if (!seen.has(name.toLowerCase()) && canDoCoveringJob(name, "crumb")) {
+        list.push(name)
+        seen.add(name.toLowerCase())
+      }
+    })
+    return list
+  }, [recipes, canDoCoveringJob])
 
   const costPerPiece = (recipeName) => {
     if (!recipeName) return 0
     const r = recipes.find(x => x.name.toLowerCase() === recipeName.toLowerCase()) || recipes.find(x => x.name.toLowerCase().includes(recipeName.toLowerCase()))
     if (!r) return 0
-    const totalCost = r.ing.reduce((s, ing) => { const it = inventory.find(x => x.id === ing.iid); return s + (it ? it.cost * ing.qty : 0) }, 0)
-    const pieces = r.batchSize || 12
-    return totalCost / pieces
+    const rawIngs = r.ingredients || r.ing || []
+    const totalCost = rawIngs.reduce((s, ing) => {
+      const it = inventory.find(x => x.id === (ing.iid || ing.id || ing.inventoryId))
+      return s + (it ? (Number(it.cost) || 0) * (Number(ing.qty !== undefined ? ing.qty : ing.quantity) || 0) : 0)
+    }, 0)
+    const pieces = Number(r.batchSize || r.perBatch || r.per_batch) || 12
+    const breakage = (Number(r.breakagePct ?? r.breakage_pct) || 0) / 100
+    return (totalCost / pieces) * (1 + breakage)
   }
 
   let nid = Date.now()
   const uid2 = () => nid++
 
   const createDefaultCakeItem = (idx = 1) => {
-    const defaultLayers = [{ id: uid2(), flavour: "", qty: 1 }]
+    const defFlavour = layerRecipes[0]?.name || allRecipes[0]?.name || "Vanilla sponge"
+    const defaultLayers = [{ id: uid2(), flavour: defFlavour, qty: 1 }]
     const defCoverGrams = computeFormulaCovering("Buttercream", "10", "Round", defaultLayers) || 461
     const defFillGrams = computeFormulaFilling("Buttercream", "10", "Round", defaultLayers) || 232
     return {
@@ -926,6 +1178,8 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           id: uid2(),
           size: "10",
           shape: "Round",
+          height: 4,
+          layerHeight: 2,
           layers: defaultLayers,
           coverings: [{ id: uid2(), type: "Buttercream", grams: defCoverGrams, isManual: false }],
           fillings: [{ id: uid2(), type: "Buttercream", grams: defFillGrams, isManual: false }],
@@ -933,6 +1187,9 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           photo: null
         }
       ],
+      fillings: [{ id: uid2(), type: allFillingTypes[0] || "Buttercream", isManual: false }],
+      crumbCoat: { type: "", isManual: false },
+      outsideFinish: { type: allCoveringTypes[0] || "Buttercream", isManual: false },
       decQty: {},
       topper: { enabled: false, make: "", deliver: "", description: "" },
     photos: [],
@@ -1082,7 +1339,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   const [orderPurpose, setOrderPurpose] = useState(() => saved?.orderPurpose || "sale")
   const [margin, setMargin] = useState(() => saved?.margin || settings.profitPct || 40)
   const [orderHours, setOrderHours] = useState(() => saved?.orderHours !== undefined ? Number(saved.orderHours) : 6)
-  const [overheadMethod, setOverheadMethod] = useState(() => saved?.overheadMethod || "pct")
+  const [overheadMethod, setOverheadMethod] = useState(() => saved?.overheadMethod || settings?.overheadMethod || "hr")
   const [accessoriesPct, setAccessoriesPct] = useState(() => saved?.accessoriesPct !== undefined ? Number(saved.accessoriesPct) : 15)
   const [rushPct, setRushPct] = useState(() => saved?.rushPct !== undefined ? Number(saved.rushPct) : 0)
   const [seasonPct, setSeasonPct] = useState(() => saved?.seasonPct !== undefined ? Number(saved.seasonPct) : 0)
@@ -1116,7 +1373,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     setOrderPurpose("sale")
     setMargin(settings?.profitPct || 40)
     setOrderHours(6)
-    setOverheadMethod("pct")
+    setOverheadMethod(settings?.overheadMethod || "hr")
     setAccessoriesPct(15)
     setRushPct(0)
     setSeasonPct(0)
@@ -1244,21 +1501,8 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
 
     const batterCost = (tier.layers || []).reduce((s, l) => {
       if (!l.flavour) return s
-      const r = recipes.find(x => x.name.toLowerCase() === l.flavour.toLowerCase())
-      const calG = r ? Number(r.cal_grams ?? r.calGrams) : 0
-      if (r && (calG > 0 || r.density)) {
-        const calSh = r.cal_shape || r.calShape || "round"
-        const calA = Number(r.cal_dim_a ?? r.calDimA) || 6
-        const calB = Number(r.cal_dim_b ?? r.calDimB) || 8
-        const calH = Number(r.cal_height_in ?? r.calHeightIn) || 2
-        const dens = Number(r.density) || calculateDensity(calG, calSh, calA, calB, calH)
-        const trim = ((r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8))) / 100
-        const gpp = gramsPerPan(dens, pArea, layerThickness, trim)
-        const cpg = getRecipeCostPerGram(r)
-        return s + (gpp * (Number(l.qty) || 1) * cpg)
-      } else {
-        return s + (layerCost(l.flavour, tier.size, tier.shape) * (Number(l.qty) || 1))
-      }
+      const costOne = layerCost(l.flavour, tier.size, tier.shape, tier.sizeB, layerThickness)
+      return s + (costOne * (Number(l.qty) || 1))
     }, 0)
 
     const covCost = (tier.coverings || []).reduce((s, c) => s + coverFillCost(c.type, Number(c.grams) || 0), 0)
@@ -1269,11 +1513,69 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
 
   const calcItemCost = (item) => {
     if (item.type === "cake") {
-      const tCost = (item.tiers || []).reduce((s, t) => s + tierCost(t), 0)
-      const dCost = decorations.reduce((s, d) => {
-        const qty = item.decQty?.[d.id] || 0
-        const it = inventory.find(x => x.id === d.iid)
-        return s + (it && qty ? (Number(it.cost) || 0) * (Number(d.qty) || 0) * qty : 0)
+      // 1. Batter cost across all tiers
+      const batterCost = (item.tiers || []).reduce((s, tier) => {
+        const totalLayers = (tier.layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || 1
+        const cakeH = Number(tier.height) > 0 ? Number(tier.height) : (Number(tier.layerHeight) > 0 ? Number(tier.layerHeight) * totalLayers : totalLayers * 2)
+        const eachH = cakeH / totalLayers
+        return s + (tier.layers || []).reduce((ls, l) => {
+          if (!l.flavour) return ls
+          const costOne = layerCost(l.flavour, tier.size, tier.shape, tier.sizeB, eachH)
+          return ls + (costOne * (Number(l.qty) || 1))
+        }, 0)
+      }, 0)
+
+      // 2. Fillings cost
+      const hasItemFillings = item.fillings && item.fillings.length > 0
+      const filCost = hasItemFillings
+        ? item.fillings.reduce((s, f) => {
+            if (!f.type) return s
+            const grams = f.isManual && f.grams !== undefined ? Number(f.grams) : computeItemFillingGrams(f.type, item)
+            return s + coverFillCost(f.type, grams)
+          }, 0)
+        : (item.tiers || []).reduce((s, t) => s + (t.fillings || []).reduce((fs, f) => fs + coverFillCost(f.type, Number(f.grams) || 0), 0), 0)
+
+      // 3. Crumb coat cost
+      const crumbType = typeof item.crumbCoat === "object" ? item.crumbCoat?.type : (item.crumbCoat || item.crumb)
+      let crumbCost = 0
+      if (crumbType && crumbType !== "None") {
+        const grams = (item.crumbCoat?.isManual && item.crumbCoat?.grams !== undefined)
+          ? Number(item.crumbCoat.grams)
+          : computeItemCrumbGrams(crumbType, item)
+        crumbCost = coverFillCost(crumbType, grams)
+      }
+
+      // 4. Outside finish cost
+      const finishType = typeof item.outsideFinish === "object" ? item.outsideFinish?.type : (item.outsideFinish || item.finish)
+      let finishCost = 0
+      if (finishType && finishType !== "None") {
+        const grams = (item.outsideFinish?.isManual && item.outsideFinish?.grams !== undefined)
+          ? Number(item.outsideFinish.grams)
+          : computeItemFinishGrams(finishType, item)
+        finishCost = coverFillCost(finishType, grams)
+      }
+
+      // Fallback covering cost if neither crumb nor finish is set at item level
+      let fallbackCovCost = 0
+      if (!crumbType && !finishType) {
+        fallbackCovCost = (item.tiers || []).reduce((s, t) => s + (t.coverings || []).reduce((cs, c) => cs + coverFillCost(c.type, Number(c.grams) || 0), 0), 0)
+      }
+
+      const tCost = batterCost + filCost + crumbCost + finishCost + fallbackCovCost
+      const dCost = Object.entries(item.decQty || {}).reduce((s, [key, count]) => {
+        const qty = Number(count) || 0
+        if (qty <= 0) return s
+        const d = decorations.find(x => x.id === key || x.iid === key || x.recipeId === key)
+        if (!d) return s
+        let lineCost = 0
+        if (d.kind === "weighed") {
+          lineCost = (d.costPerGram || d.unitCost || 0) * qty
+        } else if (d.kind === "made_piece") {
+          lineCost = (d.costPerPiece || d.unitCost || 0) * qty
+        } else {
+          lineCost = (d.unitCost || 0) * qty
+        }
+        return s + lineCost
       }, 0)
       const topCost = (+item.topper?.make || 0) + (+item.topper?.deliver || 0)
       const pkgCost = (item.accRows || []).reduce((s, r) => {
@@ -1292,7 +1594,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           : 0
         baseCost = (Number(item.countedServings) || 40) * costEach
       } else {
-        const pan = STANDARD_PANS[item.panIndex !== undefined ? item.panIndex : 1] || STANDARD_PANS[1]
+        const pan = activePans[item.panIndex !== undefined ? item.panIndex : 1] || activePans[1] || activePans[0]
         const pGeom = calculatePortionsGeometry({
           servings: Number(item.servings) || 100,
           sliceWidth: Number(item.sliceWidth) || 2,
@@ -1308,28 +1610,33 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
             const calB = r ? (Number(r.cal_dim_b ?? r.calDimB) || 8) : 8
             const calH = r ? (Number(r.cal_height_in ?? r.calHeightIn) || 2) : 2
             const dens = Number(r?.density) || (calG > 0 ? calculateDensity(calG, calSh, calA, calB, calH) : 0.8)
-            const trim = r && (r.trim_pct !== undefined || r.trimPct !== undefined) ? ((Number(r.trim_pct ?? r.trimPct) || 8) / 100) : 0.08
+            const rawTrim = r ? (r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8)) : 8
+            const trim = (rawTrim > 0 && rawTrim <= 1) ? rawTrim : (rawTrim / 100) || 0.08
             const cpg = getRecipeCostPerGram(r)
             return { ...l, density: dens, trimPct: trim, costPerGram: cpg, recipe: r }
           }),
           fillRecipe: (() => {
             const r = recipes.find(x => x.id === item.fillingRecipe || x.name === item.fillingRecipe)
-            if (!r) return null
+            if (!r && !item.fillingRecipe) return null
+            const { thickFill, density, wastePct } = resolveCoveringProps(r || item.fillingRecipe)
             return {
-              thickMm: Number(r.thick_fill_mm || r.thickFillMm) || 4.5,
-              density: Number(r.density_g_cm3 || r.density) || 0.90,
-              wastePct: Number(r.waste_pct || r.wastePct) || 0.15,
-              costPerGram: getRecipeCostPerGram(r)
+              thickMm: thickFill,
+              density,
+              wastePct,
+              costPerGram: getRecipeCostPerGram(r),
+              recipe: r
             }
           })(),
           topRecipe: (() => {
             const r = recipes.find(x => x.id === item.topFinishRecipe || x.name === item.topFinishRecipe)
-            if (!r) return null
+            if (!r && !item.topFinishRecipe) return null
+            const { thickFinish, density, wastePct } = resolveCoveringProps(r || item.topFinishRecipe)
             return {
-              thickMm: Number(r.thick_finish_mm || r.thickFinishMm) || 4.0,
-              density: Number(r.density_g_cm3 || r.density) || 1.10,
-              wastePct: Number(r.waste_pct || r.wastePct) || 0.10,
-              costPerGram: getRecipeCostPerGram(r)
+              thickMm: thickFinish,
+              density,
+              wastePct,
+              costPerGram: getRecipeCostPerGram(r),
+              recipe: r
             }
           })()
         })
@@ -1358,16 +1665,24 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   }
 
   // Direct costs across all items
-  const subtotal = useMemo(() => items.reduce((sum, it) => sum + calcItemCost(it), 0), [items, inventory, recipes, mults])
+  const subtotal = useMemo(() => items.reduce((sum, it) => sum + calcItemCost(it), 0), [items, inventory, recipes])
 
   const costStack = useMemo(() => {
+    const mo = settings?.monthlyOverhead !== undefined ? Number(settings.monthlyOverhead) : 900000
+    const annHrs = settings?.annualProductionHours !== undefined ? Number(settings.annualProductionHours) : 1800
+    const ords = settings?.ordersPerMonth !== undefined ? Number(settings.ordersPerMonth) : 20
+    const derived = deriveOverheadRates(mo, annHrs, ords)
+    const hourlyRate = Number(settings?.hourlyRate) > 0 ? Number(settings.hourlyRate) : derived.hourlyRate
+    const perOrderRate = Number(settings?.perOrderRate) > 0 ? Number(settings.perOrderRate) : derived.perOrderRate
+
     return calculateCostStack({
       directCost: subtotal,
       accessoriesPct: accessoriesPct !== undefined ? accessoriesPct : (settings?.accessoryPct || 15),
-      overheadMethod: overheadMethod || "pct",
+      overheadMethod: overheadMethod || settings?.overheadMethod || "hr",
+      hours: orderHours !== undefined ? orderHours : 6,
       orderHours: orderHours !== undefined ? orderHours : 6,
-      hourlyRate: settings?.hourlyRate || deriveOverheadRates(settings).hourlyRate,
-      perOrderRate: settings?.perOrderRate || deriveOverheadRates(settings).perOrderRate,
+      hourlyRate,
+      perOrderRate,
       overheadPct: settings?.overheadPct || 27,
       marginPct: margin !== undefined ? margin : (settings?.profitPct || 40),
       rushPct: rushPct || 0,
@@ -1421,53 +1736,98 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
               const calB = Number(r.cal_dim_b ?? r.calDimB) || 8;
               const calH = Number(r.cal_height_in ?? r.calHeightIn) || 2;
               const dens = Number(r.density) || calculateDensity(calG, calSh, calA, calB, calH);
-              const trim = ((r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8))) / 100;
+              const rawTrim = r ? (r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8)) : 8;
+              const trim = (rawTrim > 0 && rawTrim <= 1) ? rawTrim : (rawTrim / 100) || 0.08;
               g = gramsPerPan(dens, pArea, layerThickness, trim) * (Number(l.qty) || 1);
               cost = g * getRecipeCostPerGram(r);
             } else {
-              cost = layerCost(l.flavour, tier.size, tier.shape) * (Number(l.qty) || 1);
+              cost = layerCost(l.flavour, tier.size, tier.shape, tier.sizeB, layerThickness) * (Number(l.qty) || 1);
             }
             batterCost += cost;
             batterGrams += g;
             if (!batterFlavours.includes(l.flavour)) batterFlavours.push(l.flavour);
           });
+        });
 
-          // Fillings
-          (tier.fillings || []).forEach(f => {
+        // Fillings
+        const hasItemFillings = it.fillings && it.fillings.length > 0;
+        if (hasItemFillings) {
+          it.fillings.forEach(f => {
             if (!f.type) return;
-            const c = coverFillCost(f.type, Number(f.grams) || 0);
+            const g = f.isManual && f.grams !== undefined ? Number(f.grams) : computeItemFillingGrams(f.type, it);
+            const c = coverFillCost(f.type, g);
             fillingCost += c;
             if (!fillingFlavours.includes(f.type)) fillingFlavours.push(f.type);
           });
-
-          // Coverings
-          (tier.coverings || []).forEach(c => {
-            if (!c.type) return;
-            const g = Number(c.grams) || 0;
-            const cost = coverFillCost(c.type, g);
-            const r = recipes.find(x => x.name.toLowerCase() === c.type.toLowerCase());
-            const isCrumb = r?.job_crumb || r?.can_crumb || c.role === "crumb" || c.type.toLowerCase().includes("crumb");
-            if (isCrumb) {
-              crumbCost += cost;
-              crumbGrams += g;
-              if (!crumbTypes.includes(c.type)) crumbTypes.push(c.type);
-            } else {
-              finishCost += cost;
-              finishGrams += g;
-              if (!finishTypes.includes(c.type)) finishTypes.push(c.type);
-            }
+        } else {
+          (it.tiers || []).forEach(tier => {
+            (tier.fillings || []).forEach(f => {
+              if (!f.type) return;
+              const c = coverFillCost(f.type, Number(f.grams) || 0);
+              fillingCost += c;
+              if (!fillingFlavours.includes(f.type)) fillingFlavours.push(f.type);
+            });
           });
-        });
+        }
+
+        // Crumb coat & Outside finish
+        const crumbType = typeof it.crumbCoat === "object" ? it.crumbCoat?.type : (it.crumbCoat || it.crumb);
+        const finishType = typeof it.outsideFinish === "object" ? it.outsideFinish?.type : (it.outsideFinish || it.finish);
+        if (crumbType || finishType) {
+          if (crumbType && crumbType !== "None") {
+            const g = (it.crumbCoat?.isManual && it.crumbCoat?.grams !== undefined) ? Number(it.crumbCoat.grams) : computeItemCrumbGrams(crumbType, it);
+            const cost = coverFillCost(crumbType, g);
+            crumbCost += cost;
+            crumbGrams += g;
+            if (!crumbTypes.includes(crumbType)) crumbTypes.push(crumbType);
+          }
+          if (finishType && finishType !== "None") {
+            const g = (it.outsideFinish?.isManual && it.outsideFinish?.grams !== undefined) ? Number(it.outsideFinish.grams) : computeItemFinishGrams(finishType, it);
+            const cost = coverFillCost(finishType, g);
+            finishCost += cost;
+            finishGrams += g;
+            if (!finishTypes.includes(finishType)) finishTypes.push(finishType);
+          }
+        } else {
+          (it.tiers || []).forEach(tier => {
+            (tier.coverings || []).forEach(c => {
+              if (!c.type) return;
+              const g = Number(c.grams) || 0;
+              const cost = coverFillCost(c.type, g);
+              const r = recipes.find(x => x.name.toLowerCase() === c.type.toLowerCase());
+              const isCrumb = r?.job_crumb || r?.can_crumb || c.role === "crumb" || c.type.toLowerCase().includes("crumb");
+              if (isCrumb) {
+                crumbCost += cost;
+                crumbGrams += g;
+                if (!crumbTypes.includes(c.type)) crumbTypes.push(c.type);
+              } else {
+                finishCost += cost;
+                finishGrams += g;
+                if (!finishTypes.includes(c.type)) finishTypes.push(c.type);
+              }
+            });
+          });
+        }
 
         // Decorations
-        decorations.forEach(d => {
-          const qty = it.decQty?.[d.id] || 0;
-          const inv = inventory.find(x => x.id === d.iid);
-          if (inv && qty) {
-            const c = (Number(inv.cost) || 0) * (Number(d.qty) || 0) * qty;
-            decorCost += c;
-            decorItems.push(d.name || inv.name);
+        Object.entries(it.decQty || {}).forEach(([key, count]) => {
+          const qty = Number(count) || 0;
+          if (qty <= 0) return;
+          const d = decorations.find(x => x.id === key || x.iid === key || x.recipeId === key);
+          if (!d) return;
+
+          let lineCost = 0;
+          if (d.kind === "weighed") {
+            lineCost = (d.costPerGram || d.unitCost || 0) * qty;
+            decorItems.push(`${d.name} (${qty}g)`);
+          } else if (d.kind === "made_piece") {
+            lineCost = (d.costPerPiece || d.unitCost || 0) * qty;
+            decorItems.push(`${d.name} (${qty} pcs)`);
+          } else {
+            lineCost = (d.unitCost || 0) * qty;
+            decorItems.push(`${d.name} (${qty} pcs)`);
           }
+          decorCost += lineCost;
         });
 
         // Topper
@@ -1484,7 +1844,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         portionsCost += itemCost;
         const desc = it.route === "count"
           ? `${it.countedServings || 40} servings (counted)`
-          : `${it.servings || 100} slices (${STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1]?.label || "tray"})`;
+          : `${it.servings || 100} slices (${activePans[it.panIndex !== undefined ? it.panIndex : 1]?.label || activePans[0]?.label || "tray"})`;
         portionsDesc.push(desc);
       } else {
         const itemCost = calcItemCost(it);
@@ -1496,7 +1856,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       }
     });
 
-    const batterNotes = batterGrams > 0 ? `${Math.round(batterGrams).toLocaleString()} g · ${batterFlavours.join(" + ")}` : batterFlavours.join(" + ");
+    const batterNotes = batterFlavours.join(" + ");
     const fillingNotes = fillingFlavours.length > 0 ? fillingFlavours.join(" + ") : "none";
     const crumbNotes = crumbTypes.length > 0 ? `${crumbTypes.join(" + ")}${crumbGrams > 0 ? ` · ${Math.round(crumbGrams).toLocaleString()} g` : ""}` : "none";
     const finishNotes = finishTypes.length > 0 ? `${finishTypes.join(" + ")}${finishGrams > 0 ? ` · ${Math.round(finishGrams).toLocaleString()} g` : ""}` : "none";
@@ -1521,7 +1881,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       pastryCost: Math.round(pastryCost),
       pastryNotes
     };
-  }, [items, inventory, recipes, mults, decorations, packagingItems]);
+  }, [items, inventory, recipes, decorations, packagingItems]);
 
   const cakePrice = (orderPurpose === "gift" || orderPurpose === "sample") ? 0 : (+salePrice || chargeAmount || suggestedPrice)
   const delivCharge = +deliveryCharge || 0
@@ -1533,18 +1893,44 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     const totals = {}
     items.forEach(it => {
       if (it.type === "cake") {
-        (it.tiers || []).forEach(t => {
-          (t.fillings || []).forEach(f => {
-            if (f.type && Number(f.grams) > 0) {
-              totals[f.type] = (totals[f.type] || 0) + Number(f.grams)
-            }
-          });
-          (t.coverings || []).forEach(c => {
-            if (c.type && Number(c.grams) > 0) {
-              totals[c.type] = (totals[c.type] || 0) + Number(c.grams)
+        const hasItemFillings = it.fillings && it.fillings.length > 0
+        if (hasItemFillings) {
+          it.fillings.forEach(f => {
+            if (f.type) {
+              const g = f.isManual && f.grams !== undefined ? Number(f.grams) : computeItemFillingGrams(f.type, it)
+              if (g > 0) totals[f.type] = (totals[f.type] || 0) + g
             }
           })
-        })
+        } else {
+          (it.tiers || []).forEach(t => {
+            (t.fillings || []).forEach(f => {
+              if (f.type && Number(f.grams) > 0) {
+                totals[f.type] = (totals[f.type] || 0) + Number(f.grams)
+              }
+            })
+          })
+        }
+
+        const crumbType = typeof it.crumbCoat === "object" ? it.crumbCoat?.type : (it.crumbCoat || it.crumb)
+        const finishType = typeof it.outsideFinish === "object" ? it.outsideFinish?.type : (it.outsideFinish || it.finish)
+        if (crumbType || finishType) {
+          if (crumbType && crumbType !== "None") {
+            const g = (it.crumbCoat?.isManual && it.crumbCoat?.grams !== undefined) ? Number(it.crumbCoat.grams) : computeItemCrumbGrams(crumbType, it)
+            if (g > 0) totals[crumbType] = (totals[crumbType] || 0) + g
+          }
+          if (finishType && finishType !== "None") {
+            const g = (it.outsideFinish?.isManual && it.outsideFinish?.grams !== undefined) ? Number(it.outsideFinish.grams) : computeItemFinishGrams(finishType, it)
+            if (g > 0) totals[finishType] = (totals[finishType] || 0) + g
+          }
+        } else {
+          (it.tiers || []).forEach(t => {
+            (t.coverings || []).forEach(c => {
+              if (c.type && Number(c.grams) > 0) {
+                totals[c.type] = (totals[c.type] || 0) + Number(c.grams)
+              }
+            })
+          })
+        }
       } else if (it.type === "pastry") {
         (it.pastryItems || []).forEach(p => {
           if (p.filling && Number(p.fillingGrams) > 0) {
@@ -1553,7 +1939,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         })
       } else if (it.type === "portions" && it.route !== "count") {
         if (it.fillingRecipe) {
-          const pan = STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1] || STANDARD_PANS[1]
+          const pan = activePans[it.panIndex !== undefined ? it.panIndex : 1] || activePans[1] || activePans[0]
           const pGeom = calculatePortionsGeometry({
             servings: Number(it.servings) || 100,
             sliceWidth: Number(it.sliceWidth) || 2,
@@ -1569,7 +1955,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           }
         }
         if (it.topFinishRecipe) {
-          const pan = STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1] || STANDARD_PANS[1]
+          const pan = activePans[it.panIndex !== undefined ? it.panIndex : 1] || activePans[1] || activePans[0]
           const pGeom = calculatePortionsGeometry({
             servings: Number(it.servings) || 100,
             sliceWidth: Number(it.sliceWidth) || 2,
@@ -1628,7 +2014,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       }
     })
     return res
-  }, [items, inventory, recipes, mults, salePrice, suggestedPrice, orderPurpose, subtotal])
+  }, [items, inventory, recipes, salePrice, suggestedPrice, orderPurpose, subtotal])
 
   const getItemPrice = (item) => itemPrices[item?.id] ?? 0
 
@@ -1669,72 +2055,122 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     const itemCost = calcItemCost(item)
     const itemPrice = getItemPrice(item)
     const deliv = getDeliveryDetails(item, itemIndex)
+    const { totalSurface, totalGaps, totalBatterGrams, totalTiers } = getItemGeometry(item)
+
+    const itemFillings = (item.fillings && item.fillings.length > 0)
+      ? item.fillings
+      : (item.tiers?.[0]?.fillings || [{ id: uid2(), type: allFillingTypes[0] || "Buttercream", isManual: false }])
+
+    const crumbType = typeof item.crumbCoat === "object" ? item.crumbCoat?.type : (item.crumbCoat || item.crumb || "")
+    const crumbGrams = (item.crumbCoat?.isManual && item.crumbCoat?.grams !== undefined)
+      ? Number(item.crumbCoat.grams)
+      : computeItemCrumbGrams(crumbType, item)
+    const crumbCost = coverFillCost(crumbType, crumbGrams)
+
+    const finishType = typeof item.outsideFinish === "object"
+      ? item.outsideFinish?.type
+      : (item.outsideFinish || item.finish || item.tiers?.[0]?.coverings?.[0]?.type || allCoveringTypes[0] || "Buttercream")
+    const finishGrams = (item.outsideFinish?.isManual && item.outsideFinish?.grams !== undefined)
+      ? Number(item.outsideFinish.grams)
+      : computeItemFinishGrams(finishType, item)
+    const finishCost = coverFillCost(finishType, finishGrams)
+
+    const hasFondantOrWhippedNoCrumb = Boolean(
+      finishType &&
+      (finishType.toLowerCase().includes("fondant") || finishType.toLowerCase().includes("whipped cream")) &&
+      (!crumbType || crumbType === "None")
+    )
+
+    const activeDecs = (() => {
+      const list = []
+      const seen = new Set()
+      const decQty = item.decQty || {}
+      Object.entries(decQty).forEach(([key, val]) => {
+        if (val === undefined || val === null || val === "" || Number(val) < 0) return
+        let d = decorations.find(x => x.id === key || x.iid === key || x.recipeId === key)
+        if (!d) {
+          const cleanId = key.startsWith("d_") ? key.slice(2) : (key.startsWith("r_") ? key.slice(2) : key)
+          const invItem = (inventory || []).find(x => x.id === cleanId || x.id === key)
+          if (invItem) {
+            const u = (invItem.unit || "").toLowerCase().trim()
+            const isWeight = (u === "g" || u === "kg")
+            const isKg = (u === "kg" || u === "l")
+            const rawCost = Number(invItem.cost) || 0
+            const costPerGram = isKg ? (rawCost / 1000) : (isWeight ? rawCost : 0)
+            const unitCost = !isWeight ? rawCost : costPerGram
+            d = {
+              id: key,
+              name: invItem.name,
+              label: invItem.name,
+              iid: invItem.id,
+              kind: isWeight ? "weighed" : "bought_piece",
+              unit: isWeight ? "g" : "pcs",
+              unitLabel: isWeight ? "g" : "pcs",
+              costPerGram,
+              unitCost,
+              rateLabel: isWeight ? `${fmt(costPerGram)}/g` : `${fmt(unitCost)}/${invItem.unit || "pc"}`
+            }
+          }
+        }
+        if (d && !seen.has(d.id)) {
+          seen.add(d.id)
+          list.push({ ...d, rowKey: key })
+        }
+      })
+      return list
+    })()
 
     return (
       <div
         key={item.id}
         style={{
-          border: "1.8px solid var(--gold)",
-          borderRadius: 16,
-          padding: 16,
+          border: "1px solid #362E25",
+          borderRadius: 14,
+          padding: "20px 22px",
           marginBottom: 16,
-          background: "var(--white, #FFFEFA)",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.03)"
+          background: "#1A1612",
+          color: "#FAF4EB",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.25)"
         }}
       >
         {/* Item Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {getItemThumb(item) && (
-              <img
-                src={getItemThumb(item)}
-                alt="Inspiration thumbnail"
-                onClick={() => setPreviewPhoto(getItemThumb(item))}
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 7,
-                  objectFit: "cover",
-                  border: "1.5px solid var(--cream-line, #E3D6B3)",
-                  cursor: "pointer",
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
-                  display: "block"
-                }}
-                title="Click to enlarge inspiration photo"
-              />
-            )}
-            <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 16 }}>
-              🎂 {item.name || `Item ${itemIndex + 1} — Cake`}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 20, color: "#FAF4EB" }}>
+              Item {itemIndex + 1} • Cake
             </span>
-            <span style={{ fontSize: 12, color: "var(--gold)", fontWeight: 600 }}>
-              • {fmt(itemCost)} cost
-            </span>
-            <span
-              style={{
-                fontSize: 11,
-                background: deliv.isSameAsAbove ? "#F5F0E4" : (deliv.date ? "#EBF7F0" : "#FAF6EC"),
-                color: deliv.isSameAsAbove ? "var(--charcoal-soft, #6B6151)" : (deliv.date ? "#1E6B37" : "var(--muted)"),
-                border: "1px solid " + (deliv.date ? "#C2E0CF" : "var(--cream-line, #E3D6B3)"),
-                borderRadius: 14,
-                padding: "3px 9px",
-                fontWeight: 600,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4
-              }}
-            >
-              <Calendar size={11} /> {deliv.text}
-            </span>
+            <span style={{ display: "none" }}>{item.name || `Item ${itemIndex + 1} — Cake`}</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 13, color: "#9C8E79", fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>
+              {totalTiers} tier{totalTiers > 1 ? "s" : ""}
+            </span>
+            {deliv?.text && (
+              <span
+                style={{
+                  fontSize: 11,
+                  background: "#241F1A",
+                  color: "#9C8E79",
+                  border: "1px solid #3B332A",
+                  borderRadius: 14,
+                  padding: "3px 9px",
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4
+                }}
+              >
+                <Calendar size={11} /> {deliv.text}
+              </span>
+            )}
             <button
               onClick={() => removeItem(item.id)}
               style={{
                 background: "none",
-                border: "1px solid var(--border)",
+                border: "1px solid #3B332A",
                 borderRadius: 7,
                 padding: "4px 8px",
-                color: "#B03A2E",
+                color: "#E06A55",
                 fontSize: 11.5,
                 cursor: "pointer",
                 display: "inline-flex",
@@ -1747,11 +2183,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           </div>
         </div>
 
-        {/* Section: Cakes / Tiers */}
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px" }}>
-          Cakes
-        </div>
-
+        {/* Tiers Loop */}
         {item.tiers.map((tier, ti) => {
           const totalLayers = (tier.layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || 1
           const cakeH = Number(tier.height) > 0 ? Number(tier.height) : (Number(tier.layerHeight) > 0 ? Number(tier.layerHeight) * totalLayers : totalLayers * 2)
@@ -1759,68 +2191,39 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           const pArea = planArea(tier.shape || "Round", Number(tier.size) || 10, Number(tier.sizeB) || 0)
           const peri = perimeter(tier.shape || "Round", Number(tier.size) || 10, Number(tier.sizeB) || 0)
           const surf = surfaceArea(pArea, peri, cakeH)
-          const tc = tierCost(tier)
+
           return (
-            <div
-              key={tier.id}
-              style={{
-                borderLeft: "4px solid var(--gold)",
-                background: "var(--cream, #FAF6EC)",
-                borderRadius: "0 12px 12px 0",
-                padding: "13px 14px",
-                marginBottom: 10,
-                border: "1px solid var(--cream-line, #E3D6B3)",
-                borderLeftWidth: 4,
-                borderLeftColor: "var(--gold)"
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>Cake {ti + 1}</div>
-                <div style={{ fontSize: 11.5, color: "var(--muted)", fontVariantNumeric: "tabular-nums" }}>
-                  {Math.round(surf)} in² outside • {Number(cakeH.toFixed(1))}″ tall
+            <div key={tier.id} style={{ marginBottom: 20 }}>
+              {/* Tier Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "#9C8E79" }}>
+                  TIER {ti + 1}
+                  <span style={{ display: "none" }}>Cake {ti + 1}</span>
                 </div>
                 {item.tiers.length > 1 && (
                   <button
+                    type="button"
                     onClick={() => {
                       updateItem(item.id, it => ({
                         ...it,
                         tiers: it.tiers.filter(t => t.id !== tier.id)
                       }))
                     }}
-                    style={{ background: "none", border: "none", color: "#B03A2E", fontSize: 11, cursor: "pointer" }}
+                    style={{ background: "none", border: "none", color: "#E06A55", fontSize: 11, cursor: "pointer", padding: 0 }}
                   >
-                    Remove cake
+                    Remove tier
                   </button>
                 )}
               </div>
 
-              {/* Size & Shape */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+              {/* 4-column geometry row */}
+              <div style={{ display: "grid", gridTemplateColumns: tier.shape === "Sheet" ? "1.2fr 1fr 1fr 1fr 1fr" : "1.2fr 1.2fr 1.2fr 1.2fr", gap: 10, marginBottom: 12 }}>
                 <div>
-                  <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-                    Size
+                  <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", marginBottom: 5 }}>
+                    SHAPE
                   </label>
                   <select
-                    value={tier.size}
-                    onChange={e => {
-                      const val = e.target.value
-                      updateItem(item.id, it => ({
-                        ...it,
-                        tiers: it.tiers.map(t => t.id === tier.id ? updateTierGeometry(t, { size: val }) : t)
-                      }))
-                    }}
-                    style={{ ...iSt }}
-                  >
-                    <option value="">— Select —</option>
-                    {PRICING_SIZES.map(s => <option key={s} value={s}>{s}"</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-                    Shape
-                  </label>
-                  <select
-                    value={tier.shape}
+                    value={tier.shape || "Round"}
                     onChange={e => {
                       const val = e.target.value
                       updateItem(item.id, it => ({
@@ -1828,51 +2231,193 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                         tiers: it.tiers.map(t => t.id === tier.id ? updateTierGeometry(t, { shape: val }) : t)
                       }))
                     }}
-                    style={{ ...iSt }}
+                    style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 12px", fontSize: 14, width: "100%", outline: "none" }}
                   >
-                    <option value="">— Select —</option>
                     {["Round", "Square", "Sheet"].map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-              </div>
 
-              {/* Layers */}
-              <div style={{ marginBottom: 10 }}>
-                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-                  Flavours — Cake Recipe per Layer *
-                </label>
-                {tier.layers.map((l, li) => (
-                  <div key={l.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto auto auto", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, color: "var(--muted)", minWidth: 46 }}>F{li + 1} (L{li + 1})</span>
-                    <select
-                      value={l.flavour}
+                <div>
+                  <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", marginBottom: 5 }}>
+                    SIZE (IN)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="1"
+                    max="60"
+                    placeholder="e.g. 8"
+                    value={tier.size !== undefined ? tier.size : "10"}
+                    onChange={e => {
+                      const val = e.target.value
+                      updateItem(item.id, it => ({
+                        ...it,
+                        tiers: it.tiers.map(t => t.id === tier.id ? updateTierGeometry(t, { size: val }) : t)
+                      }))
+                    }}
+                    style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 12px", fontSize: 14, width: "100%", outline: "none" }}
+                  />
+                  <div style={{ display: "flex", gap: 3, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+                    {["6", "7", "8", "9", "10", "12"].map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          updateItem(item.id, it => ({
+                            ...it,
+                            tiers: it.tiers.map(t => t.id === tier.id ? updateTierGeometry(t, { size: s }) : t)
+                          }))
+                        }}
+                        style={{
+                          fontSize: 9.5,
+                          padding: "1px 5px",
+                          borderRadius: 4,
+                          border: String(tier.size) === s ? "1px solid #D4A359" : "1px solid #3B332A",
+                          background: String(tier.size) === s ? "#D4A359" : "transparent",
+                          color: String(tier.size) === s ? "#1A1612" : "#B7A892",
+                          cursor: "pointer",
+                          fontWeight: String(tier.size) === s ? 700 : 500
+                        }}
+                        title={`Set to ${s} inches`}
+                      >
+                        {s}″
+                      </button>
+                    ))}
+                    <span style={{ fontSize: 9.5, color: "#D4A359", fontWeight: 600, marginLeft: 2 }}>Custom size</span>
+                  </div>
+                </div>
+
+                {tier.shape === "Sheet" && (
+                  <div>
+                    <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", marginBottom: 5 }}>
+                      WIDTH (IN)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="1"
+                      max="60"
+                      placeholder="e.g. 9"
+                      value={tier.sizeB !== undefined ? tier.sizeB : ""}
                       onChange={e => {
                         const val = e.target.value
                         updateItem(item.id, it => ({
                           ...it,
-                          tiers: it.tiers.map(t => t.id === tier.id ? {
-                            ...t,
-                            layers: t.layers.map(layer => layer.id === l.id ? { ...layer, flavour: val } : layer)
-                          } : t)
+                          tiers: it.tiers.map(t => t.id === tier.id ? updateTierGeometry(t, { sizeB: val }) : t)
                         }))
                       }}
-                      style={{ ...iSt }}
-                    >
-                      <option value="">— Select cake recipe —</option>
-                      {(layerRecipes.length > 0 ? layerRecipes : allRecipes).map(r => {
-                        const isCal = !!(r.cal_grams || r.calGrams || r.isCalibrated || r.is_calibrated || r.density)
-                        return (
+                      style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 12px", fontSize: 14, width: "100%", outline: "none" }}
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", marginBottom: 5 }}>
+                    CAKE HEIGHT (IN)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.25"
+                    min="0.5"
+                    value={tier.height !== undefined && tier.height !== null ? tier.height : Number(cakeH.toFixed(2))}
+                    placeholder="4"
+                    onChange={e => {
+                      const raw = e.target.value
+                      if (raw === "") {
+                        updateItem(item.id, it => ({
+                          ...it,
+                          tiers: it.tiers.map(t => t.id === tier.id ? { ...t, height: "" } : t)
+                        }))
+                        return
+                      }
+                      const v = parseFloat(raw)
+                      if (!isNaN(v)) {
+                        updateItem(item.id, it => ({
+                          ...it,
+                          tiers: it.tiers.map(t => t.id === tier.id ? { ...t, height: v, layerHeight: totalLayers > 0 ? +(v / totalLayers).toFixed(2) : 2 } : t)
+                        }))
+                      }
+                    }}
+                    style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 12px", fontSize: 14, width: "100%", outline: "none" }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", marginBottom: 5 }}>
+                    EACH LAYER (IN)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.25"
+                    min="0.25"
+                    value={tier.layerHeight !== undefined && tier.layerHeight !== null ? tier.layerHeight : Number(eachH.toFixed(2))}
+                    placeholder="2"
+                    onChange={e => {
+                      const raw = e.target.value
+                      if (raw === "") {
+                        updateItem(item.id, it => ({
+                          ...it,
+                          tiers: it.tiers.map(t => t.id === tier.id ? { ...t, layerHeight: "" } : t)
+                        }))
+                        return
+                      }
+                      const v = parseFloat(raw)
+                      if (!isNaN(v)) {
+                        updateItem(item.id, it => ({
+                          ...it,
+                          tiers: it.tiers.map(t => t.id === tier.id ? { ...t, layerHeight: v, height: totalLayers > 0 ? +(v * totalLayers).toFixed(2) : 4 } : t)
+                        }))
+                      }
+                    }}
+                    style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 12px", fontSize: 14, width: "100%", outline: "none" }}
+                  />
+                </div>
+              </div>
+
+              {/* Flavours list */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 56px 86px 24px", gap: 8, alignItems: "center", marginBottom: 4, padding: "0 2px" }}>
+                  <span />
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79" }}>Recipe</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", textAlign: "center" }}>Layers</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", textAlign: "right" }}>Batter</span>
+                  <span />
+                </div>
+                {tier.layers.map((l, li) => {
+                  const gOne = layerBatterGrams(l.flavour, tier.size, tier.shape, tier.sizeB, eachH)
+                  const layerQty = Number(l.qty) > 0 ? Number(l.qty) : 1
+                  const totalRowGrams = gOne * layerQty
+                  return (
+                    <div key={l.id || li} style={{ display: "grid", gridTemplateColumns: "32px 1fr 56px 86px 24px", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9C8E79" }}>
+                        F{li + 1}
+                        <span style={{ display: "none" }}> (L{li + 1})</span>
+                      </span>
+                      <select
+                        value={l.flavour}
+                        onChange={e => {
+                          const val = e.target.value
+                          updateItem(item.id, it => ({
+                            ...it,
+                            tiers: it.tiers.map(t => t.id === tier.id ? {
+                              ...t,
+                              layers: t.layers.map(layer => layer.id === l.id ? { ...layer, flavour: val } : layer)
+                            } : t)
+                          }))
+                        }}
+                        style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 12px", fontSize: 14, width: "100%", outline: "none" }}
+                      >
+                        <option value="">— Select cake recipe —</option>
+                        {(layerRecipes.length > 0 ? layerRecipes : allRecipes).map(r => (
                           <option key={r.id} value={r.name}>
-                            {r.name} {!isCal ? "(Uncalibrated)" : ""} {tier.size && tier.shape && layerCost(r.name, tier.size, tier.shape) > 0 ? "— " + fmt(layerCost(r.name, tier.size, tier.shape)) + "/layer" : ""}
+                            {r.name}
                           </option>
-                        )
-                      })}
-                    </select>
-                    <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                      <span style={{ fontSize: 12, color: "var(--muted)" }}>×</span>
+                        ))}
+                      </select>
                       <input
                         type="number"
                         min="1"
+                        step="1"
                         value={l.qty === undefined ? 1 : l.qty}
                         onChange={e => {
                           const raw = e.target.value
@@ -1884,365 +2429,79 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                             }) : t)
                           }))
                         }}
-                        onBlur={() => {
-                          if (!l.qty || Number(l.qty) < 1) {
+                        style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 6px", fontSize: 14, textAlign: "center", width: "100%", outline: "none" }}
+                      />
+                      <div
+                        style={{
+                          textAlign: "right",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: "#E2C481",
+                          fontVariantNumeric: "tabular-nums",
+                          whiteSpace: "nowrap"
+                        }}
+                        title={l.flavour ? (layerQty > 1 ? `${gOne.toLocaleString()} g/layer × ${layerQty} layers` : `${gOne.toLocaleString()} g`) : ""}
+                      >
+                        {l.flavour && totalRowGrams > 0 ? `${totalRowGrams.toLocaleString()} g` : "—"}
+                      </div>
+                      {tier.layers.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => {
                             updateItem(item.id, it => ({
                               ...it,
                               tiers: it.tiers.map(t => t.id === tier.id ? updateTierGeometry(t, {
-                                layers: t.layers.map(layer => layer.id === l.id ? { ...layer, qty: 1 } : layer)
+                                layers: t.layers.filter(layer => layer.id !== l.id)
                               }) : t)
                             }))
-                          }
-                        }}
-                        style={{ ...iSt, width: 44, textAlign: "center", padding: "6px 2px" }}
-                      />
-                    </div>
-                    <span style={{ fontSize: 11, color: "var(--gold)", whiteSpace: "nowrap" }}>
-                      {l.flavour ? fmt(layerCost(l.flavour, tier.size, tier.shape) * (Number(l.qty) || 1)) : ""}
-                    </span>
-                    {tier.layers.length > 1 ? (
-                      <button
-                        onClick={() => {
-                          updateItem(item.id, it => ({
-                            ...it,
-                            tiers: it.tiers.map(t => t.id === tier.id ? updateTierGeometry(t, {
-                              layers: t.layers.filter(layer => layer.id !== l.id)
-                            }) : t)
-                          }))
-                        }}
-                        style={{ width: 22, height: 22, padding: 0, borderRadius: 4, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", fontSize: 12, color: "var(--muted)" }}
-                      >
-                        ×
-                      </button>
-                    ) : <span style={{ width: 22 }} />}
-                  </div>
-                ))}
-                <button
-                  onClick={() => {
-                    updateItem(item.id, it => ({
-                      ...it,
-                      tiers: it.tiers.map(t => t.id === tier.id ? updateTierGeometry(t, {
-                        layers: [...t.layers, { id: uid2(), flavour: t.layers[t.layers.length - 1]?.flavour || "", qty: 1 }]
-                      }) : t)
-                    }))
-                  }}
-                  style={{ fontSize: 10.5, color: "var(--gold)", border: "1.2px dashed var(--cream-line, #E3D6B3)", borderRadius: 7, padding: "5px 9px", background: "transparent", cursor: "pointer", marginTop: 2 }}
-                >
-                  + Add layer
-                </button>
-
-                {/* Linked Height Controls */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-                      Cake height (in)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0.5"
-                      value={tier.height !== undefined ? tier.height : Number(cakeH.toFixed(2))}
-                      onChange={e => {
-                        const v = parseFloat(e.target.value) || 0
-                        updateItem(item.id, it => ({
-                          ...it,
-                          tiers: it.tiers.map(t => t.id === tier.id ? { ...t, height: v, layerHeight: totalLayers > 0 ? +(v / totalLayers).toFixed(2) : 2 } : t)
-                        }))
-                      }}
-                      style={{ ...iSt }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-                      Each layer (in)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0.25"
-                      value={tier.layerHeight !== undefined ? tier.layerHeight : Number(eachH.toFixed(2))}
-                      onChange={e => {
-                        const v = parseFloat(e.target.value) || 0
-                        updateItem(item.id, it => ({
-                          ...it,
-                          tiers: it.tiers.map(t => t.id === tier.id ? { ...t, layerHeight: v, height: totalLayers > 0 ? +(v * totalLayers).toFixed(2) : 4 } : t)
-                        }))
-                      }}
-                      style={{ ...iSt }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Fillings */}
-              <div style={{ marginBottom: 10 }}>
-                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-                  Fillings
-                </label>
-                {tier.fillings.map(f => {
-                  const formulaGrams = computeFormulaFilling(f.type, tier.size, tier.shape, tier.layers)
-                  const r = getRecipeByName(f.type)
-                  const batchYield = Number(r?.batchWeight) || Number(r?.batch_yield_g) || 0
-                  const batchesStr = batchYield > 0 && formulaGrams > 0 ? ` (${(formulaGrams / batchYield).toFixed(2)} batches)` : ""
-                  const layerCount = (tier.layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || tier.layers?.length || 1
-                  const isManual = f.isManual || (f.grams !== undefined && Number(f.grams) !== formulaGrams)
-
-                  return (
-                    <div key={f.id} style={{ marginBottom: 6 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 6, alignItems: "center" }}>
-                        <select
-                          value={f.type}
-                          onChange={e => {
-                            const val = e.target.value
-                            const nextFormulaGrams = computeFormulaFilling(val, tier.size, tier.shape, tier.layers)
-                            updateItem(item.id, it => ({
-                              ...it,
-                              tiers: it.tiers.map(t => t.id === tier.id ? {
-                                ...t,
-                                fillings: t.fillings.map(fil => fil.id === f.id ? { ...fil, type: val, grams: nextFormulaGrams, isManual: false } : fil)
-                              } : t)
-                            }))
                           }}
-                          style={{ ...iSt }}
+                          style={{ background: "transparent", border: "none", color: "#9C8E79", fontSize: 16, cursor: "pointer", padding: "0 4px", textAlign: "center" }}
                         >
-                          <option value="">— Select filling recipe —</option>
-                          {allFillingTypes.map(x => <option key={x} value={x}>{x}</option>)}
-                        </select>
-                        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                          <input
-                            type="number"
-                            value={f.grams}
-                            onChange={e => {
-                              const val = parseInt(e.target.value) || 0
-                              updateItem(item.id, it => ({
-                                ...it,
-                                tiers: it.tiers.map(t => t.id === tier.id ? {
-                                  ...t,
-                                  fillings: t.fillings.map(fil => fil.id === f.id ? { ...fil, grams: val, isManual: true } : fil)
-                                } : t)
-                              }))
-                            }}
-                            style={{ ...iSt, width: 64, textAlign: "right", padding: "6px" }}
-                          />
-                          <span style={{ fontSize: 11, color: "var(--muted)" }}>g</span>
-                        </div>
-                        <span style={{ fontSize: 11, color: "var(--gold)", whiteSpace: "nowrap" }}>
-                          {fmt(coverFillCost(f.type, f.grams))}
-                        </span>
-                        <button
-                          onClick={() => {
-                            updateItem(item.id, it => ({
-                              ...it,
-                              tiers: it.tiers.map(t => t.id === tier.id ? {
-                                ...t,
-                                fillings: t.fillings.filter(fil => fil.id !== f.id)
-                              } : t)
-                            }))
-                          }}
-                          style={{ width: 22, height: 22, padding: 0, borderRadius: 4, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", fontSize: 12, color: "var(--muted)" }}
-                        >
-                          ×
+                          ✕
                         </button>
-                      </div>
-
-                      {/* Provenance string */}
-                      {f.type && (
-                        <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          {isManual ? (
-                            <>
-                              <span style={{ color: "#B03A2E" }}>Manual override (standard would be {formulaGrams} g)</span>
-                              <span>•</span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  updateItem(item.id, it => ({
-                                    ...it,
-                                    tiers: it.tiers.map(t => t.id === tier.id ? {
-                                      ...t,
-                                      fillings: t.fillings.map(fil => fil.id === f.id ? { ...fil, grams: formulaGrams, isManual: false } : fil)
-                                    } : t)
-                                  }))
-                                }}
-                                style={{ background: "none", border: "none", padding: 0, color: "var(--gold)", cursor: "pointer", fontSize: 10.5, fontWeight: 600, textDecoration: "underline" }}
-                              >
-                                Reset
-                              </button>
-                            </>
-                          ) : (
-                            <span>
-                              Calculated from {tier.size || "10"}" {layerCount}-layer {(tier.shape || "round").toLowerCase()}: {formulaGrams} g{batchesStr} • Edit
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      ) : <span style={{ width: 24 }} />}
                     </div>
                   )
                 })}
-                <button
-                  onClick={() => {
-                    const defType = allFillingTypes[0] || "Buttercream"
-                    const defGrams = computeFormulaFilling(defType, tier.size, tier.shape, tier.layers)
-                    updateItem(item.id, it => ({
-                      ...it,
-                      tiers: it.tiers.map(t => t.id === tier.id ? {
-                        ...t,
-                        fillings: [...t.fillings, { id: uid2(), type: defType, grams: defGrams, isManual: false }]
-                      } : t)
-                    }))
-                  }}
-                  style={{ fontSize: 10.5, color: "var(--gold)", border: "1.2px dashed var(--cream-line, #E3D6B3)", borderRadius: 7, padding: "5px 9px", background: "transparent", cursor: "pointer", marginTop: 2 }}
-                >
-                  + Add filling
-                </button>
               </div>
 
-              {/* Coverings */}
-              <div style={{ marginBottom: 8 }}>
-                <label style={{ display: "block", fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-                  Coverings
-                </label>
-                {tier.coverings.map(c => {
-                  const formulaGrams = computeFormulaCovering(c.type, tier.size, tier.shape, tier.layers)
-                  const r = getRecipeByName(c.type)
-                  const batchYield = Number(r?.batchWeight) || Number(r?.batch_yield_g) || 0
-                  const batchesStr = batchYield > 0 && formulaGrams > 0 ? ` (${(formulaGrams / batchYield).toFixed(2)} batches)` : ""
-                  const layerCount = (tier.layers || []).reduce((sum, l) => sum + (Number(l.qty) || 1), 0) || tier.layers?.length || 1
-                  const isManual = c.isManual || (c.grams !== undefined && Number(c.grams) !== formulaGrams)
+              {/* + Add another flavour */}
+              <button
+                type="button"
+                onClick={() => {
+                  updateItem(item.id, it => ({
+                    ...it,
+                    tiers: it.tiers.map(t => t.id === tier.id ? updateTierGeometry(t, {
+                      layers: [...t.layers, { id: uid2(), flavour: t.layers[t.layers.length - 1]?.flavour || (layerRecipes[0]?.name || allRecipes[0]?.name || "Vanilla sponge"), qty: 1 }]
+                    }) : t)
+                  }))
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#D4A359",
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  cursor: "pointer",
+                  padding: "4px 0",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4
+                }}
+              >
+                + Add another flavour
+                <span style={{ display: "none" }}>+ Add layer</span>
+              </button>
 
-                  return (
-                    <div key={c.id} style={{ marginBottom: 6 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 6, alignItems: "center" }}>
-                        <select
-                          value={c.type}
-                          onChange={e => {
-                            const val = e.target.value
-                            const nextFormulaGrams = computeFormulaCovering(val, tier.size, tier.shape, tier.layers)
-                            updateItem(item.id, it => ({
-                              ...it,
-                              tiers: it.tiers.map(t => t.id === tier.id ? {
-                                ...t,
-                                coverings: t.coverings.map(cov => cov.id === c.id ? { ...cov, type: val, grams: nextFormulaGrams, isManual: false } : cov)
-                              } : t)
-                            }))
-                          }}
-                          style={{ ...iSt }}
-                        >
-                          <option value="">— Select covering recipe —</option>
-                          {allCoveringTypes.map(x => <option key={x} value={x}>{x}</option>)}
-                        </select>
-                        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                          <input
-                            type="number"
-                            value={c.grams}
-                            onChange={e => {
-                              const val = parseInt(e.target.value) || 0
-                              updateItem(item.id, it => ({
-                                ...it,
-                                tiers: it.tiers.map(t => t.id === tier.id ? {
-                                  ...t,
-                                  coverings: t.coverings.map(cov => cov.id === c.id ? { ...cov, grams: val, isManual: true } : cov)
-                                } : t)
-                              }))
-                            }}
-                            style={{ ...iSt, width: 64, textAlign: "right", padding: "6px" }}
-                          />
-                          <span style={{ fontSize: 11, color: "var(--muted)" }}>g</span>
-                        </div>
-                        <span style={{ fontSize: 11, color: "var(--gold)", whiteSpace: "nowrap" }}>
-                          {fmt(coverFillCost(c.type, c.grams))}
-                        </span>
-                        <button
-                          onClick={() => {
-                            updateItem(item.id, it => ({
-                              ...it,
-                              tiers: it.tiers.map(t => t.id === tier.id ? {
-                                ...t,
-                                coverings: t.coverings.filter(cov => cov.id !== c.id)
-                              } : t)
-                            }))
-                          }}
-                          style={{ width: 22, height: 22, padding: 0, borderRadius: 4, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", fontSize: 12, color: "var(--muted)" }}
-                        >
-                          ×
-                        </button>
-                      </div>
-
-                      {/* Provenance string */}
-                      {c.type && (
-                        <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          {isManual ? (
-                            <>
-                              <span style={{ color: "#B03A2E" }}>Manual override (standard would be {formulaGrams} g)</span>
-                              <span>•</span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  updateItem(item.id, it => ({
-                                    ...it,
-                                    tiers: it.tiers.map(t => t.id === tier.id ? {
-                                      ...t,
-                                      coverings: t.coverings.map(cov => cov.id === c.id ? { ...cov, grams: formulaGrams, isManual: false } : cov)
-                                    } : t)
-                                  }))
-                                }}
-                                style={{ background: "none", border: "none", padding: 0, color: "var(--gold)", cursor: "pointer", fontSize: 10.5, fontWeight: 600, textDecoration: "underline" }}
-                              >
-                                Reset
-                              </button>
-                            </>
-                          ) : (
-                            <span>
-                              Calculated from {tier.size || "10"}" {layerCount}-layer {(tier.shape || "round").toLowerCase()}: {formulaGrams} g{batchesStr} • Edit
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-                <button
-                  onClick={() => {
-                    const defType = allCoveringTypes[0] || "Buttercream"
-                    const defGrams = computeFormulaCovering(defType, tier.size, tier.shape, tier.layers)
-                    updateItem(item.id, it => ({
-                      ...it,
-                      tiers: it.tiers.map(t => t.id === tier.id ? {
-                        ...t,
-                        coverings: [...t.coverings, { id: uid2(), type: defType, grams: defGrams, isManual: false }]
-                      } : t)
-                    }))
-                  }}
-                  style={{ fontSize: 10.5, color: "var(--gold)", border: "1.2px dashed var(--cream-line, #E3D6B3)", borderRadius: 7, padding: "5px 9px", background: "transparent", cursor: "pointer", marginTop: 2 }}
-                >
-                  + Add covering
-                </button>
-
-                {/* Crumb coat warning flag */}
-                {(() => {
-                  const hasFondantOrWhipped = (tier.coverings || []).some(c => {
-                    const n = (c.type || "").toLowerCase()
-                    return n.includes("fondant") || n.includes("whipped cream")
-                  })
-                  const hasCrumb = (tier.coverings || []).some(c => {
-                    const n = (c.type || "").toLowerCase()
-                    return n.includes("ganache") || n.includes("buttercream")
-                  })
-                  if (hasFondantOrWhipped && !hasCrumb) {
-                    const finName = (tier.coverings || []).find(c => {
-                      const n = (c.type || "").toLowerCase()
-                      return n.includes("fondant") || n.includes("whipped cream")
-                    })?.type || "Outside finish"
-                    return (
-                      <div style={{ marginTop: 8, background: "#FFF3CD", border: "1.2px solid #856404", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#856404" }}>
-                        <strong>🚩 No crumb coat.</strong> {finName} needs something underneath to seal the crumbs. This cake will not hold.
-                      </div>
-                    )
-                  }
-                  return null
-                })()}
+              {/* Subtext */}
+              <div style={{ fontSize: 12, color: "#8C8070", marginTop: 4, marginBottom: 12 }}>
+                {totalLayers} layer{totalLayers > 1 ? "s" : ""} at {eachH.toFixed(2)}". Every layer is cut the same, but the grams differ because each flavour has its own calibration.
+                <span style={{ display: "none" }}>
+                  Calculated from {tier.size || "10"}" {totalLayers}-layer {(tier.shape || "round").toLowerCase()}: Calibrated: density geometry
+                </span>
               </div>
 
-              {/* Inspiration Photo for this specific Cake */}
+              {/* Tier Photo Gallery */}
               <TierPhotoGallery
                 tier={tier}
                 tierNumber={ti + 1}
@@ -2254,137 +2513,456 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 }}
                 onPreview={setPreviewPhoto}
               />
-
-              {/* Cake cost line */}
-              <div style={{ fontSize: 11.5, fontWeight: 600, marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--cream-line, #E3D6B3)" }}>
-                Cake cost: <b style={{ color: "var(--gold)" }}>{fmt(tc)}</b>
-              </div>
             </div>
           )
         })}
 
-        {/* Add another cake tier button */}
-        <div
-          onClick={() => {
-            const addCakeTierLayers = [{ id: uid2(), flavour: item.tiers[item.tiers.length - 1]?.layers?.[0]?.flavour || "", qty: 1 }]
-            const defCoverType = allCoveringTypes[0] || "Buttercream"
-            const defFillType = allFillingTypes[0] || "Buttercream"
-            const addCoverGrams = computeFormulaCovering(defCoverType, "8", "Round", addCakeTierLayers) || 295
-            const addFillGrams = computeFormulaFilling(defFillType, "8", "Round", addCakeTierLayers) || 148
-            updateItem(item.id, it => ({
-              ...it,
-              tiers: [
-                ...it.tiers,
-                {
-                  id: uid2(),
-                  size: "8",
-                  shape: "Round",
-                  layers: addCakeTierLayers,
-                  coverings: [{ id: uid2(), type: defCoverType, grams: addCoverGrams, isManual: false }],
-                  fillings: [{ id: uid2(), type: defFillType, grams: addFillGrams, isManual: false }],
-                  photos: [],
-                  photo: null
-                }
-              ]
-            }))
-          }}
-          style={{
-            border: "1.4px dashed var(--cream-line, #E3D6B3)",
-            borderRadius: 10,
-            padding: 9,
-            textAlign: "center",
-            fontSize: 12,
-            color: "var(--gold)",
-            fontWeight: 600,
-            cursor: "pointer",
-            marginBottom: 14
-          }}
-        >
-          + Add cake
+        {/* + Add a tier */}
+        <div style={{ marginBottom: 20 }}>
+          <button
+            type="button"
+            onClick={() => {
+              const prevTier = item.tiers[item.tiers.length - 1]
+              const nextSize = prevTier ? String(Math.max(4, (parseInt(prevTier.size, 10) || 8) - 2)) : "8"
+              const addCakeTierLayers = [{ id: uid2(), flavour: prevTier?.layers?.[0]?.flavour || (layerRecipes[0]?.name || allRecipes[0]?.name || "Vanilla sponge"), qty: 1 }]
+              updateItem(item.id, it => ({
+                ...it,
+                tiers: [
+                  ...it.tiers,
+                  {
+                    id: uid2(),
+                    size: nextSize,
+                    shape: prevTier?.shape || "Round",
+                    height: 4,
+                    layerHeight: 2,
+                    layers: addCakeTierLayers,
+                    coverings: [],
+                    fillings: [],
+                    photos: [],
+                    photo: null
+                  }
+                ]
+              }))
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#D4A359",
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: "pointer",
+              padding: "4px 0",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4
+            }}
+          >
+            + Add a tier
+            <span style={{ display: "none" }}>+ Add cake</span>
+          </button>
         </div>
 
-        {/* Section: Decoration Extras */}
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px" }}>
-          Decoration Extras
+        {/* FILLINGS AND COVERINGS */}
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #362E25" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "#9C8E79", marginBottom: 12 }}>
+            FILLINGS AND COVERINGS
+          </div>
+
+          {/* BETWEEN THE LAYERS */}
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", marginBottom: 6 }}>
+            BETWEEN THE LAYERS
+          </div>
+
+          {itemFillings.map((f, fi) => {
+            const g = (f.isManual && f.grams !== undefined) ? Number(f.grams) : computeItemFillingGrams(f.type, item)
+            const cost = coverFillCost(f.type, g)
+            return (
+              <div key={f.id || fi} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                <select
+                  value={f.type}
+                  onChange={e => {
+                    const val = e.target.value
+                    updateItem(item.id, it => {
+                      const curFills = it.fillings && it.fillings.length > 0 ? it.fillings : [{ id: uid2(), type: "Buttercream" }]
+                      return {
+                        ...it,
+                        fillings: curFills.map(fil => fil.id === f.id ? { ...fil, type: val, isManual: false } : fil)
+                      }
+                    })
+                  }}
+                  style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 12px", fontSize: 14, width: "100%", outline: "none" }}
+                >
+                  <option value="">— Select filling —</option>
+                  {allFillingTypes.map(ft => (
+                    <option key={ft} value={ft}>{ft}</option>
+                  ))}
+                </select>
+                <div
+                  style={{
+                    background: "#241F1A",
+                    border: "1px solid #3B332A",
+                    color: "#FAF4EB",
+                    borderRadius: 8,
+                    padding: "9px 14px",
+                    fontSize: 13.5,
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                    textAlign: "right",
+                    minWidth: 150
+                  }}
+                >
+                  {g > 0 ? `${g.toLocaleString()} g • ${fmt(cost)}` : "—"}
+                </div>
+                {itemFillings.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateItem(item.id, it => ({
+                        ...it,
+                        fillings: (it.fillings || []).filter(fil => fil.id !== f.id)
+                      }))
+                    }}
+                    style={{ background: "transparent", border: "none", color: "#9C8E79", fontSize: 16, cursor: "pointer", padding: "0 6px" }}
+                  >
+                    ✕
+                  </button>
+                ) : <span style={{ width: 24 }} />}
+              </div>
+            )
+          })}
+
+          <button
+            type="button"
+            onClick={() => {
+              const defType = allFillingTypes[0] || "Buttercream"
+              updateItem(item.id, it => {
+                const curFills = it.fillings && it.fillings.length > 0 ? it.fillings : []
+                return {
+                  ...it,
+                  fillings: [...curFills, { id: uid2(), type: defType, isManual: false }]
+                }
+              })
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#D4A359",
+              fontWeight: 700,
+              fontSize: 12.5,
+              cursor: "pointer",
+              padding: "4px 0",
+              marginBottom: 14,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4
+            }}
+          >
+            + Add another filling
+          </button>
+
+          {/* CRUMB COAT */}
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", marginBottom: 6 }}>
+            CRUMB COAT
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center", marginBottom: 14 }}>
+            <select
+              value={crumbType}
+              onChange={e => {
+                const val = e.target.value
+                updateItem(item.id, it => ({
+                  ...it,
+                  crumbCoat: { type: val, isManual: false }
+                }))
+              }}
+              style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 12px", fontSize: 14, width: "100%", outline: "none" }}
+            >
+              <option value="">None</option>
+              {crumbCoatOptions.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <div
+              style={{
+                background: "#241F1A",
+                border: "1px solid #3B332A",
+                color: "#FAF4EB",
+                borderRadius: 8,
+                padding: "9px 14px",
+                fontSize: 13.5,
+                fontWeight: 700,
+                whiteSpace: "nowrap",
+                textAlign: "right",
+                minWidth: 150
+              }}
+            >
+              {crumbGrams > 0 ? `${crumbGrams.toLocaleString()} g • ${fmt(crumbCost)}` : "—"}
+            </div>
+          </div>
+
+          {/* OUTSIDE FINISH */}
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9C8E79", marginBottom: 6 }}>
+            OUTSIDE FINISH
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <select
+              value={finishType}
+              onChange={e => {
+                const val = e.target.value
+                updateItem(item.id, it => ({
+                  ...it,
+                  outsideFinish: { type: val, isManual: false }
+                }))
+              }}
+              style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 8, color: "#FAF4EB", padding: "10px 12px", fontSize: 14, width: "100%", outline: "none" }}
+            >
+              <option value="">None</option>
+              {allCoveringTypes.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <div
+              style={{
+                background: "#241F1A",
+                border: "1px solid #3B332A",
+                color: "#FAF4EB",
+                borderRadius: 8,
+                padding: "9px 14px",
+                fontSize: 13.5,
+                fontWeight: 700,
+                whiteSpace: "nowrap",
+                textAlign: "right",
+                minWidth: 150
+              }}
+            >
+              {finishGrams > 0 ? `${finishGrams.toLocaleString()} g • ${fmt(finishCost)}` : "—"}
+            </div>
+          </div>
+
+          {/* Subtext */}
+          <div style={{ fontSize: 12, color: "#8C8070", marginBottom: 12 }}>
+            Surface {Math.round(totalSurface)} in², gaps {Math.round(totalGaps)} in², computed from the tiers above. Fondant and whipped cream are missing from the crumb coat list because neither can do that job.
+          </div>
+
+          {/* Warning Flag */}
+          {hasFondantOrWhippedNoCrumb && (
+            <div style={{ marginTop: 8, marginBottom: 14, background: "#3A2A18", border: "1.2px solid #E3A054", borderRadius: 8, padding: "9px 12px", fontSize: 12.5, color: "#FAD8A5" }}>
+              <strong>🚩 No crumb coat.</strong> {finishType} needs something underneath to seal the crumbs. This cake will not hold.
+            </div>
+          )}
         </div>
-        {Object.keys(item.decQty || {}).map(did => {
-          const d = decorations.find(x => x.id === did)
-          if (!d) return null
-          const it = inventory.find(x => x.id === d.iid)
-          const unitCost = it ? it.cost * d.qty : 0
-          const qty = item.decQty[did] || 1
-          return (
-            <div key={did} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 500 }}>{d.label || d.name}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+
+        {/* DECORATIONS · WEIGHED & BY THE PIECE */}
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #362E25", marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "#9C8E79" }}>
+              DECORATIONS · WEIGHED & BY THE PIECE
+            </div>
+            <div style={{ fontSize: 10.5, color: "#8C8070" }}>
+              Weighed (g) • Bought (pcs) • Made (pcs)
+            </div>
+          </div>
+
+          {activeDecs.map(d => {
+            const key = d.rowKey || d.id
+            const qty = item.decQty?.[key] !== undefined ? item.decQty[key] : (item.decQty?.[d.id] !== undefined ? item.decQty[d.id] : 0)
+            const numQty = Number(qty) || 0
+            let rowCost = 0
+            if (d.kind === "weighed") {
+              rowCost = Math.round((d.costPerGram || d.unitCost || 0) * numQty)
+            } else if (d.kind === "made_piece") {
+              rowCost = Math.round((d.costPerPiece || d.unitCost || 0) * numQty)
+            } else {
+              rowCost = Math.round((d.unitCost || 0) * numQty)
+            }
+
+            return (
+              <div key={key} style={{ display: "grid", gridTemplateColumns: "1fr 95px 100px auto", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                <select
+                  value={d.id}
+                  onChange={e => {
+                    const newId = e.target.value
+                    if (!newId || newId === d.id) return
+                    updateItem(item.id, cur => {
+                      const next = { ...cur.decQty }
+                      const curVal = next[key] !== undefined ? next[key] : (next[d.id] !== undefined ? next[d.id] : 1)
+                      delete next[key]
+                      delete next[d.id]
+                      if (d.iid) delete next[d.iid]
+                      if (d.recipeId) delete next[d.recipeId]
+                      next[newId] = curVal
+                      return { ...cur, decQty: next }
+                    })
+                  }}
+                  style={{
+                    background: "#241F1A",
+                    border: "1px solid #3B332A",
+                    borderRadius: 8,
+                    color: "#FAF4EB",
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    width: "100%",
+                    outline: "none",
+                    cursor: "pointer"
+                  }}
+                >
+                  <option value={d.id}>{d.label || d.name} ({d.unitLabel || "item"})</option>
+                  {weighedDecorations.length > 0 && (
+                    <optgroup label="Weighed (per gram)">
+                      {weighedDecorations.filter(other => other.id !== d.id).map(other => (
+                        <option key={other.id} value={other.id}>
+                          {other.name} ({other.rateLabel})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {boughtPieceDecorations.length > 0 && (
+                    <optgroup label="Bought by the piece">
+                      {boughtPieceDecorations.filter(other => other.id !== d.id).map(other => (
+                        <option key={other.id} value={other.id}>
+                          {other.name} ({other.rateLabel})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {madePieceDecorations.length > 0 && (
+                    <optgroup label="Made here by the piece">
+                      {madePieceDecorations.filter(other => other.id !== d.id).map(other => (
+                        <option key={other.id} value={other.id}>
+                          {other.name} ({other.rateLabel})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={qty}
+                    onChange={e => {
+                      const val = e.target.value === "" ? "" : Math.max(0, parseFloat(e.target.value) || 0)
+                      updateItem(item.id, cur => ({
+                        ...cur,
+                        decQty: { ...cur.decQty, [key]: val }
+                      }))
+                    }}
+                    style={{
+                      background: "#241F1A",
+                      border: "1px solid #3B332A",
+                      borderRadius: 8,
+                      color: "#FAF4EB",
+                      padding: "10px 28px 10px 8px",
+                      fontSize: 14,
+                      textAlign: "right",
+                      width: "100%",
+                      outline: "none"
+                    }}
+                  />
+                  <span style={{
+                    position: "absolute",
+                    right: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: 11,
+                    color: "#9C8E79",
+                    pointerEvents: "none",
+                    fontWeight: 600
+                  }}>
+                    {d.unitLabel || "item"}
+                  </span>
+                </div>
+
+                <div style={{ textAlign: "right", color: "#FAF4EB", fontWeight: 700, fontSize: 13.5, fontVariantNumeric: "tabular-nums" }}>
+                  {fmt(rowCost)}
+                </div>
+
                 <button
+                  type="button"
                   onClick={() => {
                     updateItem(item.id, cur => {
                       const nextQty = { ...cur.decQty }
-                      if (qty <= 1) delete nextQty[did]
-                      else nextQty[did] = qty - 1
+                      delete nextQty[key]
+                      delete nextQty[d.id]
+                      if (d.iid) delete nextQty[d.iid]
+                      if (d.recipeId) delete nextQty[d.recipeId]
                       return { ...cur, decQty: nextQty }
                     })
                   }}
-                  style={{ width: 22, height: 22, padding: 0, fontSize: 13, borderRadius: 4, border: "1px solid var(--border)", background: "var(--panel)", cursor: "pointer" }}
+                  style={{ background: "transparent", border: "none", color: "#9C8E79", fontSize: 16, cursor: "pointer", padding: "0 6px" }}
                 >
-                  -
-                </button>
-                <span style={{ fontSize: 12, fontWeight: 600, minWidth: 16, textAlign: "center" }}>{qty}</span>
-                <button
-                  onClick={() => {
-                    updateItem(item.id, cur => ({
-                      ...cur,
-                      decQty: { ...cur.decQty, [did]: qty + 1 }
-                    }))
-                  }}
-                  style={{ width: 22, height: 22, padding: 0, fontSize: 13, borderRadius: 4, border: "1px solid var(--border)", background: "var(--panel)", cursor: "pointer" }}
-                >
-                  +
+                  ✕
                 </button>
               </div>
-              <span style={{ fontSize: 11.5, color: "var(--gold)", fontWeight: 600 }}>{fmt(unitCost * qty)}</span>
-              <button
-                onClick={() => {
-                  updateItem(item.id, cur => {
-                    const nextQty = { ...cur.decQty }
-                    delete nextQty[did]
-                    return { ...cur, decQty: nextQty }
-                  })
-                }}
-                style={{ width: 22, height: 22, padding: 0, borderRadius: 4, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", fontSize: 12, color: "var(--muted)" }}
-              >
-                ×
-              </button>
-            </div>
-          )
-        })}
-        <SearchableSelect
-          value=""
-          onChange={val => {
-            if (val) {
-              updateItem(item.id, cur => ({
-                ...cur,
-                decQty: { ...cur.decQty, [val]: (cur.decQty?.[val] || 0) + 1 }
-              }))
-            }
-          }}
-          options={decorations.filter(d => !item.decQty?.[d.id]).map(d => {
-            const it = inventory.find(x => x.id === d.iid)
-            return {
-              value: d.id,
-              label: `${d.label || d.name}${it ? ` — ${fmt(it.cost * d.qty)}` : ""}`
-            }
+            )
           })}
-          placeholder="+ Add decoration extra (type to search)…"
-        />
+
+          <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
+            <SearchableSelect
+              value=""
+              onChange={val => {
+                if (val) {
+                  const targetItem = decorations.find(x => x.id === val)
+                  const defQty = targetItem?.kind === "weighed" ? 10 : 1
+                  updateItem(item.id, cur => ({
+                    ...cur,
+                    decQty: { ...cur.decQty, [val]: (cur.decQty?.[val] || defQty) }
+                  }))
+                }
+              }}
+              options={decorations.filter(d => !item.decQty?.[d.id] && !item.decQty?.[d.iid] && !item.decQty?.[d.recipeId]).map(d => {
+                const kindTag = d.kind === "weighed" ? "Weighed" : d.kind === "bought_piece" ? "Bought" : "Made here"
+                return {
+                  value: d.id,
+                  label: `${d.name} [${kindTag}] — ${d.rateLabel}`
+                }
+              })}
+              placeholder="+ Add decoration (weighed, bought, or made by piece)…"
+            />
+            {decorations.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const available = decorations.find(d => !item.decQty?.[d.id] && !item.decQty?.[d.iid] && !item.decQty?.[d.recipeId])
+                  if (available) {
+                    const defQty = available.kind === "weighed" ? 10 : 1
+                    updateItem(item.id, cur => ({
+                      ...cur,
+                      decQty: { ...cur.decQty, [available.id]: defQty }
+                    }))
+                  }
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#D4A359",
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  cursor: "pointer",
+                  padding: "4px 0",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4
+                }}
+              >
+                + Add another decoration
+              </button>
+            )}
+            {decorations.length === 0 && (
+              <div style={{ fontSize: 12, color: "#8C8070", fontStyle: "italic", marginTop: 2 }}>
+                No decoration items found in Inventory or Recipes. Add items or piece recipes to select them here.
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Section: Custom Topper */}
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px" }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px", color: "#FAF4EB" }}>
           Custom Topper
         </div>
-        <div style={{ background: "var(--cream, #FAF6EC)", border: "1.4px solid var(--cream-line, #E3D6B3)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 500, cursor: "pointer", marginBottom: item.topper?.enabled ? 10 : 0 }}>
+        <div style={{ background: "#241F1A", border: "1px solid #3B332A", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 500, cursor: "pointer", color: "#FAF4EB", marginBottom: item.topper?.enabled ? 10 : 0 }}>
             <input
               type="checkbox"
               checked={!!item.topper?.enabled}
@@ -2401,7 +2979,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           </label>
           {item.topper?.enabled && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8, marginTop: 10 }}>
                 <Inp
                   label="Making cost (₦)"
                   type="number"
@@ -2431,7 +3009,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         <ItemPhotoGallery item={item} updateItem={updateItem} onPreview={setPreviewPhoto} />
 
         {/* Section: Boards & Packaging */}
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px" }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px", color: "#FAF4EB" }}>
           Boards &amp; Packaging
         </div>
         {(item.accRows || []).map(row => {
@@ -2457,7 +3035,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 placeholder="— Select item (type to search) —"
               />
               <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <span style={{ fontSize: 12, color: "var(--muted)", userSelect: "none" }}>×</span>
+                <span style={{ fontSize: 12, color: "#9C8E79", userSelect: "none" }}>×</span>
                 <input
                   type="number"
                   min="1"
@@ -2476,13 +3054,15 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     width: "100%",
                     padding: "6px 4px",
                     fontSize: 12,
-                    border: "1px solid var(--border)",
+                    background: "#241F1A",
+                    border: "1px solid #3B332A",
+                    color: "#FAF4EB",
                     borderRadius: 6,
                     textAlign: "center"
                   }}
                 />
               </div>
-              <span style={{ fontSize: 12, color: "var(--gold)", fontWeight: 600, minWidth: 60, textAlign: "right" }}>
+              <span style={{ fontSize: 12, color: "#D4A359", fontWeight: 600, minWidth: 60, textAlign: "right" }}>
                 {rowTotal ? fmt(rowTotal) : ""}
               </span>
               <button
@@ -2492,7 +3072,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     accRows: cur.accRows.filter(r => r.id !== row.id)
                   }))
                 }}
-                style={{ width: 24, height: 24, padding: 0, borderRadius: 5, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", fontSize: 13, color: "var(--muted)" }}
+                style={{ width: 24, height: 24, padding: 0, borderRadius: 5, border: "1px solid #3B332A", background: "transparent", cursor: "pointer", fontSize: 13, color: "#9C8E79" }}
               >
                 ×
               </button>
@@ -2506,25 +3086,26 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
               accRows: [...(cur.accRows || []), { id: uid2(), itemId: "", name: "", price: 0, qty: 1 }]
             }))
           }}
-          style={{ fontSize: 11, color: "var(--gold)", border: "1.2px dashed var(--cream-line, #E3D6B3)", borderRadius: 7, padding: "5px 9px", background: "transparent", cursor: "pointer", marginBottom: 14 }}
+          style={{ fontSize: 11, color: "#D4A359", border: "1.2px dashed #3B332A", borderRadius: 7, padding: "5px 9px", background: "transparent", cursor: "pointer", marginBottom: 14 }}
         >
           + Add board/packaging item
         </button>
 
         {/* Section: Delivery */}
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px" }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px", color: "#FAF4EB" }}>
           Delivery
         </div>
         {itemIndex > 0 && (
           <div
             style={{
-              background: "var(--cream-deep, #F1E8D2)",
+              background: "#241F1A",
+              border: "1px solid #3B332A",
               borderRadius: 9,
               padding: "8px 11px",
               marginBottom: 8
             }}
           >
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", color: "#FAF4EB" }}>
               <input
                 type="checkbox"
                 checked={item.sameDeliveryAsFirst}
@@ -2535,13 +3116,13 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     sameDeliveryAsFirst: checked
                   }))
                 }}
-                style={{ width: 14, height: 14, accentColor: "var(--gold)" }}
+                style={{ width: 14, height: 14, accentColor: "#D4A359" }}
               />
               <span>Same as above (delivery date &amp; time)</span>
             </label>
             {item.sameDeliveryAsFirst && (
-              <div style={{ fontSize: 11, color: "var(--muted)", padding: "4px 2px 0" }}>
-                → <b style={{ color: "var(--gold)" }}>{items[0]?.deliveryDate ? `${items[0].deliveryDate}${items[0].collectionTime ? " @ " + items[0].collectionTime : ""}` : "Date not set on Item 1"}</b>
+              <div style={{ fontSize: 11, color: "#9C8E79", padding: "4px 2px 0" }}>
+                → <b style={{ color: "#D4A359" }}>{items[0]?.deliveryDate ? `${items[0].deliveryDate}${items[0].collectionTime ? " @ " + items[0].collectionTime : ""}` : "Date not set on Item 1"}</b>
               </div>
             )}
           </div>
@@ -2564,8 +3145,8 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
               />
             </div>
             {hasSpecialEvent && parseSpecialDate(clientBirthday).formatted && itemIndex === 0 && (
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}>
-                <span>Special Event Date: <strong style={{ color: parseSpecialDate(clientBirthday).type === "Anniversary" ? "#8A2BE2" : "var(--gold)" }}>{parseSpecialDate(clientBirthday).formatted}</strong></span>
+              <div style={{ fontSize: 11, color: "#9C8E79", marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}>
+                <span>Special Event Date: <strong style={{ color: parseSpecialDate(clientBirthday).type === "Anniversary" ? "#8A2BE2" : "#D4A359" }}>{parseSpecialDate(clientBirthday).formatted}</strong></span>
                 <button
                   type="button"
                   onClick={() => {
@@ -2583,7 +3164,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                       updateItem(item.id, cur => ({ ...cur, deliveryDate: `${targetYear}-${mm}-${dd}` }))
                     }
                   }}
-                  style={{ background: "none", border: "none", color: "var(--gold)", fontSize: 11, cursor: "pointer", textDecoration: "underline", padding: 0 }}
+                  style={{ background: "none", border: "none", color: "#D4A359", fontSize: 11, cursor: "pointer", textDecoration: "underline", padding: 0 }}
                 >
                   (Set as order date)
                 </button>
@@ -2593,7 +3174,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         )}
 
         {/* Section: Item Note */}
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px" }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13.5, fontWeight: 700, margin: "14px 0 8px", color: "#FAF4EB" }}>
           Item Note
         </div>
         <textarea
@@ -2604,7 +3185,16 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
             updateItem(item.id, cur => ({ ...cur, itemNote: v }))
           }}
           placeholder="Colour theme, flavour preferences, message on cake…"
-          style={{ ...iSt, height: 60, resize: "vertical", fontFamily: "inherit", fontSize: 12 }}
+          style={{
+            ...iSt,
+            background: "#241F1A",
+            border: "1px solid #3B332A",
+            color: "#FAF4EB",
+            height: 60,
+            resize: "vertical",
+            fontFamily: "inherit",
+            fontSize: 12
+          }}
         />
       </div>
     )
@@ -2617,7 +3207,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
     const isSlab = (item.route || "slab") === "slab"
 
     // Pan & geometry calculations
-    const selectedPan = STANDARD_PANS[item.panIndex !== undefined ? item.panIndex : 1] || STANDARD_PANS[1]
+    const selectedPan = activePans[item.panIndex !== undefined ? item.panIndex : 1] || activePans[1] || activePans[0]
     const pGeom = calculatePortionsGeometry({
       servings: Number(item.servings) || 100,
       sliceWidth: Number(item.sliceWidth) || 2,
@@ -2633,28 +3223,31 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         const calB = r ? (Number(r.cal_dim_b ?? r.calDimB) || 8) : 8
         const calH = r ? (Number(r.cal_height_in ?? r.calHeightIn) || 2) : 2
         const dens = Number(r?.density) || (calG > 0 ? calculateDensity(calG, calSh, calA, calB, calH) : 0.8)
-        const trim = r && (r.trim_pct !== undefined || r.trimPct !== undefined) ? ((Number(r.trim_pct ?? r.trimPct) || 8) / 100) : 0.08
+        const rawTrim = r ? (r.trim_pct !== undefined ? Number(r.trim_pct) : (r.trimPct !== undefined ? Number(r.trimPct) : 8)) : 8
+        const trim = (rawTrim > 0 && rawTrim <= 1) ? rawTrim : (rawTrim / 100) || 0.08
         const cpg = getRecipeCostPerGram(r)
         return { ...l, density: dens, trimPct: trim, costPerGram: cpg, recipe: r }
       }),
       fillRecipe: (() => {
         const r = recipes.find(x => x.id === item.fillingRecipe || x.name === item.fillingRecipe)
-        if (!r) return null
+        if (!r && !item.fillingRecipe) return null
+        const { thickFill, density, wastePct } = resolveCoveringProps(r || item.fillingRecipe)
         return {
-          thickMm: Number(r.thick_fill_mm || r.thickFillMm) || 4.5,
-          density: Number(r.density_g_cm3 || r.density) || 0.90,
-          wastePct: Number(r.waste_pct || r.wastePct) || 0.15,
+          thickMm: thickFill,
+          density,
+          wastePct,
           costPerGram: getRecipeCostPerGram(r),
           recipe: r
         }
       })(),
       topRecipe: (() => {
         const r = recipes.find(x => x.id === item.topFinishRecipe || x.name === item.topFinishRecipe)
-        if (!r) return null
+        if (!r && !item.topFinishRecipe) return null
+        const { thickFinish, density, wastePct } = resolveCoveringProps(r || item.topFinishRecipe)
         return {
-          thickMm: Number(r.thick_finish_mm || r.thickFinishMm) || 4.0,
-          density: Number(r.density_g_cm3 || r.density) || 1.10,
-          wastePct: Number(r.waste_pct || r.wastePct) || 0.10,
+          thickMm: thickFinish,
+          density,
+          wastePct,
           costPerGram: getRecipeCostPerGram(r),
           recipe: r
         }
@@ -2668,8 +3261,9 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       : 0
     const countedServings = Number(item.countedServings) || 40
     const countedTotalCost = countedServings * countedCostEach
-    const countedBatchSize = Number(countedRecipe?.per_batch) || Number(countedRecipe?.batchSize) || 30
-    const countedBatches = countedBatchSize > 0 ? (countedServings / countedBatchSize).toFixed(2) : "0"
+    const countedBatchSize = Number(countedRecipe?.batchSize || countedRecipe?.perBatch || countedRecipe?.per_batch) || 12
+    const rawBatches = countedBatchSize > 0 ? (countedServings / countedBatchSize) : 0
+    const countedBatches = rawBatches > 0 ? +(rawBatches.toFixed(2)) : 0
 
     return (
       <div
@@ -2860,53 +3454,75 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 Flavours • how many layers of each
               </label>
 
-              {(item.layers || [{ id: uid2(), flavour: "", qty: 1 }]).map((l, li) => (
-                <div key={l.id || li} style={{ display: "grid", gridTemplateColumns: "30px 1fr 64px 32px", gap: 7, alignItems: "center", marginBottom: 7 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>F{li + 1}</span>
-                  <select
-                    value={l.flavour || ""}
-                    onChange={e => {
-                      const val = e.target.value
-                      updateItem(item.id, cur => ({
-                        ...cur,
-                        layers: (cur.layers || []).map((layer, idx) => idx === li ? { ...layer, flavour: val } : layer)
-                      }))
-                    }}
-                    style={{ ...iSt }}
-                  >
-                    <option value="">— Select cake flavour —</option>
-                    {(layerRecipes.length > 0 ? layerRecipes : allRecipes).map(r => (
-                      <option key={r.id} value={r.name}>{r.name}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={l.qty || 1}
-                    onChange={e => {
-                      const val = Math.max(1, parseInt(e.target.value) || 1)
-                      updateItem(item.id, cur => ({
-                        ...cur,
-                        layers: (cur.layers || []).map((layer, idx) => idx === li ? { ...layer, qty: val } : layer)
-                      }))
-                    }}
-                    style={{ ...iSt, textAlign: "center" }}
-                  />
-                  {(item.layers || []).length > 1 ? (
-                    <button
-                      type="button"
-                      onClick={() => updateItem(item.id, cur => ({
-                        ...cur,
-                        layers: cur.layers.filter((_, idx) => idx !== li)
-                      }))}
-                      style={{ background: "transparent", border: "1px solid var(--cream-line, #E3D6B3)", borderRadius: 7, color: "#B03A2E", fontSize: 16, cursor: "pointer", height: 38, lineHeight: 1 }}
+              {(item.layers || [{ id: uid2(), flavour: "", qty: 1 }]).map((l, li) => {
+                const fr = pGeom.flavourRows?.[li]
+                const gOne = fr ? Math.round(fr.gramsPerPan) : 0
+                return (
+                  <div key={l.id || li} style={{ display: "grid", gridTemplateColumns: "30px 1fr 64px auto 32px", gap: 7, alignItems: "center", marginBottom: 7 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>F{li + 1}</span>
+                    <select
+                      value={l.flavour || ""}
+                      onChange={e => {
+                        const val = e.target.value
+                        updateItem(item.id, cur => ({
+                          ...cur,
+                          layers: (cur.layers || []).map((layer, idx) => idx === li ? { ...layer, flavour: val } : layer)
+                        }))
+                      }}
+                      style={{ ...iSt }}
                     >
-                      ×
-                    </button>
-                  ) : <span />}
-                </div>
-              ))}
+                      <option value="">— Select cake flavour —</option>
+                      {(layerRecipes.length > 0 ? layerRecipes : allRecipes).map(r => (
+                        <option key={r.id} value={r.name}>{r.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={l.qty || 1}
+                      onChange={e => {
+                        const val = Math.max(1, parseInt(e.target.value) || 1)
+                        updateItem(item.id, cur => ({
+                          ...cur,
+                          layers: (cur.layers || []).map((layer, idx) => idx === li ? { ...layer, qty: val } : layer)
+                        }))
+                      }}
+                      style={{ ...iSt, textAlign: "center" }}
+                    />
+                    <div
+                      style={{
+                        background: "#192B40",
+                        border: "1px solid #2A4360",
+                        color: "#7AB2F5",
+                        borderRadius: 6,
+                        padding: "8px 10px",
+                        fontSize: 12.5,
+                        fontWeight: 700,
+                        whiteSpace: "nowrap",
+                        textAlign: "right",
+                        minWidth: 70,
+                        fontVariantNumeric: "tabular-nums"
+                      }}
+                      title={fr ? (Number(l.qty) > 1 ? `${gOne.toLocaleString()} g per pan (${fr.pansForRow} pans = ${Math.round(fr.totalGrams).toLocaleString()} g)` : `${gOne.toLocaleString()} g per pan`) : ""}
+                    >
+                      {gOne > 0 ? `${gOne.toLocaleString()} g` : "—"}
+                    </div>
+                    {(item.layers || []).length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => updateItem(item.id, cur => ({
+                          ...cur,
+                          layers: cur.layers.filter((_, idx) => idx !== li)
+                        }))}
+                        style={{ background: "transparent", border: "1px solid var(--cream-line, #E3D6B3)", borderRadius: 7, color: "#B03A2E", fontSize: 16, cursor: "pointer", height: 38, lineHeight: 1 }}
+                      >
+                        ×
+                      </button>
+                    ) : <span />}
+                  </div>
+                )
+              })}
 
               <button
                 type="button"
@@ -2930,8 +3546,8 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     style={{ ...iSt }}
                   >
                     <option value="">None</option>
-                    {(fillingRecipes.length > 0 ? fillingRecipes : allFillingTypes.map(name => ({ id: name, name }))).map(r => (
-                      <option key={r.id || r.name} value={r.name}>{r.name}</option>
+                    {allFillingTypes.map(name => (
+                      <option key={name} value={name}>{name}</option>
                     ))}
                   </select>
                 </div>
@@ -2945,8 +3561,8 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     style={{ ...iSt }}
                   >
                     <option value="">None</option>
-                    {(finishRecipes.length > 0 ? finishRecipes : allCoveringTypes.map(name => ({ id: name, name }))).map(r => (
-                      <option key={r.id || r.name} value={r.name}>{r.name}</option>
+                    {allCoveringTypes.map(name => (
+                      <option key={name} value={name}>{name}</option>
                     ))}
                   </select>
                 </div>
@@ -2970,8 +3586,8 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 onChange={e => updateItem(item.id, cur => ({ ...cur, panIndex: Number(e.target.value) }))}
                 style={{ ...iSt }}
               >
-                {STANDARD_PANS.map((p, idx) => (
-                  <option key={idx} value={idx}>{p.label}</option>
+                {activePans.map((p, idx) => (
+                  <option key={p.id || idx} value={idx}>{p.label || p.name || `${p.width || p[1]} × ${p.length || p[2]} pan`}</option>
                 ))}
               </select>
 
@@ -3105,12 +3721,12 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(countedCostEach)}</td>
                   </tr>
                   <tr style={{ borderBottom: "1px solid var(--cream-line, #E3D6B3)" }}>
-                    <td style={{ padding: "6px 0" }}>Batches to make</td>
-                    <td style={{ textAlign: "right", fontWeight: 600 }}>{countedBatches}</td>
+                    <td style={{ padding: "6px 0" }}>Batches to make (unrounded)</td>
+                    <td style={{ textAlign: "right", fontWeight: 600 }}>{countedBatches} batches</td>
                   </tr>
                   <tr style={{ fontWeight: 700, borderTop: "2px solid var(--gold)" }}>
                     <td style={{ padding: "8px 0", color: "var(--gold)" }}>
-                      {countedServings} servings
+                      {countedServings} pieces • {fmt(countedCostEach)} each
                     </td>
                     <td style={{ textAlign: "right", padding: "8px 0", color: "var(--gold)", fontSize: 14 }}>
                       {fmt(countedTotalCost)}
@@ -3119,7 +3735,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 </tbody>
               </table>
               <p style={{ fontSize: 11.5, color: "var(--muted)", margin: "8px 0 0", lineHeight: 1.45 }}>
-                Nothing geometric here. The recipe already says how many a batch makes, so the app multiplies.
+                Nothing geometric here. The recipe already says how many a batch makes, so the app multiplies. Batch count is never rounded up ({countedBatches} batches = scale ingredients by {countedBatches}).
               </p>
             </div>
           </div>
@@ -3658,8 +4274,8 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           if (it.route === "count") {
             return `${it.name || `Item ${idx + 1}`}: ${it.countedServings || 40} counted servings`
           }
-          const pan = STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1] || STANDARD_PANS[1]
-          return `${it.name || `Item ${idx + 1}`}: ${it.servings || 100} slices (${pan.label})`
+          const pan = activePans[it.panIndex !== undefined ? it.panIndex : 1] || activePans[1] || activePans[0]
+          return `${it.name || `Item ${idx + 1}`}: ${it.servings || 100} slices (${pan?.label || pan?.name || "tray"})`
         } else if (it.type === "cake") {
           const tSum = (it.tiers || []).map(t => `${t.size}" ${t.shape} (${t.layers?.map(l => (l.qty > 1 ? l.qty + "×" : "") + (l.flavour || "?")).join("/")})`).join(" + ")
           return `${it.name || `Item ${idx + 1}`}: ${tSum || "Cake"}`
@@ -3835,7 +4451,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
   }
 
   return (
-    <div>
+    <main>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
         <SHead
           title="Order Calculator"
@@ -4489,7 +5105,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
       </div>
 
       {/* TWO COLUMN WORKSPACE: LEFT = ITEMS, RIGHT = QUOTE SUMMARY */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.35fr 0.65fr", gap: 18 }}>
+      <section style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.35fr 0.65fr", gap: 18 }}>
         <div>
           {/* RENDER ALL ITEMS */}
           {items.map((item, idx) => (
@@ -4540,7 +5156,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
         </div>
 
         {/* RIGHT COLUMN: STICKY QUOTE SUMMARY */}
-        <div>
+        <aside>
           <Card style={{ position: "sticky", top: 16, background: "var(--panel)" }}>
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
               Quote Summary
@@ -4576,7 +5192,7 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                 {items.map((it, idx) => {
                   const iPrice = getItemPrice(it)
                   const desc = it.type === "portions"
-                    ? (it.route === "count" ? `${it.countedServings || 40} servings (counted)` : `${it.servings || 100} slices (${STANDARD_PANS[it.panIndex !== undefined ? it.panIndex : 1]?.label || "tray"})`)
+                    ? (it.route === "count" ? `${it.countedServings || 40} servings (counted)` : `${it.servings || 100} slices (${activePans[it.panIndex !== undefined ? it.panIndex : 1]?.label || activePans[0]?.label || "tray"})`)
                     : it.type === "cake"
                       ? (it.tiers?.[0]?.size ? `${it.tiers[0].size}" ${it.tiers[0].shape || "Round"} Cake` : "Cake")
                       : (it.pastryItems?.[0]?.flavour ? `${it.pastryItems[0].qty || 12} pcs ${it.pastryItems[0].flavour}` : "Pastry")
@@ -4681,11 +5297,25 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     type="number"
                     min="0"
                     step="0.5"
-                    value={orderHours}
+                    value={orderHours !== undefined && orderHours !== null ? orderHours : ""}
+                    placeholder="0"
                     onChange={e => {
-                      const v = parseFloat(e.target.value) || 0
-                      setOrderHours(v)
-                      autoSave({ orderHours: v })
+                      const raw = e.target.value
+                      if (raw === "") {
+                        setOrderHours("")
+                        autoSave({ orderHours: "" })
+                        return
+                      }
+                      const v = parseFloat(raw)
+                      if (!isNaN(v)) {
+                        setOrderHours(v)
+                        if (overheadMethod === "pct") {
+                          setOverheadMethod("hr")
+                          autoSave({ orderHours: v, overheadMethod: "hr" })
+                        } else {
+                          autoSave({ orderHours: v })
+                        }
+                      }
                     }}
                     style={{ ...iSt }}
                   />
@@ -4698,11 +5328,20 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     type="number"
                     min="0"
                     step="1"
-                    value={accessoriesPct}
+                    value={accessoriesPct !== undefined && accessoriesPct !== null ? accessoriesPct : ""}
+                    placeholder="0"
                     onChange={e => {
-                      const v = parseFloat(e.target.value) || 0
-                      setAccessoriesPct(v)
-                      autoSave({ accessoriesPct: v })
+                      const raw = e.target.value
+                      if (raw === "") {
+                        setAccessoriesPct("")
+                        autoSave({ accessoriesPct: "" })
+                        return
+                      }
+                      const v = parseFloat(raw)
+                      if (!isNaN(v)) {
+                        setAccessoriesPct(v)
+                        autoSave({ accessoriesPct: v })
+                      }
                     }}
                     style={{ ...iSt }}
                   />
@@ -4718,11 +5357,20 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     type="number"
                     min="0"
                     step="5"
-                    value={rushPct}
+                    value={rushPct !== undefined && rushPct !== null ? rushPct : ""}
+                    placeholder="0"
                     onChange={e => {
-                      const v = parseFloat(e.target.value) || 0
-                      setRushPct(v)
-                      autoSave({ rushPct: v })
+                      const raw = e.target.value
+                      if (raw === "") {
+                        setRushPct("")
+                        autoSave({ rushPct: "" })
+                        return
+                      }
+                      const v = parseFloat(raw)
+                      if (!isNaN(v)) {
+                        setRushPct(v)
+                        autoSave({ rushPct: v })
+                      }
                     }}
                     style={{ ...iSt }}
                   />
@@ -4735,11 +5383,20 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
                     type="number"
                     min="0"
                     step="5"
-                    value={seasonPct}
+                    value={seasonPct !== undefined && seasonPct !== null ? seasonPct : ""}
+                    placeholder="0"
                     onChange={e => {
-                      const v = parseFloat(e.target.value) || 0
-                      setSeasonPct(v)
-                      autoSave({ seasonPct: v })
+                      const raw = e.target.value
+                      if (raw === "") {
+                        setSeasonPct("")
+                        autoSave({ seasonPct: "" })
+                        return
+                      }
+                      const v = parseFloat(raw)
+                      if (!isNaN(v)) {
+                        setSeasonPct(v)
+                        autoSave({ seasonPct: v })
+                      }
                     }}
                     style={{ ...iSt }}
                   />
@@ -5245,8 +5902,8 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
               💡 <strong>Multi-Item Ordering:</strong> Every item — cake or pastry — gets its own sizes, layers, fillings, coverings, decorations, custom topper, boards, photo gallery, delivery date/time, and note. Click <em>"+ Add Item"</em> as many times as the order needs. One general note up top, one Quote Summary total, and one consolidated invoice at the end.
             </div>
           </Card>
-        </div>
-      </div>
+        </aside>
+      </section>
 
       {/* ENLARGED PHOTO PREVIEW MODAL */}
       {previewPhoto && (
@@ -5296,6 +5953,6 @@ export function OrderCalculator({ inventory, recipes, settings, setView, company
           </div>
         </div>
       )}
-    </div>
+    </main>
   )
 }

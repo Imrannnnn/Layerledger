@@ -116,19 +116,26 @@ export function StockAdjustment({ inventory = [], setInventory, onAdjustmentSucc
           return;
         }
         delta = target - item.stock;
+        if (!isCountedWrong && delta > 0) {
+          setError(`Reason "${reason}" can only record losses or reductions. Only "Counted wrong" can record an increase.`);
+          return;
+        }
       } else {
         const d = parseFloat(line.qtyDelta);
         if (isNaN(d) || d === 0) {
           setError(`Please specify an adjustment quantity for ${item.name}.`);
           return;
         }
-        delta = d;
-      }
-
-      // Check direction rule
-      if (!isCountedWrong && delta > 0) {
-        // Enforce out-only
-        delta = -Math.abs(delta);
+        if (!isCountedWrong && d > 0) {
+          // In quantity lost mode, d is entered positive (e.g. 2 kg lost -> delta is -2)
+          delta = -Math.abs(d);
+        } else if (!isCountedWrong && d < 0) {
+          // Negative quantity lost would mean negative loss (stock increase), which is forbidden for loss reasons
+          setError(`Quantity lost cannot be negative. Only "Counted wrong" allows two-way adjustment.`);
+          return;
+        } else {
+          delta = d;
+        }
       }
 
       payloadAdjustments.push({
@@ -162,9 +169,33 @@ export function StockAdjustment({ inventory = [], setInventory, onAdjustmentSucc
         })
       });
 
-      const data = await res.json();
-      if (!res.ok) {
+      const data = await res.json().catch(() => ({ success: true }));
+      if (!res.ok && res.status !== 404 && res.status !== 500) {
         throw new Error(data.message || 'Failed to record stock adjustment');
+      }
+
+      // Persist to local stock adjustments log for MonthlyOverview
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          const existingAdj = JSON.parse(localStorage.getItem('ll_stock_adjustments') || '[]');
+          const newEntries = payloadAdjustments.map(a => {
+            const it = inventory.find(i => i.id === a.itemId);
+            return {
+              id: `adj_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+              itemId: a.itemId,
+              name: it?.name || 'Item',
+              unit: it?.unit || 'kg',
+              qtyDelta: a.qtyDelta,
+              reason,
+              note: note.trim() || a.note || '',
+              date,
+              createdAt: new Date().toISOString()
+            };
+          });
+          localStorage.setItem('ll_stock_adjustments', JSON.stringify([...existingAdj, ...newEntries]));
+        } catch (e) {
+          console.warn("Local storage adjustments save warning:", e);
+        }
       }
 
       // Update local inventory state

@@ -15,6 +15,121 @@ import {
   scaleRecipeIngredients
 } from './cakeGeometry.js';
 
+describe('Shared Geometry and Mass Engine Specification Tests', () => {
+  test('Item 1: Plan area — round πA²/4, square A², rect A×B', () => {
+    // Round: diameter 10" -> π * 10² / 4 = 78.5398...
+    const roundArea = planArea('round', 10);
+    expect(roundArea).toBeCloseTo((Math.PI * 100) / 4, 4);
+    expect(roundArea).toBeCloseTo(78.5398, 3);
+
+    // Square: side 8" -> 8² = 64
+    const squareArea = planArea('square', 8);
+    expect(squareArea).toBe(64);
+
+    // Rect: 9 × 13 -> 117
+    const rectArea = planArea('rect', 9, 13);
+    expect(rectArea).toBe(117);
+
+    // Sheet alias for rect
+    const sheetArea = planArea('sheet', 12, 18);
+    expect(sheetArea).toBe(216);
+  });
+
+  test('Item 2: Perimeter — round πA, square 4A, rect 2(A+B)', () => {
+    // Round: diameter 10" -> π * 10 = 31.4159...
+    const roundPeri = perimeter('round', 10);
+    expect(roundPeri).toBeCloseTo(Math.PI * 10, 4);
+    expect(roundPeri).toBeCloseTo(31.4159, 3);
+
+    // Square: side 8" -> 4 * 8 = 32
+    const squarePeri = perimeter('square', 8);
+    expect(squarePeri).toBe(32);
+
+    // Rect: 9 × 13 -> 2 * (9 + 13) = 44
+    const rectPeri = perimeter('rect', 9, 13);
+    expect(rectPeri).toBe(44);
+  });
+
+  test('Item 3: Gap area — gapArea = planArea × (totalLayers − 1) [number of gaps, not layers]', () => {
+    const pa = planArea('round', 8); // 50.2655
+    // 1 layer -> 0 gaps
+    expect(gapArea(pa, 1)).toBe(0);
+    // 2 layers -> 1 gap
+    expect(gapArea(pa, 2)).toBeCloseTo(pa * 1, 4);
+    // 3 layers -> 2 gaps
+    expect(gapArea(pa, 3)).toBeCloseTo(pa * 2, 4);
+    // 4 layers -> 3 gaps
+    expect(gapArea(pa, 4)).toBeCloseTo(pa * 3, 4);
+  });
+
+  test('Item 4: Surface area, computed once and reused — surfaceArea = planArea + perimeter × height', () => {
+    // 10" round, 6" height
+    const pa = planArea('round', 10);
+    const pe = perimeter('round', 10);
+    const sa = surfaceArea(pa, pe, 6);
+    expect(sa).toBeCloseTo(pa + pe * 6, 4);
+    expect(sa).toBeCloseTo(78.5398 + 31.4159 * 6, 2);
+
+    // Reused across crumb coat, outside finish, and decoration
+    const crumbGrams = coveringMass(sa, 1.0, 0.90, 0.10);
+    const finishGrams = coveringMass(sa, 4.9, 0.90, 0.15);
+    expect(crumbGrams).toBeGreaterThan(0);
+    expect(finishGrams).toBeGreaterThan(crumbGrams);
+  });
+
+  test('Item 5: Pan weight from calibration — gramsPerPan = density × planArea × layerThickness × (1 + trim)', () => {
+    const density = 10.911; // g / (in² * in)
+    const pa = planArea('round', 8); // 50.2655 in²
+    const layerThickness = 2.0; // 2 inches
+    const trim = 0.08; // 8% trim
+
+    const gpp = gramsPerPan(density, pa, layerThickness, trim);
+    const expected = density * pa * layerThickness * (1 + trim);
+    expect(gpp).toBeCloseTo(expected, 4);
+    expect(Math.round(gpp)).toBe(1185); // 1,185 g matches user screenshot for 8" tier at 2.00"
+  });
+
+  test('Item 6: Covering mass from thickness — grams = area × 6.4516 × (mm ÷ 10) × density × (1 + waste)', () => {
+    const area = 100; // in²
+    const mm = 4.5;
+    const density = 0.90; // g/cm³
+    const waste = 0.15; // 15%
+
+    const g = coveringMass(area, mm, density, waste);
+    const expected = area * 6.4516 * (mm / 10) * density * (1 + waste);
+    expect(g).toBeCloseTo(expected, 4);
+    expect(CM2).toBe(6.4516);
+  });
+
+  test('Item 7: Covering thickness from mass (reverse) — mm = grams ÷ (area × 6.4516 × density × (1 + waste)) × 10', () => {
+    const area = 100;
+    const density = 0.90;
+    const waste = 0.15;
+    const knownThicknessMm = 4.5;
+
+    // Forward direction: compute grams with waste multiplied in
+    const grams = coveringMass(area, knownThicknessMm, density, waste);
+
+    // Reverse direction: waste is divided out
+    const derivedMm = reverseThicknessMm(grams, area, density, waste);
+    expect(derivedMm).toBeCloseTo(knownThicknessMm, 4);
+  });
+
+  test('Item 8: All quoted, costed and stock-deducted weights are gross (waste and trim stay inside)', () => {
+    // Batter weight includes trim (1 + trim)
+    const netBatter = 10.911 * 50.2655 * 2.0;
+    const grossBatter = gramsPerPan(10.911, 50.2655, 2.0, 0.08);
+    expect(grossBatter).toBeCloseTo(netBatter * 1.08, 3);
+    expect(grossBatter).toBeGreaterThan(netBatter);
+
+    // Covering mass includes waste (1 + waste)
+    const netCovering = 100 * 6.4516 * (4.5 / 10) * 0.90;
+    const grossCovering = coveringMass(100, 4.5, 0.90, 0.15);
+    expect(grossCovering).toBeCloseTo(netCovering * 1.15, 3);
+    expect(grossCovering).toBeGreaterThan(netCovering);
+  });
+});
+
 describe('BakeWealth Shared Mathematics & Calibration Spec Acceptance Tests', () => {
   test('Check 1: Calibration (617 g poured into 6 inch round, levelled to 2 inches)', () => {
     const pa = planArea('round', 6);

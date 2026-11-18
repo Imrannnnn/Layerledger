@@ -5,11 +5,18 @@
 const cache = {}
 const lastSyncedValues = {}
 import { formatApiError } from "./errorHandler.js"
-import { calculateDensity } from "./cakeGeometry.js"
+import { calculateDensity, getPanLibrary, calculateCommittedStock, calculateOrderCommitments, DEFAULT_RECURRING_COSTS, calculateProductionOverhead, deriveOverheadRates } from "./cakeGeometry.js"
+export { calculateCommittedStock, calculateOrderCommitments, DEFAULT_RECURRING_COSTS, calculateProductionOverhead, deriveOverheadRates }
 
 const fetchWithTimeout = async (url, options = {}, timeoutMs = 8000) => {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const timer = setTimeout(() => {
+    try {
+      controller.abort(new Error(`Request timed out after ${timeoutMs}ms`))
+    } catch {
+      controller.abort()
+    }
+  }, timeoutMs)
   try {
     return await fetch(url, { ...options, signal: controller.signal })
   } finally {
@@ -87,13 +94,14 @@ const mapServerInventoryToLocal = (item) => ({
   minStock: item.minStock
 })
 
-const mapServerRecipeToLocal = (rec) => {
+export const mapServerRecipeToLocal = (rec) => {
   const calG = rec.calGrams !== undefined && rec.calGrams !== null ? Number(rec.calGrams) : (rec.cal_grams !== undefined && rec.cal_grams !== null ? Number(rec.cal_grams) : null)
   const calSh = rec.calShape || rec.cal_shape || "round"
   const calA = rec.calDimA !== undefined && rec.calDimA !== null ? Number(rec.calDimA) : (rec.cal_dim_a !== undefined && rec.cal_dim_a !== null ? Number(rec.cal_dim_a) : 6)
   const calB = rec.calDimB !== undefined && rec.calDimB !== null ? Number(rec.calDimB) : (rec.cal_dim_b !== undefined && rec.cal_dim_b !== null ? Number(rec.cal_dim_b) : 8)
   const calH = rec.calHeightIn !== undefined && rec.calHeightIn !== null ? Number(rec.calHeightIn) : (rec.cal_height_in !== undefined && rec.cal_height_in !== null ? Number(rec.cal_height_in) : 2)
-  const trim = rec.trimPct !== undefined && rec.trimPct !== null ? Number(rec.trimPct) : (rec.trim_pct !== undefined && rec.trim_pct !== null ? Number(rec.trim_pct) : 8)
+  const rawTrim = rec.trimPct !== undefined && rec.trimPct !== null ? Number(rec.trimPct) : (rec.trim_pct !== undefined && rec.trim_pct !== null ? Number(rec.trim_pct) : 8)
+  const trim = (rawTrim > 0 && rawTrim <= 1) ? Math.round(rawTrim * 100) : (rawTrim || 8)
 
   let dens = rec.density !== undefined && rec.density !== null ? Number(rec.density) : null
   if (!dens && calG && calG > 0) {
@@ -167,7 +175,8 @@ const buildRecipePayloadBody = (rec) => {
   const calA = rec.calDimA !== undefined && rec.calDimA !== null && rec.calDimA !== "" ? Number(rec.calDimA) : (rec.cal_dim_a !== undefined && rec.cal_dim_a !== null && rec.cal_dim_a !== "" ? Number(rec.cal_dim_a) : null)
   const calB = rec.calDimB !== undefined && rec.calDimB !== null && rec.calDimB !== "" ? Number(rec.calDimB) : (rec.cal_dim_b !== undefined && rec.cal_dim_b !== null && rec.cal_dim_b !== "" ? Number(rec.cal_dim_b) : null)
   const calH = rec.calHeightIn !== undefined && rec.calHeightIn !== null && rec.calHeightIn !== "" ? Number(rec.calHeightIn) : (rec.cal_height_in !== undefined && rec.cal_height_in !== null && rec.cal_height_in !== "" ? Number(rec.cal_height_in) : null)
-  const trim = rec.trimPct !== undefined && rec.trimPct !== null && rec.trimPct !== "" ? Number(rec.trimPct) : (rec.trim_pct !== undefined && rec.trim_pct !== null && rec.trim_pct !== "" ? Number(rec.trim_pct) : 0.08)
+  const rawTrim = rec.trimPct !== undefined && rec.trimPct !== null && rec.trimPct !== "" ? Number(rec.trimPct) : (rec.trim_pct !== undefined && rec.trim_pct !== null && rec.trim_pct !== "" ? Number(rec.trim_pct) : 8)
+  const trim = (rawTrim > 0 && rawTrim <= 1) ? Math.round(rawTrim * 100) : (rawTrim || 8)
   let density = rec.density !== undefined && rec.density !== null && rec.density !== "" ? Number(rec.density) : null
   if (!density && calG && calSh && calA && calH) {
     density = calculateDensity(calG, calSh, calA, calB, calH)
@@ -531,7 +540,7 @@ const save = async (key, val) => {
     if (key === "ll_inv") {
       await syncInventoryItems(headers, val)
     } else if (key === "ll_recipes") {
-      await syncRecipesList(headers, val)
+      await debouncedSyncRecipesList(headers, val)
     } else if (key === "ll_prods") {
       await syncOrdersList(headers, val, load("ll_quotes", []), load("ll_inv", []), load("ll_recipes", []))
     } else if (key === "ll_quotes") {
@@ -820,11 +829,38 @@ const syncInventoryItems = async (headers, localInv) => {
   }
 }
 
+let syncRecipesTimeout = null
+let isSyncingRecipes = false
+const debouncedSyncRecipesList = (headers, localRecipes) => {
+  const serialized = JSON.stringify(localRecipes || [])
+  if (lastSyncedValues["ll_recipes"] === serialized) return Promise.resolve()
+  if (syncRecipesTimeout) clearTimeout(syncRecipesTimeout)
+  return new Promise((resolve) => {
+    syncRecipesTimeout = setTimeout(async () => {
+      if (isSyncingRecipes) return resolve()
+      try {
+        isSyncingRecipes = true
+        await syncRecipesList(headers, localRecipes)
+        lastSyncedValues["ll_recipes"] = serialized
+      } catch (err) {
+        if (err?.name === "AbortError") {
+          console.warn("syncRecipesList aborted due to timeout; local state retained.")
+        } else {
+          console.warn("debouncedSyncRecipesList error:", err)
+        }
+      } finally {
+        isSyncingRecipes = false
+        resolve()
+      }
+    }, 400)
+  })
+}
+
 const syncRecipesList = async (headers, localRecipes) => {
   try {
     const apiUrl = import.meta.env.VITE_API_URL
     if (!apiUrl) return
-    const res = await fetchWithTimeout(`${apiUrl}/api/recipes`, { headers })
+    const res = await fetchWithTimeout(`${apiUrl}/api/recipes`, { headers }, 15000)
     if (!res.ok) return
     const serverRecsRaw = await res.json()
     const serverRecs = Array.isArray(serverRecsRaw) ? serverRecsRaw : []
@@ -833,7 +869,7 @@ const syncRecipesList = async (headers, localRecipes) => {
     const recsToDelete = serverRecs.filter(sRec => !localRecipes.find(r => r.id === sRec.id))
     if (recsToDelete.length > 0) {
       await Promise.allSettled(
-        recsToDelete.map(sRec => fetchWithTimeout(`${apiUrl}/api/recipes/${sRec.id}`, { method: "DELETE", headers }).catch(() => {}))
+        recsToDelete.map(sRec => fetchWithTimeout(`${apiUrl}/api/recipes/${sRec.id}`, { method: "DELETE", headers }, 15000).catch(() => {}))
       )
     }
 
@@ -842,17 +878,39 @@ const syncRecipesList = async (headers, localRecipes) => {
       const sRec = serverRecs.find(r => r.id === rec.id)
       const body = buildRecipePayloadBody(rec)
 
+      // Skip redundant network PUT if server already has matching data
+      if (sRec) {
+        const sCalG = Number(sRec.cal_grams || sRec.calGrams || 0)
+        const bCalG = Number(body.calGrams || 0)
+        const sTrim = Number(sRec.trim_pct || sRec.trimPct || 8)
+        const bTrim = Number(body.trimPct || 8)
+        const sDens = Number(sRec.density || 0)
+        const bDens = Number(body.density || 0)
+        const sShape = sRec.cal_shape || sRec.calShape || null
+        const bShape = body.calShape || null
+        const sName = (sRec.name || "").trim()
+        const bName = (body.name || "").trim()
+
+        if (sName === bName && sCalG === bCalG && sTrim === bTrim && sDens === bDens && sShape === bShape) {
+          const sIngs = JSON.stringify((sRec.ingredients || []).map(i => ({ id: i.id || i.ingredientId, amount: Number(i.amount || 0) })))
+          const bIngs = JSON.stringify((rec.ingredients || []).map(i => ({ id: i.id || i.ingredientId, amount: Number(i.amount || 0) })))
+          if (sIngs === bIngs) {
+            return null
+          }
+        }
+      }
+
       const resPromise = sRec
         ? fetchWithTimeout(`${apiUrl}/api/recipes/${rec.id}`, {
             method: "PUT",
             headers,
             body: JSON.stringify(body)
-          })
+          }, 15000)
         : fetchWithTimeout(`${apiUrl}/api/recipes`, {
             method: "POST",
             headers,
             body: JSON.stringify(body)
-          })
+          }, 15000)
 
       const apiRes = await resPromise
       if (apiRes && !apiRes.ok) {
@@ -877,6 +935,10 @@ const syncRecipesList = async (headers, localRecipes) => {
       }
     }
   } catch (err) {
+    if (err?.name === "AbortError") {
+      console.warn("syncRecipesList aborted due to timeout:", err)
+      return
+    }
     console.error("syncRecipesList error:", err)
     throw err
   }
@@ -1096,6 +1158,14 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
         const decor = storedDecor.find(d => d.id === did);
         if (decor && decor.iid) {
           addUsage(decor.iid, (Number(decor.qty) || 1) * c);
+        } else {
+          const cleanId = did.startsWith("d_") ? did.slice(2) : did;
+          const invMatch = (inventory || []).find(i => i.id === cleanId || i.id === did);
+          if (invMatch) {
+            const u = (invMatch.unit || "").toLowerCase().trim();
+            const needed = (u === "kg" || u === "l") ? c / 1000 : c;
+            addUsage(invMatch.id, needed);
+          }
         }
       });
     } else if (typeof decQtyOrString === "string") {
@@ -1107,6 +1177,100 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
         }
       });
     }
+  };
+
+
+  const processPortionsItem = (it) => {
+    if (!it) return;
+    if (it.route === "count") {
+      const rec = (recipes || []).find(r => r.id === it.countedRecipeId || r.name === it.countedRecipeId);
+      if (rec && rec.ing) {
+        const servings = Number(it.countedServings) || 40;
+        const batchSize = Number(rec.batchSize || rec.per_batch) || 12;
+        const ratio = servings / batchSize;
+        rec.ing.forEach(ing => {
+          addUsage(ing.iid, (Number(ing.qty) || 0) * ratio);
+        });
+      }
+    } else {
+      // Slab mode: evaluate geometry and deduct calibrated batter, filling and top finish
+      const pans = typeof getPanLibrary === "function" ? getPanLibrary() : [
+        { label: "12 × 18 pan", width: 12, length: 18 },
+        { label: "9 × 13 pan", width: 9, length: 13 },
+        { label: "16 × 24 pan", width: 16, length: 24 }
+      ];
+      const selectedPan = pans[it.panIndex !== undefined ? it.panIndex : 1] || pans[1] || pans[0];
+      const width = Number(selectedPan?.width || selectedPan?.[1]) || 12;
+      const length = Number(selectedPan?.length || selectedPan?.[2]) || 18;
+      const sliceW = Number(it.sliceWidth) || 2;
+      const sliceL = Number(it.sliceLength) || 2;
+      const sliceH = Number(it.sliceHeight) || 4;
+      const allowance = (Number(it.allowancePct !== undefined ? it.allowancePct : 5) || 5) / 100;
+      const needed = Math.ceil((Number(it.servings) || 100) * (1 + allowance));
+      const orientA = Math.floor(length / sliceL) * Math.floor(width / sliceW);
+      const orientB = Math.floor(length / sliceW) * Math.floor(width / sliceL);
+      const slicesPerSlab = Math.max(orientA, orientB, 1);
+      const slabs = Math.max(1, Math.ceil(needed / slicesPerSlab));
+
+      const rows = (it.layers || [{ flavour: "", qty: 1 }]).map(l => {
+        const r = (recipes || []).find(x => x.id === l.flavour || x.name === l.flavour);
+        const dens = Number(r?.density) || 0.8;
+        const trim = r && (r.trim_pct !== undefined || r.trimPct !== undefined) ? ((Number(r.trim_pct ?? r.trimPct) || 8) / 100) : 0.08;
+        return { recipeId: l.flavour, layers: Number(l.qty) || 1, density: dens, trimPct: trim, recipe: r };
+      });
+      const totalLayers = rows.reduce((s, r) => s + (r.layers || 0), 0) || 1;
+      const layerThickness = sliceH / totalLayers;
+      const panArea = width * length;
+
+      rows.forEach(f => {
+        const r = f.recipe;
+        if (r && r.ing) {
+          const gPerPan = f.density * panArea * layerThickness * (1 + f.trimPct);
+          const pansToBake = f.layers * slabs;
+          const totalGrams = gPerPan * pansToBake;
+          const batchGrams = getBatchGrams(r);
+          const ratio = totalGrams / batchGrams;
+          r.ing.forEach(ing => {
+            addUsage(ing.iid, (Number(ing.qty) || 0) * ratio);
+          });
+        }
+      });
+
+      // Deduct filling
+      if (it.fillingRecipe) {
+        const fillRec = (recipes || []).find(r => r.id === it.fillingRecipe || r.name === it.fillingRecipe);
+        if (fillRec && fillRec.ing) {
+          const gapArea = panArea * Math.max(totalLayers - 1, 0) * slabs;
+          const thick = Number(fillRec.thick_fill_mm || fillRec.thickFillMm) || 4.5;
+          const dens = Number(fillRec.density || fillRec.density_g_cm3) || 0.90;
+          const waste = Number(fillRec.waste_pct || fillRec.wastePct) ? Number(fillRec.waste_pct || fillRec.wastePct) / 100 : 0.15;
+          const fillGrams = gapArea * 6.4516 * (thick / 10) * dens * (1 + waste);
+          const batchGrams = getBatchGrams(fillRec);
+          const ratio = fillGrams / batchGrams;
+          fillRec.ing.forEach(ing => {
+            addUsage(ing.iid, (Number(ing.qty) || 0) * ratio);
+          });
+        }
+      }
+
+      // Deduct top finish
+      if (it.topFinishRecipe) {
+        const topRec = (recipes || []).find(r => r.id === it.topFinishRecipe || r.name === it.topFinishRecipe);
+        if (topRec && topRec.ing) {
+          const topArea = panArea * slabs;
+          const thick = Number(topRec.thick_finish_mm || topRec.thickFinishMm) || 4.0;
+          const dens = Number(topRec.density || topRec.density_g_cm3) || 1.10;
+          const waste = Number(topRec.waste_pct || topRec.wastePct) ? Number(topRec.waste_pct || topRec.wastePct) / 100 : 0.10;
+          const topGrams = topArea * 6.4516 * (thick / 10) * dens * (1 + waste);
+          const batchGrams = getBatchGrams(topRec);
+          const ratio = topGrams / batchGrams;
+          topRec.ing.forEach(ing => {
+            addUsage(ing.iid, (Number(ing.qty) || 0) * ratio);
+          });
+        }
+      }
+    }
+    processAccessories(it.accRows);
   };
 
   const processAccessories = (accRows) => {
@@ -1134,6 +1298,8 @@ export const calculateOrderUsages = (o, inventory = [], recipes = []) => {
           it.pastryItems.forEach(processPastryItem);
         }
         processAccessories(it.accRows);
+      } else if (it.type === "portions") {
+        processPortionsItem(it);
       }
     });
   } else {
@@ -3121,6 +3287,8 @@ export const createRecipeOnServer = async (rec) => {
   const body = buildRecipePayloadBody(rec)
   if (rec.id) body.id = rec.id
 
+  console.log("[RecipeSync] Creating recipe on server with payload:", body)
+
   const res = await fetch(`${apiUrl}/api/recipes`, {
     method: "POST",
     headers,
@@ -3129,6 +3297,7 @@ export const createRecipeOnServer = async (rec) => {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
+    console.error("[RecipeSync] POST /api/recipes failed:", res.status, err)
     if (res.status === 403 || err.code === "PLAN_LIMIT_REACHED" || (err.message && err.message.includes("limit reached"))) {
       notifyPlanLimitReached({ limitType: "recipes", ...err })
     }
@@ -3140,11 +3309,13 @@ export const createRecipeOnServer = async (rec) => {
   }
 
   const serverRec = await res.json()
+  console.log("[RecipeSync] Recipe created successfully on server:", serverRec)
   const localRec = mapServerRecipeToLocal(serverRec)
-  const curRecs = Array.isArray(cache["ll_recipes"]) ? cache["ll_recipes"] : []
+  const curRecs = Array.isArray(cache["ll_recipes"]) ? cache["ll_recipes"] : (load("ll_recipes", []) || [])
   const updated = [...curRecs.filter(r => r.id !== localRec.id), localRec]
   cache["ll_recipes"] = updated
   lastSyncedValues["ll_recipes"] = JSON.stringify(updated)
+  saveLocal("ll_recipes", updated)
   return localRec
 }
 
@@ -3157,6 +3328,8 @@ export const updateRecipeOnServer = async (id, rec) => {
   const body = buildRecipePayloadBody(rec)
   delete body.id
 
+  console.log(`[RecipeSync] Updating recipe ${id} on server with payload:`, body)
+
   const res = await fetch(`${apiUrl}/api/recipes/${id}`, {
     method: "PUT",
     headers,
@@ -3165,6 +3338,7 @@ export const updateRecipeOnServer = async (id, rec) => {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
+    console.error(`[RecipeSync] PUT /api/recipes/${id} failed:`, res.status, err)
     const formatted = formatApiError(err, { title: "Failed to update recipe" })
     const e = new Error(formatted.displayMessage)
     e.details = formatted
@@ -3173,11 +3347,13 @@ export const updateRecipeOnServer = async (id, rec) => {
   }
 
   const serverRec = await res.json()
+  console.log(`[RecipeSync] Recipe ${id} updated successfully on server:`, serverRec)
   const localRec = mapServerRecipeToLocal(serverRec)
-  const curRecs = Array.isArray(cache["ll_recipes"]) ? cache["ll_recipes"] : []
-  const updated = curRecs.map(r => r.id === id ? localRec : r)
+  const curRecs = Array.isArray(cache["ll_recipes"]) ? cache["ll_recipes"] : (load("ll_recipes", []) || [])
+  const updated = curRecs.some(r => r.id === id) ? curRecs.map(r => r.id === id ? localRec : r) : [...curRecs, localRec]
   cache["ll_recipes"] = updated
   lastSyncedValues["ll_recipes"] = JSON.stringify(updated)
+  saveLocal("ll_recipes", updated)
   return localRec
 }
 
@@ -3197,10 +3373,11 @@ export const deleteRecipeOnServer = async (id) => {
     throw new Error(err.message || `Database error deleting recipe (${res.status})`)
   }
 
-  const curRecs = Array.isArray(cache["ll_recipes"]) ? cache["ll_recipes"] : []
+  const curRecs = Array.isArray(cache["ll_recipes"]) ? cache["ll_recipes"] : (load("ll_recipes", []) || [])
   const updated = curRecs.filter(r => r.id !== id)
   cache["ll_recipes"] = updated
   lastSyncedValues["ll_recipes"] = JSON.stringify(updated)
+  saveLocal("ll_recipes", updated)
   return true
 }
 
@@ -3736,6 +3913,11 @@ export const fetchPricingSettingsFromServer = async () => {
       if (data.overheadPct !== undefined) cache["ll_setting_overheadPct"] = data.overheadPct
       if (data.accessoryPct !== undefined) cache["ll_setting_accessoryPct"] = data.accessoryPct
       if (data.miscPct !== undefined) cache["ll_setting_miscPct"] = data.miscPct
+      if (data.monthlyOverhead !== undefined) cache["ll_setting_monthlyOverhead"] = data.monthlyOverhead
+      if (data.annualProductionHours !== undefined) cache["ll_setting_annualProductionHours"] = data.annualProductionHours
+      if (data.ordersPerMonth !== undefined) cache["ll_setting_ordersPerMonth"] = data.ordersPerMonth
+      if (data.hourlyRate !== undefined) cache["ll_setting_hourlyRate"] = data.hourlyRate
+      if (data.perOrderRate !== undefined) cache["ll_setting_perOrderRate"] = data.perOrderRate
       return data
     }
   } catch (e) {
@@ -3752,6 +3934,11 @@ export const savePricingSettingsOnServer = async (pricingData) => {
   if (pricingData.overheadPct !== undefined) cache["ll_setting_overheadPct"] = pricingData.overheadPct
   if (pricingData.accessoryPct !== undefined) cache["ll_setting_accessoryPct"] = pricingData.accessoryPct
   if (pricingData.miscPct !== undefined) cache["ll_setting_miscPct"] = pricingData.miscPct
+  if (pricingData.monthlyOverhead !== undefined) cache["ll_setting_monthlyOverhead"] = pricingData.monthlyOverhead
+  if (pricingData.annualProductionHours !== undefined) cache["ll_setting_annualProductionHours"] = pricingData.annualProductionHours
+  if (pricingData.ordersPerMonth !== undefined) cache["ll_setting_ordersPerMonth"] = pricingData.ordersPerMonth
+  if (pricingData.hourlyRate !== undefined) cache["ll_setting_hourlyRate"] = pricingData.hourlyRate
+  if (pricingData.perOrderRate !== undefined) cache["ll_setting_perOrderRate"] = pricingData.perOrderRate
 
   const headers = getAuthHeaders()
   const apiUrl = import.meta.env.VITE_API_URL

@@ -64,19 +64,6 @@ export const ROLES = {
   customer_service: "Customer Service",
 }
 
-// ─── Default Sizing & Pricing Configurations ─────────────────────────────────
-export const DEFAULT_MULTS = {
-  "4-round": 0.5, "4-square": 0.6, "4-sheet": 0.8,
-  "5-round": 0.7, "5-square": 0.85, "5-sheet": 0.9,
-  "6-round": 1.0, "6-square": 1.2, "6-sheet": 1.3,
-  "7-round": 1.4, "7-square": 1.65, "7-sheet": 1.7,
-  "8-round": 1.8, "8-square": 2.15, "8-sheet": 2.2,
-  "9-round": 2.3, "9-square": 2.75, "9-sheet": 2.8,
-  "10-round": 2.8, "10-square": 3.35, "10-sheet": 3.4,
-  "12-round": 4.0, "12-square": 4.8, "12-sheet": 4.9,
-  "14-round": 5.5, "14-square": 6.6, "14-sheet": 6.7
-}
-
 export const DEFAULT_COVERINGS = [
   { name: "Naked", cost: 0, scales: false },
   { name: "Buttercream", cost: 2500, scales: true },
@@ -85,6 +72,4 @@ export const DEFAULT_COVERINGS = [
   { name: "Whipped Cream", cost: 2000, scales: true },
   { name: "Mirror Glaze", cost: 5500, scales: true }
 ]
-
-export const PRICING_SIZES = ["4", "5", "6", "7", "8", "9", "10", "12", "14"]
 
